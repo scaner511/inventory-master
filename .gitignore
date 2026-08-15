@@ -1,0 +1,39 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.idea/
+.vscode/
+.mypy_cache/
+.pytest_cache/
+
+# ===== Entorno =====
+.env
+.env.local
+
+# ===== Node / Frontend =====
+node_modules/
+dist/
+build/
+*.local
+
+# ===== Datos generados por la app =====
+backend/uploads/logos/*
+!backend/uploads/logos/.gitkeep
+backend/backups/*
+!backend/backups/.gitkeep
+*.sqlite3
+*.db
+
+# ===== SO =====
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# ===== Logs =====
+*.log
+*.log.err
+logs/
