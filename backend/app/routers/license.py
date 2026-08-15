@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user, license_status, require_admin
+from app.deps import get_current_user, license_status
 from app.utils import licenses as license_service
 
 router = APIRouter(prefix="/api/license", tags=["license"])
@@ -12,11 +12,6 @@ router = APIRouter(prefix="/api/license", tags=["license"])
 
 class ActivateRequest(BaseModel):
     key: str
-
-
-class GenerateRequest(BaseModel):
-    seed: str | None = None
-    days: int | None = None
 
 
 @router.get("/status")
@@ -34,17 +29,3 @@ def activate(
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return {"message": "Licencia activada correctamente", "expires_at": result["expires_at"]}
-
-
-@router.post("/generate")
-def generate(
-    data: GenerateRequest | None = None,
-    db: Session = Depends(get_db),
-    _user=Depends(require_admin),
-):
-    """Genera una clave nueva con la duración en días indicada (solo admins)."""
-    key = license_service.generate_new_key(
-        data.seed if data else "",
-        data.days if data else None,
-    )
-    return {"key": key}

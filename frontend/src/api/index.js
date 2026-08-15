@@ -74,11 +74,6 @@ export async function activateLicense(key) {
   return data
 }
 
-export async function generateLicenseKey() {
-  const { data } = await api.post('/license/generate', {})
-  return data.key
-}
-
 export async function getSettings() {
   const { data } = await api.get('/settings')
   return data

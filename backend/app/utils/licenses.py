@@ -2,10 +2,12 @@
 
 La duración en días va codificada en la propia clave (segundo grupo: K + 3
 caracteres base36), de modo que cada clave puede tener su propia vigencia.
+Las claves las genera el generador independiente (tools/generador_contrasenas.py),
+fuera de la aplicación, para que ningún usuario del sistema pueda emitir su
+propia licencia. Aquí solo se valida y activa.
 Las claves generadas por versiones anteriores (sin duración) siguen siendo
 válidas y usan la duración por defecto (LICENSE_DURATION_DAYS).
 """
-import hashlib
 import re
 from datetime import date, datetime, timedelta
 
@@ -16,27 +18,9 @@ from app.models import License, UsedLicenseKey
 
 LICENSE_PATTERN = re.compile(r"^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
 
-_B36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-
-def _base36_encode(n: int) -> str:
-    if n <= 0:
-        return "000"
-    out = ""
-    while n:
-        n, r = divmod(n, 36)
-        out = _B36[r] + out
-    return out
-
 
 def _base36_decode(s: str) -> int:
     return int(s, 36)
-
-
-def encode_days(days: int) -> str:
-    """Codifica la duración en 3 caracteres base36 (1 a 46655 días)."""
-    n = min(max(int(days), 1), 46655)
-    return _base36_encode(n).zfill(3)
 
 
 def decode_days(key: str) -> int | None:
@@ -60,15 +44,6 @@ def validate_key_format(key: str) -> bool:
     if not key.startswith(settings.license_prefix):
         return False
     return bool(LICENSE_PATTERN.match(key))
-
-
-def generate_new_key(seed: str = "", days: int | None = None) -> str:
-    """Genera una clave MC26-KDDD-XXXX con la duración codificada (días)."""
-    days = days if days and days > 0 else settings.license_duration_days
-    d_part = encode_days(days)
-    raw = f"{settings.license_prefix}{d_part}{seed}{datetime.now().timestamp()}"
-    digest = hashlib.sha256(raw.encode()).hexdigest().upper()
-    return f"{settings.license_prefix}-K{d_part}-{digest[:4]}"
 
 
 def activate_license(db: Session, key: str) -> dict:
