@@ -7,42 +7,72 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user, get_or_create_settings
-from app.models import Loan, Product
+from app.models import Loan, Product, User
 from app.schemas import DashboardOut
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 @router.get("", response_model=DashboardOut)
-def dashboard(db: Session = Depends(get_db), _user=Depends(get_current_user)):
+def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    tenant_id = user.tenant_id
     threshold = get_or_create_settings(db).low_stock_threshold or 5
 
-    total_products = db.query(func.count(Product.id)).scalar() or 0
-    total_units = db.query(func.coalesce(func.sum(Product.stock), 0)).scalar()
+    total_products = (
+        db.query(func.count(Product.id)).filter(Product.tenant_id == tenant_id).scalar() or 0
+    )
+    total_units = (
+        db.query(func.coalesce(func.sum(Product.stock), 0))
+        .filter(Product.tenant_id == tenant_id)
+        .scalar()
+    )
     capital_invested = db.query(
         func.coalesce(func.sum(Product.purchase_price * Product.stock), 0)
-    ).scalar()
-    potential_income = db.query(func.coalesce(func.sum(Product.sale_price * Product.stock), 0)).scalar()
+    ).filter(Product.tenant_id == tenant_id).scalar()
+    potential_income = (
+        db.query(func.coalesce(func.sum(Product.sale_price * Product.stock), 0))
+        .filter(Product.tenant_id == tenant_id)
+        .scalar()
+    )
 
     active_loans = (
         db.query(func.count(Loan.id))
-        .filter(Loan.quantity > Loan.returned_qty)
+        .filter(Loan.tenant_id == tenant_id, Loan.quantity > Loan.returned_qty)
         .scalar()
         or 0
     )
     overdue_loans = (
         db.query(func.count(Loan.id))
-        .filter(Loan.quantity > Loan.returned_qty, Loan.due_date < date.today())
+        .filter(
+            Loan.tenant_id == tenant_id,
+            Loan.quantity > Loan.returned_qty,
+            Loan.due_date < date.today(),
+        )
         .scalar()
         or 0
     )
-    low_stock_products = db.query(func.count(Product.id)).filter(Product.stock <= threshold).scalar() or 0
+    low_stock_products = (
+        db.query(func.count(Product.id))
+        .filter(Product.tenant_id == tenant_id, Product.stock <= threshold)
+        .scalar()
+        or 0
+    )
 
-    low_stock_list = db.query(Product).filter(Product.stock <= threshold).order_by(Product.stock).limit(10).all()
+    low_stock_list = (
+        db.query(Product)
+        .filter(Product.tenant_id == tenant_id, Product.stock <= threshold)
+        .order_by(Product.stock)
+        .limit(10)
+        .all()
+    )
 
     overdue_loans_list = (
         db.query(Loan)
-        .filter(Loan.quantity > Loan.returned_qty, Loan.due_date < date.today())
+        .filter(
+            Loan.tenant_id == tenant_id,
+            Loan.quantity > Loan.returned_qty,
+            Loan.due_date < date.today(),
+        )
         .order_by(Loan.due_date)
         .limit(10)
         .all()
@@ -54,13 +84,20 @@ def dashboard(db: Session = Depends(get_db), _user=Depends(get_current_user)):
             Product.stock,
             func.coalesce(Product.sale_price * Product.stock, 0).label("value"),
         )
+        .filter(Product.tenant_id == tenant_id)
         .order_by(func.coalesce(Product.sale_price * Product.stock, 0).desc())
         .limit(5)
         .all()
     )
 
     # Últimos préstamos registrados (actividad reciente)
-    recent_loans = db.query(Loan).order_by(Loan.loan_date.desc()).limit(6).all()
+    recent_loans = (
+        db.query(Loan)
+        .filter(Loan.tenant_id == tenant_id)
+        .order_by(Loan.loan_date.desc())
+        .limit(6)
+        .all()
+    )
 
     # Préstamos creados por día en los últimos 7 días (para la gráfica de actividad)
     loans_last_7_days = []
@@ -68,7 +105,10 @@ def dashboard(db: Session = Depends(get_db), _user=Depends(get_current_user)):
         day = date.today() - timedelta(days=i)
         count = (
             db.query(func.count(Loan.id))
-            .filter(func.date(Loan.loan_date) == day)
+            .filter(
+                Loan.tenant_id == tenant_id,
+                func.date(Loan.loan_date) == day,
+            )
             .scalar()
             or 0
         )

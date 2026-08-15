@@ -8,7 +8,14 @@ const NAV = [
   { to: '/loans', label: 'Préstamos', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
   { to: '/history', label: 'Historial', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', adminOnly: true },
   { to: '/admin', label: 'Panel Admin', icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z', adminOnly: true },
+  { to: '/superadmin', label: 'Super Admin', icon: 'M9 12l2 2 4-4m5.6-2.6A9 9 0 1112 3a9 9 0 018.6 6.4z', superadminOnly: true },
 ]
+
+export function roleLabel(role) {
+  if (role === 'superadmin') return 'Super Admin'
+  if (role === 'admin') return 'Administrador'
+  return 'Operador'
+}
 
 export default function Layout() {
   const { user } = useAuth()
@@ -49,7 +56,10 @@ export default function Layout() {
           <div className="ml-auto flex items-center gap-3">
             <div className="hidden text-right sm:block">
               <p className="text-sm font-semibold text-slate-200">{user?.username}</p>
-              <p className="text-xs capitalize text-slate-400">{user?.role === 'admin' ? 'Administrador' : 'Operador'}</p>
+              <p className="text-xs capitalize text-slate-400">
+                {roleLabel(user?.role)}
+                {user?.tenant_name ? ` · ${user.tenant_name}` : ''}
+              </p>
             </div>
             <button
               onClick={logout}
@@ -77,12 +87,16 @@ function SidebarContent({ user, onNavigate }) {
         </div>
         <p className="mt-2 font-bold text-slate-100">{user?.username}</p>
         <span className="rounded-full bg-blue-500/10 px-3 py-0.5 text-xs font-semibold text-blue-400">
-          {user?.role === 'admin' ? 'Administrador' : 'Operador'}
+          {roleLabel(user?.role)}
         </span>
       </div>
 
       <nav className="flex flex-col gap-1">
-        {NAV.filter((item) => !item.adminOnly || user?.role === 'admin').map((item) => (
+        {NAV.filter((item) => {
+          if (item.superadminOnly) return user?.role === 'superadmin'
+          if (item.adminOnly) return user?.role === 'admin'
+          return true
+        }).map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

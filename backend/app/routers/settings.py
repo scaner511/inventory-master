@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings as app_settings
 from app.database import get_db
-from app.deps import get_current_user, get_or_create_settings, require_admin
+from app.deps import get_current_user, get_or_create_settings, require_superadmin
 from app.models import User
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -50,7 +50,7 @@ def get_settings(db: Session = Depends(get_db), _user=Depends(get_current_user))
 def update_settings(
     data: SettingsUpdate,
     db: Session = Depends(get_db),
-    _user=Depends(require_admin),
+    _user=Depends(require_superadmin),
 ):
     setting = get_or_create_settings(db)
     if data.company_name is not None:
@@ -72,7 +72,7 @@ def update_settings(
 def upload_logo(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _user=Depends(require_admin),
+    _user=Depends(require_superadmin),
 ):
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_LOGO_EXT:

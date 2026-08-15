@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user, get_or_create_settings
-from app.models import Loan
+from app.models import Loan, User
 from app.services.pdf import generate_loan_pdf
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -30,7 +30,7 @@ def _excel_response(df: pd.DataFrame, filename: str) -> StreamingResponse:
 
 
 @router.get("/daily")
-def daily_report(db: Session = Depends(get_db), _user=Depends(get_current_user)):
+def daily_report(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Inventario completo + movimientos del día en un solo Excel."""
     today_str = date.today().strftime("%Y-%m-%d")
 
@@ -39,9 +39,12 @@ def daily_report(db: Session = Depends(get_db), _user=Depends(get_current_user))
         SELECT code AS Codigo, name AS Nombre, stock AS Stock,
                purchase_price AS Compra, sale_price AS Venta,
                location1 AS Ubicacion1, location2 AS Ubicacion2, location3 AS Ubicacion3
-        FROM products ORDER BY name
+        FROM products
+        WHERE tenant_id = :tid
+        ORDER BY name
         """,
         db.bind,
+        params={"tid": user.tenant_id},
     )
 
     df_movements = pd.read_sql_query(
@@ -49,11 +52,11 @@ def daily_report(db: Session = Depends(get_db), _user=Depends(get_current_user))
         SELECT a.timestamp AS Fecha, COALESCE(u.username, 'Sistema') AS Usuario,
                a.action AS Accion, a.product_name AS Producto, a.quantity AS Cantidad
         FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
-        WHERE DATE(a.timestamp) = :day
+        WHERE a.tenant_id = :tid AND DATE(a.timestamp) = :day
         ORDER BY a.timestamp DESC
         """,
         db.bind,
-        params={"day": today_str},
+        params={"tid": user.tenant_id, "day": today_str},
     )
 
     buffer = io.BytesIO()
@@ -71,8 +74,12 @@ def daily_report(db: Session = Depends(get_db), _user=Depends(get_current_user))
 
 
 @router.get("/loan-ticket/{loan_id}")
-def loan_ticket(loan_id: int, db: Session = Depends(get_db), _user=Depends(get_current_user)):
-    loan = db.get(Loan, loan_id)
+def loan_ticket(loan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    loan = (
+        db.query(Loan)
+        .filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id)
+        .first()
+    )
     if not loan:
         raise HTTPException(status_code=404, detail="Préstamo no encontrado")
 

@@ -11,10 +11,12 @@ def record_audit(
     detail: str | None = None,
     product_name: str | None = None,
     quantity: int | None = None,
+    tenant_id: int | None = None,
 ) -> AuditLog:
     entry = AuditLog(
         action=action,
         user_id=user_id,
+        tenant_id=tenant_id,
         detail=detail,
         product_name=product_name,
         quantity=quantity,

@@ -15,6 +15,8 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    tenant_id: int | None = None
+    tenant_name: str | None = None
     username: str
     email: str | None = None
     role: str
@@ -28,6 +30,15 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+def user_out(user) -> UserOut:
+    """Construye UserOut rellenando el nombre del tenant si existe."""
+    out = UserOut.model_validate(user)
+    if user.tenant_id is not None:
+        tenant = getattr(user, "tenant", None)
+        out.tenant_name = tenant.name if tenant is not None else None
+    return out
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -51,19 +62,53 @@ class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_.-]+$")
     email: EmailStr | None = None
     password: str | None = Field(default=None, min_length=6, max_length=128)
-    role: str = Field(default="operador", pattern="^(admin|operador)$")
+    role: str = Field(default="user", pattern="^(admin|user)$")
     security_question: str | None = None
     security_answer: str | None = None
 
 
 class UserUpdate(BaseModel):
     email: EmailStr | None = None
-    role: str | None = Field(default=None, pattern="^(admin|operador)$")
+    role: str | None = Field(default=None, pattern="^(admin|user)$")
     is_active: bool | None = None
 
 
 class AdminResetPassword(BaseModel):
     new_password: str = Field(min_length=6, max_length=128)
+
+
+# ===================== TENANTS (multi-proveedor) =====================
+
+
+class TenantCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    admin_username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_.-]+$")
+    admin_password: str | None = Field(default=None, min_length=6, max_length=128)
+    admin_email: EmailStr | None = None
+
+
+class TenantUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    is_active: bool | None = None
+
+
+class TenantOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    is_active: bool
+    created_at: datetime
+    users_count: int = 0
+
+
+class TenantUserCreate(BaseModel):
+    username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_.-]+$")
+    email: EmailStr | None = None
+    password: str | None = Field(default=None, min_length=6, max_length=128)
+    role: str = Field(default="user", pattern="^(admin|user)$")
+    security_question: str | None = None
+    security_answer: str | None = None
 
 
 # ===================== PRODUCTS =====================

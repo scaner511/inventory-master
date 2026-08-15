@@ -140,3 +140,55 @@ export async function purgeBackups() {
   const { data } = await api.post('/backup/purge')
   return data
 }
+
+/* ================= SUPER ADMIN (multi-proveedor) ================= */
+
+export async function getTenants() {
+  const { data } = await api.get('/superadmin/tenants')
+  return data
+}
+
+export async function createTenant(payload) {
+  const { data } = await api.post('/superadmin/tenants', payload)
+  return data
+}
+
+export async function updateTenant(id, payload) {
+  const { data } = await api.put(`/superadmin/tenants/${id}`, payload)
+  return data
+}
+
+export async function deleteTenant(id) {
+  const { data } = await api.delete(`/superadmin/tenants/${id}`)
+  return data
+}
+
+export async function getTenantUsers(tenantId) {
+  const { data } = await api.get(`/superadmin/tenants/${tenantId}/users`)
+  return data
+}
+
+export async function createTenantUser(tenantId, payload) {
+  const { data } = await api.post(`/superadmin/tenants/${tenantId}/users`, payload)
+  return data
+}
+
+export async function getGlobalUsers() {
+  const { data } = await api.get('/superadmin/users')
+  return data
+}
+
+export async function superadminUpdateUser(id, payload) {
+  const { data } = await api.put(`/superadmin/users/${id}`, payload)
+  return data
+}
+
+export async function superadminResetPassword(id, newPassword) {
+  const { data } = await api.post(`/superadmin/users/${id}/reset-password`, { new_password: newPassword })
+  return data
+}
+
+export async function superadminDeleteUser(id) {
+  const { data } = await api.delete(`/superadmin/users/${id}`)
+  return data
+}

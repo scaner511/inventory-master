@@ -18,9 +18,9 @@ def list_audit(
     q: str | None = Query(default=None),
     day: date | None = Query(default=None),
     db: Session = Depends(get_db),
-    _user=Depends(require_admin),
+    user: User = Depends(require_admin),
 ):
-    query = db.query(AuditLog)
+    query = db.query(AuditLog).filter(AuditLog.tenant_id == user.tenant_id)
     if q:
         like = f"%{q}%"
         query = query.filter(
@@ -56,8 +56,13 @@ def list_audit(
 
 
 @router.get("/export")
-def export_audit(db: Session = Depends(get_db), _user=Depends(require_admin)):
-    rows = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).all()
+def export_audit(db: Session = Depends(get_db), user: User = Depends(require_admin)):
+    rows = (
+        db.query(AuditLog)
+        .filter(AuditLog.tenant_id == user.tenant_id)
+        .order_by(AuditLog.timestamp.desc())
+        .all()
+    )
     data = [
         {
             "ID": r.id,

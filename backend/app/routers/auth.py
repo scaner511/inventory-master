@@ -14,6 +14,7 @@ from app.schemas import (
     ResetPasswordRequest,
     TokenResponse,
     UserOut,
+    user_out,
 )
 from app.utils.security import create_access_token, hash_password, verify_password
 
@@ -21,8 +22,15 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 def _token_for(user: User) -> TokenResponse:
-    token = create_access_token({"sub": str(user.id), "username": user.username, "role": user.role})
-    return TokenResponse(access_token=token, user=UserOut.model_validate(user))
+    token = create_access_token(
+        {
+            "sub": str(user.id),
+            "username": user.username,
+            "role": user.role,
+            "tenant_id": user.tenant_id,
+        }
+    )
+    return TokenResponse(access_token=token, user=user_out(user))
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -74,7 +82,7 @@ def reset_password(
 
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
-    return user
+    return user_out(user)
 
 
 @router.post("/change-password", status_code=200)

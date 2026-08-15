@@ -23,6 +23,7 @@ from app.routers import (
     products,
     reports,
     settings as settings_router,
+    superadmin,
     users,
 )
 from app.utils.security import hash_password
@@ -42,13 +43,173 @@ def _migrate(db: Session) -> None:
         db.commit()
 
 
+def _table_columns(table: str) -> set[str]:
+    try:
+        return {c["name"] for c in inspect(engine).get_columns(table)}
+    except Exception:
+        return set()
+
+
+TENANT_TABLES = ("users", "products", "loans", "audit_logs")
+
+
+def _migrate_tenant_columns(db: Session) -> None:
+    """Agrega la columna tenant_id a las tablas que aún no la tienen."""
+    for table in TENANT_TABLES:
+        if "tenant_id" not in _table_columns(table):
+            db.execute(text(f"ALTER TABLE {table} ADD COLUMN tenant_id INTEGER"))
+    db.commit()
+
+
+def _migrate_roles(db: Session) -> None:
+    """Rol 'operador' pasa a llamarse 'user' (superadmin | admin | user)."""
+    db.execute(text("UPDATE users SET role = 'user' WHERE role = 'operador'"))
+    db.commit()
+
+
+def _get_or_create_first_tenant(db: Session) -> models.Tenant:
+    tenant = db.query(models.Tenant).order_by(models.Tenant.id).first()
+    if tenant is None:
+        tenant = models.Tenant(name=settings.default_tenant_name)
+        db.add(tenant)
+        db.commit()
+        db.refresh(tenant)
+    return tenant
+
+
+def _backfill_tenant(db: Session, tenant_id: int) -> None:
+    """Asigna el tenant principal a los datos existentes (los superadmins no)."""
+    for table in TENANT_TABLES:
+        db.execute(
+            text(f"UPDATE {table} SET tenant_id = :tid WHERE tenant_id IS NULL"),
+            {"tid": tenant_id},
+        )
+    db.commit()
+
+
+def _migrate_products_unique(db: Session) -> None:
+    """Reemplaza el UNIQUE global de code por un UNIQUE compuesto (tenant_id, code).
+
+    PostgreSQL: DROP del índice UNIQUE ix_products_code (o constraint) + ADD.
+    SQLite: reconstruye la tabla (no se pueden quitar índices UNIQUE existentes).
+    """
+    dialect = engine.dialect.name
+    if dialect == "postgresql":
+        has_constraint = db.execute(
+            text("SELECT 1 FROM pg_constraint WHERE conname = 'products_code_key'")
+        ).first()
+        if has_constraint:
+            db.execute(text("ALTER TABLE products DROP CONSTRAINT products_code_key"))
+        has_unique_idx = db.execute(
+            text(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE indexname = 'ix_products_code' AND indexdef ILIKE '%UNIQUE%'"
+            )
+        ).first()
+        if has_unique_idx:
+            db.execute(text("DROP INDEX IF EXISTS ix_products_code"))
+        has_composite = db.execute(
+            text("SELECT 1 FROM pg_constraint WHERE conname = 'uq_products_tenant_code'")
+        ).first()
+        if not has_composite:
+            db.execute(
+                text("ALTER TABLE products ADD CONSTRAINT uq_products_tenant_code UNIQUE (tenant_id, code)")
+            )
+        db.commit()
+    elif dialect == "sqlite":
+        row = db.execute(
+            text("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'ix_products_code'")
+        ).first()
+        current_idx = (row[0] if row else "") or ""
+        if "UNIQUE" not in current_idx.upper():
+            return  # ya es un índice normal (migración ya aplicada)
+        db.execute(
+            text(
+                """
+                CREATE TABLE products_new (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    tenant_id INTEGER,
+                    code VARCHAR(50),
+                    name VARCHAR(255),
+                    stock INTEGER,
+                    purchase_price NUMERIC(12, 2),
+                    sale_price NUMERIC(12, 2),
+                    location1 VARCHAR(255),
+                    location2 VARCHAR(255),
+                    location3 VARCHAR(255),
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    UNIQUE (tenant_id, code)
+                )
+                """
+            )
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO products_new
+                    (id, tenant_id, code, name, stock, purchase_price, sale_price,
+                     location1, location2, location3, created_at, updated_at)
+                SELECT id, tenant_id, code, name, stock, purchase_price, sale_price,
+                       location1, location2, location3, created_at, updated_at
+                FROM products
+                """
+            )
+        )
+        db.execute(text("DROP TABLE products"))
+        db.execute(text("ALTER TABLE products_new RENAME TO products"))
+        db.execute(text("CREATE INDEX ix_products_name ON products (name)"))
+        db.execute(text("CREATE INDEX ix_products_code ON products (code)"))
+        db.commit()
+
+
+def _ensure_tenant_indexes(db: Session) -> None:
+    for table in TENANT_TABLES:
+        db.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_tenant_id ON {table} (tenant_id)"))
+    db.commit()
+
+
+def _ensure_superadmin(db: Session) -> None:
+    if settings.superadmin_username == settings.admin_username:
+        return  # mismo usuario: el admin principal ya es el superadmin global
+    user = db.query(models.User).filter(models.User.username == settings.superadmin_username).first()
+    if user is not None:
+        if user.role != "superadmin":
+            user.role = "superadmin"
+            user.tenant_id = None
+            db.commit()
+        return
+    db.add(
+        models.User(
+            username=settings.superadmin_username,
+            email=settings.superadmin_email,
+            password_hash=hash_password(settings.superadmin_password),
+            role="superadmin",
+            tenant_id=None,
+            must_change_password=True,
+        )
+    )
+    db.commit()
+
+
 def init_db() -> None:
     """Crea tablas y datos por defecto si no existen."""
     Base.metadata.create_all(bind=engine)
     db: Session = SessionLocal()
     try:
         _migrate(db)
-        # Usuario administrador inicial
+        _migrate_tenant_columns(db)
+        _migrate_roles(db)
+
+        # Proveedor principal + datos existentes
+        first_tenant = _get_or_create_first_tenant(db)
+        _backfill_tenant(db, first_tenant.id)
+        _migrate_products_unique(db)
+        _ensure_tenant_indexes(db)
+
+        _ensure_superadmin(db)
+
+        # Usuario administrador del proveedor principal
         if not db.query(models.User).filter(models.User.username == settings.admin_username).first():
             db.add(
                 models.User(
@@ -56,6 +217,7 @@ def init_db() -> None:
                     email=settings.admin_email,
                     password_hash=hash_password(settings.admin_password),
                     role="admin",
+                    tenant_id=first_tenant.id,
                     must_change_password=False,
                 )
             )
@@ -139,6 +301,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(license_router.router)
 app.include_router(settings_router.router)
+app.include_router(superadmin.router)
 
 # Rutas de negocio bloqueadas si la licencia no está activa
 business_deps = [Depends(require_valid_license)]

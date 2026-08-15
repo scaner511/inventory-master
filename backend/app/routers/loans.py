@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Loan, Product
+from app.models import Loan, Product, User
 from app.schemas import LoanCreate, LoanOut, LoanReturn, LoanUpdate
 from app.utils.audit import record_audit
 
@@ -26,13 +26,14 @@ def _to_out(loan: Loan) -> LoanOut:
     return out
 
 
-def _seller_blocked(db: Session, seller: str) -> bool:
+def _seller_blocked(db: Session, seller: str, tenant_id: int) -> bool:
     """True si el vendedor tiene mercancía vencida y sin devolver."""
     today = date.today()
     return (
         db.query(Loan)
         .filter(
             Loan.seller == seller,
+            Loan.tenant_id == tenant_id,
             Loan.quantity > Loan.returned_qty,
             Loan.due_date < today,
         )
@@ -41,14 +42,33 @@ def _seller_blocked(db: Session, seller: str) -> bool:
     )
 
 
+def _get_loan(db: Session, loan_id: int, tenant_id: int) -> Loan:
+    loan = (
+        db.query(Loan)
+        .filter(Loan.id == loan_id, Loan.tenant_id == tenant_id)
+        .first()
+    )
+    if loan is None:
+        raise HTTPException(status_code=404, detail="Préstamo no encontrado")
+    return loan
+
+
+def _get_product(db: Session, product_id: int, tenant_id: int) -> Product | None:
+    return (
+        db.query(Product)
+        .filter(Product.id == product_id, Product.tenant_id == tenant_id)
+        .first()
+    )
+
+
 @router.get("", response_model=list[LoanOut])
 def list_loans(
     q: str | None = Query(default=None, description="Filtro por vendedor o producto"),
     status_filter: str | None = Query(default=None, alias="status"),
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    query = db.query(Loan)
+    query = db.query(Loan).filter(Loan.tenant_id == user.tenant_id)
     if q:
         like = f"%{q}%"
         query = query.filter(Loan.seller.ilike(like) | Loan.product_name.ilike(like))
@@ -70,9 +90,9 @@ def list_loans(
 def create_loan(
     data: LoanCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    product = db.get(Product, data.product_id)
+    product = _get_product(db, data.product_id, user.tenant_id)
     if not product:
         raise HTTPException(status_code=404, detail="El código de producto no existe")
 
@@ -82,7 +102,7 @@ def create_loan(
             detail=f"Stock insuficiente. Solo hay {product.stock} unidades de '{product.name}'.",
         )
 
-    if _seller_blocked(db, data.seller):
+    if _seller_blocked(db, data.seller, user.tenant_id):
         raise HTTPException(
             status_code=400,
             detail=f"El vendedor {data.seller} tiene mercancía VENCIDA sin devolver. No se pueden realizar préstamos.",
@@ -94,6 +114,7 @@ def create_loan(
     loan = Loan(
         seller=data.seller,
         phone=data.phone,
+        tenant_id=user.tenant_id,
         product_id=product.id,
         product_name=product.name,
         quantity=data.quantity,
@@ -106,6 +127,7 @@ def create_loan(
         db,
         action="PRESTAMO",
         user_id=user.id,
+        tenant_id=user.tenant_id,
         detail=f"Préstamo de {data.quantity} unidades a {data.seller}",
         product_name=product.name,
         quantity=data.quantity,
@@ -120,16 +142,14 @@ def update_loan(
     loan_id: int,
     data: LoanUpdate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     """Edita los datos de un préstamo (vendedor, teléfono, producto, cantidad, fecha o nota).
 
     Si cambia el producto o la cantidad, el stock se ajusta automáticamente.
     Solo se permite cambiar producto/cantidad cuando aún no hay devoluciones.
     """
-    loan = db.get(Loan, loan_id)
-    if not loan:
-        raise HTTPException(status_code=404, detail="Préstamo no encontrado")
+    loan = _get_loan(db, loan_id, user.tenant_id)
 
     updates = data.model_dump(exclude_unset=True)
 
@@ -143,13 +163,13 @@ def update_loan(
     new_product_id = updates.get("product_id", loan.product_id)
     new_quantity = updates.get("quantity", loan.quantity)
 
-    old_product = db.get(Product, loan.product_id) if loan.product_id else None
-    new_product = db.get(Product, new_product_id) if new_product_id is not None else None
+    old_product = _get_product(db, loan.product_id, user.tenant_id) if loan.product_id else None
+    new_product = _get_product(db, new_product_id, user.tenant_id) if new_product_id is not None else None
     if new_product_id is not None and new_product is None:
         raise HTTPException(status_code=404, detail="El producto seleccionado no existe")
 
     if "seller" in updates and updates["seller"] != loan.seller:
-        if _seller_blocked(db, updates["seller"]):
+        if _seller_blocked(db, updates["seller"], user.tenant_id):
             raise HTTPException(
                 status_code=400,
                 detail=f"El vendedor {updates['seller']} tiene mercancía VENCIDA sin devolver.",
@@ -189,6 +209,7 @@ def update_loan(
         db,
         action="EDICION",
         user_id=user.id,
+        tenant_id=user.tenant_id,
         detail=f"Préstamo #{loan.id} editado",
         product_name=loan.product_name,
     )
@@ -202,11 +223,9 @@ def return_loan(
     loan_id: int,
     data: LoanReturn,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    loan = db.get(Loan, loan_id)
-    if not loan:
-        raise HTTPException(status_code=404, detail="Préstamo no encontrado")
+    loan = _get_loan(db, loan_id, user.tenant_id)
 
     if loan.completed:
         raise HTTPException(status_code=400, detail="Este préstamo ya está completamente devuelto")
@@ -221,7 +240,7 @@ def return_loan(
     loan.returned_qty = new_total
 
     # Devolver mercancía al stock
-    product = db.get(Product, loan.product_id)
+    product = _get_product(db, loan.product_id, user.tenant_id)
     if product:
         product.stock += data.returned_qty
 
@@ -229,6 +248,7 @@ def return_loan(
         db,
         action="DEVOLUCION",
         user_id=user.id,
+        tenant_id=user.tenant_id,
         detail=f"Devolución de {data.returned_qty} unidades de {loan.product_name}",
         product_name=loan.product_name,
         quantity=data.returned_qty,
@@ -243,11 +263,9 @@ def extend_loan(
     loan_id: int,
     days: int = Query(ge=1, le=365),
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    loan = db.get(Loan, loan_id)
-    if not loan:
-        raise HTTPException(status_code=404, detail="Préstamo no encontrado")
+    loan = _get_loan(db, loan_id, user.tenant_id)
 
     if loan.completed:
         raise HTTPException(status_code=400, detail="No se puede prorrogar un préstamo completado")
@@ -257,6 +275,7 @@ def extend_loan(
         db,
         action="PRORROGA",
         user_id=user.id,
+        tenant_id=user.tenant_id,
         detail=f"Prórroga de {days} días al préstamo #{loan.id}",
         product_name=loan.product_name,
     )

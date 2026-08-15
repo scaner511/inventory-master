@@ -7,6 +7,7 @@ import Products from './pages/Products.jsx'
 import Loans from './pages/Loans.jsx'
 import History from './pages/History.jsx'
 import Admin from './pages/Admin.jsx'
+import SuperAdmin from './pages/SuperAdmin.jsx'
 import License from './pages/License.jsx'
 import ChangePassword from './pages/ChangePassword.jsx'
 import { useEffect, useState } from 'react'
@@ -27,7 +28,7 @@ function LicenseGate({ children }) {
   const [status, setStatus] = useState(null)
 
   useEffect(() => {
-    if (user?.role === 'admin') {
+    if (user?.role === 'admin' || user?.role === 'superadmin') {
       setStatus({ active: true })
       return
     }
@@ -97,6 +98,7 @@ export default function App() {
         />
         <Route path="/license" element={<License />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/superadmin" element={<SuperAdmin />} />
         <Route path="/change-password" element={<ChangePassword />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

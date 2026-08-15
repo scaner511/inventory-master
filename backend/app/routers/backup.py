@@ -1,4 +1,4 @@
-"""Rutas de backups (solo administradores)."""
+"""Rutas de backups (solo Super Admin)."""
 import io
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -7,11 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.deps import require_admin
+from app.deps import require_superadmin
 from app.services import backup as backup_service
 from app.utils.audit import record_audit
 
-router = APIRouter(prefix="/api/backup", tags=["backup"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/api/backup", tags=["backup"], dependencies=[Depends(require_superadmin)])
 
 
 @router.post("/run")
@@ -32,7 +32,7 @@ def list_backups():
 
 
 @router.post("/purge")
-def purge_backups(db: Session = Depends(get_db), _user=Depends(require_admin)):
+def purge_backups(db: Session = Depends(get_db), _user=Depends(require_superadmin)):
     """Borra todas las bases de datos de respaldo excepto la última generada."""
     deleted, kept = backup_service.purge_all_but_latest()
     record_audit(db, "BACKUP", _user.id, detail=f"Purga de backups: {deleted} eliminado(s), conservado '{kept}'")
@@ -46,7 +46,7 @@ def purge_backups(db: Session = Depends(get_db), _user=Depends(require_admin)):
 
 
 @router.post("/restore")
-def restore_backup(file: UploadFile = File(...), db: Session = Depends(get_db), _user=Depends(require_admin)):
+def restore_backup(file: UploadFile = File(...), db: Session = Depends(get_db), _user=Depends(require_superadmin)):
     """Restaura la base de datos a partir de un respaldo Excel (.xlsx).
 
     Reemplaza por completo los datos actuales por los del respaldo

@@ -22,8 +22,6 @@ import { Button, Field, Input, Select } from '../components/ui/Form.jsx'
 
 const TABS = [
   { id: 'users', label: '👥 Usuarios' },
-  { id: 'company', label: '🏢 Empresa' },
-  { id: 'backups', label: '💾 Backups' },
   { id: 'account', label: '🔑 Mi cuenta' },
 ]
 
@@ -46,7 +44,7 @@ export default function Admin() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white md:text-3xl">Panel de control administrativo</h2>
-        <p className="text-sm text-slate-400">Gestión de usuarios, empresa, backups y cuenta</p>
+        <p className="text-sm text-slate-400">Gestión de usuarios de tu proveedor y de tu cuenta</p>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -64,8 +62,6 @@ export default function Admin() {
       </div>
 
       {tab === 'users' && <UsersTab />}
-      {tab === 'company' && <CompanyTab />}
-      {tab === 'backups' && <BackupsTab />}
       {tab === 'account' && <AccountTab />}
     </div>
   )
@@ -73,10 +69,12 @@ export default function Admin() {
 
 /* ================= USUARIOS ================= */
 
+const MAX_USERS = 4
+
 function UsersTab() {
   const [users, setUsers] = useState([])
   const [createOpen, setCreateOpen] = useState(false)
-  const [form, setForm] = useState({ username: '', role: 'operador', security_question: '', security_answer: '' })
+  const [form, setForm] = useState({ username: '', role: 'user', security_question: '', security_answer: '' })
   const [saving, setSaving] = useState(false)
   const [resetTarget, setResetTarget] = useState(null)
   const [resetPass, setResetPass] = useState('')
@@ -103,7 +101,7 @@ function UsersTab() {
       await createUser(form)
       toast.success('Usuario creado')
       setCreateOpen(false)
-      setForm({ username: '', role: 'operador', security_question: '', security_answer: '' })
+      setForm({ username: '', role: 'user', security_question: '', security_answer: '' })
       load()
     } catch {
       /* interceptor */
@@ -141,8 +139,11 @@ function UsersTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setCreateOpen(true)}>➕ Crear usuario</Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-400">
+          Usuarios de tu proveedor: <span className="font-bold text-slate-200">{users.length}/{MAX_USERS}</span>
+        </p>
+        {users.length < MAX_USERS && <Button onClick={() => setCreateOpen(true)}>➕ Crear usuario</Button>}
       </div>
 
       {users.length === 0 ? (
@@ -162,8 +163,8 @@ function UsersTab() {
             <tr key={u.id} className="transition hover:bg-slate-800/40">
               <td className="px-4 py-3 font-medium text-slate-100">{u.username}</td>
               <td className="px-4 py-3 text-center">
-                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${u.role === 'admin' ? 'bg-blue-500/10 text-blue-400' : 'bg-slate-500/10 text-slate-400'}`}>
-                  {u.role === 'admin' ? 'Administrador' : 'Operador'}
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${u.role === 'admin' ? 'bg-blue-500/10 text-blue-400' : u.role === 'superadmin' ? 'bg-purple-500/10 text-purple-400' : 'bg-slate-500/10 text-slate-400'}`}>
+                  {u.role === 'admin' ? 'Administrador' : u.role === 'superadmin' ? 'Super Admin' : 'Operador'}
                 </span>
               </td>
               <td className="px-4 py-3 text-center">
@@ -219,7 +220,7 @@ function UsersTab() {
           </div>
           <Field label="Rol">
             <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              <option value="operador">Operador (usuario normal)</option>
+              <option value="user">Operador (usuario normal)</option>
               <option value="admin">Administrador</option>
             </Select>
           </Field>
@@ -266,7 +267,7 @@ function UsersTab() {
 
 /* ================= EMPRESA ================= */
 
-function CompanyTab() {
+export function CompanyTab() {
   const [settings, setSettings] = useState(null)
   const [name, setName] = useState('')
   const [threshold, setThreshold] = useState(5)
@@ -342,7 +343,7 @@ function CompanyTab() {
 
 /* ================= BACKUPS ================= */
 
-function BackupsTab() {
+export function BackupsTab() {
   const [backups, setBackups] = useState([])
   const [running, setRunning] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -465,7 +466,7 @@ function BackupsTab() {
 
 /* ================= MI CUENTA ================= */
 
-function AccountTab() {
+export function AccountTab() {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [question, setQuestion] = useState('')
