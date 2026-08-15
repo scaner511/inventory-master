@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     # App
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # CORS adicional: expresión regular de orígenes (p. ej. cualquier dominio de Vercel).
+    # Los dominios personalizados se agregan como orígenes exactos en CORS_ORIGINS.
+    cors_origin_regex: str = r"https://.*\.vercel\.app"
     admin_username: str = "admin"
     admin_password: str = "admin1234"
     admin_email: str = "admin@mccea.local"

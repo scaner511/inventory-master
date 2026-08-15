@@ -5,6 +5,7 @@ cae automáticamente a SQLite local para poder probar en desarrollo sin
 instalar nada. Para el despliegue en red se usa PostgreSQL (configurado
 en el archivo .env).
 """
+import os
 from pathlib import Path
 
 from sqlalchemy import create_engine, text
@@ -21,10 +22,20 @@ def _resolve_database_url() -> str:
     db_url = settings.database_url
     env_file = BASE_DIR / ".env"
 
-    # Solo se aplica el fallback cuando NO hay .env configurado
-    # (es decir, cuando el usuario aún no eligió PostgreSQL explícitamente)
-    # y el destino configurado por defecto (PostgreSQL) no responde.
-    if db_url.startswith("postgresql") and not env_file.exists():
+    # Render expone DATABASE_URL con el esquema `postgres://`, pero SQLAlchemy
+    # necesita `postgresql+psycopg2://`. Se normaliza automáticamente.
+    if db_url.startswith("postgres://"):
+        db_url = "postgresql+psycopg2://" + db_url[len("postgres://"):]
+    elif db_url.startswith("postgresql://"):
+        db_url = "postgresql+psycopg2://" + db_url[len("postgresql://"):]
+
+    # Fallback a SQLite SOLO en desarrollo:
+    # - no existe archivo .env (el usuario no configuró PostgreSQL explícitamente)
+    # - DATABASE_URL no viene como variable de entorno (en producción, p. ej.
+    #   Render, siempre está definida y si la base no responde debe fallar
+    #   con un error visible, no quedarse en SQLite).
+    using_default = "DATABASE_URL" not in os.environ and not env_file.exists()
+    if db_url.startswith("postgresql") and using_default:
         probe = create_engine(db_url, connect_args={"connect_timeout": 3})
         try:
             with probe.connect() as conn:

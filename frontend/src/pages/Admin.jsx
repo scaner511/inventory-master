@@ -14,7 +14,7 @@ import {
   setSecurityQuestion,
   updateSettings,
 } from '../api/index.js'
-import { api, openAuthenticatedUrl } from '../api/client.js'
+import { api, API_BASE, openAuthenticatedUrl } from '../api/client.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import Table, { EmptyState } from '../components/ui/Table.jsx'
@@ -327,7 +327,7 @@ function CompanyTab() {
       <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-6">
         <h3 className="font-bold text-slate-100">Logo de empresa</h3>
         {settings?.has_logo ? (
-          <img src="/api/settings/logo" alt="Logo" className="max-h-32 rounded-lg border border-slate-700 bg-white object-contain p-2" />
+          <img src={`${API_BASE}/settings/logo`} alt="Logo" className="max-h-32 rounded-lg border border-slate-700 bg-white object-contain p-2" />
         ) : (
           <p className="text-sm text-slate-500">Aún no hay logo configurado. Se usará el título genérico en los PDFs.</p>
         )}

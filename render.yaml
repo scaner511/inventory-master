@@ -1,0 +1,44 @@
+# ============================================================
+# Render Blueprint — Inventory Master OS Web
+# Despliega la API (FastAPI) y su base de datos PostgreSQL.
+#
+# Para usar: conecta el repo en Render Dashboard →
+# "Blueprint" → elige este repositorio. Se crean automáticamente
+# el Web Service y la base de datos con estos valores.
+# ============================================================
+
+databases:
+  - name: inventory-master-db
+    databaseName: inventory
+    user: inventory
+    plan: free
+    region: oregon
+
+services:
+  - type: web
+    name: inventory-master-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    region: oregon
+    pythonVersion: 3.13
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+        # IMPORTANTE: usa un ADMIN_PASSWORD fuerte en producción y define el
+        # dominio del frontend en CORS_ORIGINS. En el Dashboard de Render:
+        #   ADMIN_PASSWORD=tu-contraseña-admin
+        #   CORS_ORIGINS=https://TU-FRONTEND.vercel.app
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+
+# Nota: el filesystem de Render free es EFÍMERO. El logo subido desde el panel
+# (/uploads) y los backups automáticos se pierden al reiniciar/re-desplegar.
+# Para producción real usa almacenamiento externo (Cloudinary / S3 / R2) y
+# consulta DEPLOY.md para más detalles.

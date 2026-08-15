@@ -3,8 +3,14 @@ import toast from 'react-hot-toast'
 
 const TOKEN_KEY = 'im_token'
 
+// En producción la API vive en otro dominio (Render). VITE_API_URL apunta a su
+// base; si no está definido se mantiene el mismo origen con prefijo /api
+// (desarrollo). Se agrega /api automáticamente si la URL no lo trae.
+const _rawApiUrl = (import.meta.env.VITE_API_URL || '/api').trim().replace(/\/+$/, '')
+export const API_BASE = _rawApiUrl.endsWith('/api') ? _rawApiUrl : `${_rawApiUrl}/api`
+
 export const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
   timeout: 20000,
 })
 
