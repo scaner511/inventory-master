@@ -4,10 +4,13 @@ Ventana (sin argumentos, lo normal para el operador):
     doble clic en generador_licencias_offline.bat  o  python generador_licencias_offline.py
 
 CLI:
-    python generador_licencias_offline.py <codigo_activacion> <AAAA-MM-DD>
+    python generador_licencias_offline.py <codigo_activacion> [<AAAA-MM-DD>] [--days N]
+    ejemplo: python generador_licencias_offline.py AB12-CD34-EF56-7890 --days 30
 
 La ventana tiene el botón "Mi código" que autocompleta el código de
 activación cuando se ejecuta en el mismo equipo donde está el programa.
+La vigencia se indica en días (por defecto 30) y la fecha de expiración se
+calcula automáticamente.
 
 La SECRET_KEY se lee de la variable de entorno LICENSE_SECRET_KEY; si no
 existe se usa la constante SECRET_KEY (debe coincidir con la del programa,
@@ -68,7 +71,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Generador de Licencias Offline - Inventory Master")
-        self.geometry("560x330")
+        self.geometry("560x360")
         self.resizable(False, False)
         self.configure(bg="#0b1220")
         self._build()
@@ -100,10 +103,21 @@ class App(tk.Tk):
         self.code_var = tk.StringVar(value="")
         ttk.Entry(self, textvariable=self.code_var, font=("Consolas", 12)).pack(fill="x", **pad)
 
-        self.expiry_var = tk.StringVar(value=(date.today() + timedelta(days=365)).isoformat())
-        expiry_frame = ttk.Frame(self)
-        expiry_frame.pack(fill="x", **pad)
-        ttk.Label(expiry_frame, text="Fecha de expiración (AAAA-MM-DD):").pack(side="left")
+        days_frame = ttk.Frame(self)
+        days_frame.pack(fill="x", **pad)
+        ttk.Label(days_frame, text="Días de vigencia:").pack(side="left")
+        self.days_var = tk.IntVar(value=30)
+        ttk.Spinbox(days_frame, from_=1, to=3650, textvariable=self.days_var, width=6).pack(side="right")
+
+        self.expiry_info = tk.StringVar(value=self._expiry_label())
+        ttk.Label(
+            self,
+            textvariable=self.expiry_info,
+            font=("Consolas", 10),
+            foreground="#94a3b8",
+            background="#0b1220",
+        ).pack(fill="x", **pad)
+        self.days_var.trace_add("write", lambda *_: self.expiry_info.set(self._expiry_label()))
 
         self.result = tk.StringVar(value="")
         ttk.Entry(self, textvariable=self.result, font=("Consolas", 11), state="readonly").pack(fill="x", **pad)
@@ -118,26 +132,32 @@ class App(tk.Tk):
         self.status = ttk.Label(self, text="", background="#0b1220", foreground="#f59e0b")
         self.status.pack(pady=(0, 12))
 
+    def _expiry_label(self) -> str:
+        try:
+            days = int(self.days_var.get())
+        except (TypeError, ValueError):
+            days = 30
+        expiry = (date.today() + timedelta(days=days)).isoformat()
+        return f"Vence el: {expiry}"
+
     def fill_code(self):
         self.code_var.set(get_activation_code())
         self.status.config(text="Código de esta máquina cargado", foreground="#3b82f6")
 
     def on_generate(self):
         code = self.code_var.get().strip()
-        expiry = self.expiry_var.get().strip()
         if not code:
             self.status.config(text="Pega el código de activación o usa «Mi código»", foreground="#ef4444")
             return
         try:
-            exp = date.fromisoformat(expiry)
-        except ValueError:
-            self.status.config(text="Fecha inválida: usa formato AAAA-MM-DD", foreground="#ef4444")
+            days = int(self.days_var.get())
+        except (TypeError, ValueError):
+            self.status.config(text="Días de vigencia inválidos", foreground="#ef4444")
             return
-        if exp < date.today():
-            self.status.config(text="La fecha de expiración ya pasó", foreground="#f59e0b")
+        expiry = (date.today() + timedelta(days=days)).isoformat()
         key = generate_license(code, expiry)
         self.result.set(key)
-        self.status.config(text=f"Licencia generada · válida hasta {expiry}", foreground="#10b981")
+        self.status.config(text=f"Licencia generada · válida {days} días (hasta {expiry})", foreground="#10b981")
         self.clipboard_clear()
         self.clipboard_append(key)
 
@@ -159,19 +179,31 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="Genera una clave de licencia offline (HMAC-SHA256).")
     parser.add_argument("activation_code", help="Código de activación del equipo (XXXX-XXXX-XXXX-XXXX)")
-    parser.add_argument("expiry", help="Fecha de expiración en formato AAAA-MM-DD")
+    parser.add_argument(
+        "expiry",
+        nargs="?",
+        help="Fecha de expiración en formato AAAA-MM-DD (alternativa a --days)",
+    )
+    parser.add_argument("--days", type=int, help="Días de vigencia desde hoy (por defecto 30)")
     parser.add_argument("--secret", help="SECRET_KEY (alternativa a LICENSE_SECRET_KEY / la hardcodeada)")
     args = parser.parse_args(argv)
 
+    if args.days is not None:
+        expiry = (date.today() + timedelta(days=args.days)).isoformat()
+    elif args.expiry:
+        expiry = args.expiry
+    else:
+        expiry = (date.today() + timedelta(days=30)).isoformat()
+
     try:
-        exp = date.fromisoformat(args.expiry)
+        exp = date.fromisoformat(expiry)
     except ValueError:
         print("Error: la fecha debe tener formato AAAA-MM-DD.", file=sys.stderr)
         return 1
     if exp < date.today():
         print("Aviso: la fecha de expiración ya pasó (la licencia nacería vencida).", file=sys.stderr)
 
-    key = generate_license(args.activation_code, args.expiry, args.secret)
+    key = generate_license(args.activation_code, expiry, args.secret)
     print(key)
 
     if sys.platform == "win32":

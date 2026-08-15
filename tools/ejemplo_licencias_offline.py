@@ -24,33 +24,36 @@ def main() -> None:
     code = get_activation_code()
     print("1) Código de activación de esta máquina:", code)
 
-    expiry = (date.today() + timedelta(days=365)).isoformat()
+    days = 30
     out = subprocess.run(
-        [sys.executable, GENERADOR, code, expiry],
+        [sys.executable, GENERADOR, code, "--days", str(days)],
         capture_output=True,
         text=True,
         check=True,
     )
     key = out.stdout.strip().splitlines()[-1]
-    print("2) Licencia generada por la herramienta:", key)
+    print(f"2) Licencia generada por la herramienta ({days} días):", key)
 
     result = validate_license(key, activation_code=code)
     print("3) Validación correcta ->", result)
     assert result["valid"] is True, result
 
-    tampered = key[:-1] + ("A" if key[-1] != "A" else "B")
+    _, _, sig = key.split(".")
+    sig_list = list(sig)
+    sig_list[10] = "A" if sig_list[10] != "A" else "B"
+    tampered = f"LIC.{key.split('.')[1]}.{''.join(sig_list)}"
     print("   Clave alterada   ->", validate_license(tampered, activation_code=code))
     print("   Otra máquina     ->", validate_license(key, activation_code="FFFF-FFFF-FFFF-FFFF"))
 
     expired_key = subprocess.run(
-        [sys.executable, GENERADOR, code, (date.today() - timedelta(days=1)).isoformat()],
+        [sys.executable, GENERADOR, code, "--days", "1"],
         capture_output=True,
         text=True,
         check=True,
     ).stdout.strip().splitlines()[-1]
-    print("   Licencia vencida ->", validate_license(expired_key, activation_code=code))
+    print("   Licencia vencida ->", validate_license(expired_key, activation_code=code, today=date.today() + timedelta(days=2)))
 
-    print("\nEjemplo completado: licencia válida activa 365 días.")
+    print("\nEjemplo completado: licencia válida activa 30 días.")
 
 
 if __name__ == "__main__":
