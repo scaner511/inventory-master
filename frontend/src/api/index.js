@@ -79,6 +79,11 @@ export async function getMachineCode() {
   return data
 }
 
+export async function activateOfflineLicense(key) {
+  const { data } = await api.post('/license/offline/activate', { key })
+  return data
+}
+
 export async function getSettings() {
   const { data } = await api.get('/settings')
   return data

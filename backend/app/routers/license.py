@@ -1,10 +1,13 @@
 """Rutas de licencia del sistema."""
+from datetime import date, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user, license_status
+from app.models import License
 from app.utils import licenses as license_service
 from app.utils import offline_license
 
@@ -12,6 +15,10 @@ router = APIRouter(prefix="/api/license", tags=["license"])
 
 
 class ActivateRequest(BaseModel):
+    key: str
+
+
+class OfflineActivateRequest(BaseModel):
     key: str
 
 
@@ -24,6 +31,43 @@ def status(db: Session = Depends(get_db), _user=Depends(get_current_user)):
 def machine_code(_user=Depends(get_current_user)):
     """Código de activación de este equipo para la licencia offline."""
     return {"code": offline_license.get_activation_code()}
+
+
+@router.post("/offline/activate")
+def activate_offline(
+    data: OfflineActivateRequest,
+    db: Session = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    """Valida y activa una licencia offline ligada a este equipo (HMAC-SHA256)."""
+    result = offline_license.validate_license(
+        data.key,
+        activation_code=offline_license.get_activation_code(),
+    )
+    if not result["valid"]:
+        reason = {
+            "formato_invalido": "Formato de clave inválido. Debe ser: LIC.<datos>.<firma>",
+            "firma_invalida": "La firma de la clave es inválida.",
+            "codigo_no_coincide": "La clave no corresponde a este equipo.",
+            "expirada": "La licencia ya expiró.",
+        }.get(result["reason"], "Clave inválida.")
+        raise HTTPException(status_code=400, detail=reason)
+
+    lic = db.get(License, 1)
+    if lic is None:
+        lic = License(id=1)
+        db.add(lic)
+    lic.is_active = True
+    lic.activated_at = datetime.now()
+    lic.expires_at = date.fromisoformat(result["expires_at"])
+    lic.last_key = data.key.strip().upper()
+    db.commit()
+
+    return {
+        "message": "Licencia activada correctamente",
+        "expires_at": result["expires_at"],
+        "days_left": result["days_left"],
+    }
 
 
 @router.post("/activate")

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { activateLicense, getLicenseStatus, getMachineCode } from '../api/index.js'
+import { activateLicense, activateOfflineLicense, getLicenseStatus, getMachineCode } from '../api/index.js'
 import { Button, Field, Input } from '../components/ui/Form.jsx'
 
 export default function License() {
@@ -8,6 +8,8 @@ export default function License() {
   const [key, setKey] = useState('')
   const [loading, setLoading] = useState(false)
   const [machineCode, setMachineCode] = useState('')
+  const [offlineKey, setOfflineKey] = useState('')
+  const [offlineLoading, setOfflineLoading] = useState(false)
 
   const load = useCallback(() => {
     getLicenseStatus().then(setStatus).catch(() => {})
@@ -37,6 +39,21 @@ export default function License() {
       setMachineCode(code)
     } catch {
       /* interceptor */
+    }
+  }
+
+  async function handleOfflineActivate() {
+    if (!offlineKey.trim()) return toast.error('Pega la clave de licencia')
+    setOfflineLoading(true)
+    try {
+      const { expires_at } = await activateOfflineLicense(offlineKey.trim())
+      toast.success(`Licencia activada correctamente (vence el ${expires_at})`)
+      setOfflineKey('')
+      load()
+    } catch {
+      /* interceptor */
+    } finally {
+      setOfflineLoading(false)
     }
   }
 
@@ -84,31 +101,46 @@ export default function License() {
       </form>
 
       <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-6">
-        <h3 className="font-bold text-slate-100">Activación por equipo (licencia offline)</h3>
+        <h3 className="font-bold text-slate-100">Licencia offline (activación por equipo)</h3>
         <p className="text-sm text-slate-400">
-          Obtén el código de activación de este equipo, genéralo con{' '}
-          <span className="font-mono text-slate-200">tools/generador_licencias_offline.py</span> y pégalo donde
-          corresponda.
+          Genera la clave con{' '}
+          <span className="font-mono text-slate-200">tools/generador_licencias_offline</span> usando el código de este
+          equipo y actívala aquí. La clave queda ligada a esta máquina.
         </p>
-        <Button variant="ghost" onClick={handleMachineCode} disabled={loading}>
-          Obtener código de activación
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="ghost" onClick={handleMachineCode}>
+            Obtener código de activación
+          </Button>
+          {machineCode && (
+            <span className="flex flex-wrap items-center gap-3">
+              <code className="rounded-lg bg-slate-800 px-4 py-2 font-mono text-lg font-bold tracking-widest text-emerald-400">
+                {machineCode}
+              </code>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  navigator.clipboard.writeText(machineCode)
+                  toast.success('Código copiado al portapapeles')
+                }}
+              >
+                📋 Copiar
+              </Button>
+            </span>
+          )}
+        </div>
+
+        <Field label="Clave de licencia" hint="Formato: LIC.<datos>.<firma>">
+          <Input
+            value={offlineKey}
+            onChange={(e) => setOfflineKey(e.target.value.trim())}
+            placeholder="LIC........"
+            className="font-mono tracking-widest"
+          />
+        </Field>
+        <Button variant="success" onClick={handleOfflineActivate} disabled={offlineLoading}>
+          {offlineLoading ? 'Activando...' : 'Activar licencia'}
         </Button>
-        {machineCode && (
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <code className="rounded-lg bg-slate-800 px-4 py-2 font-mono text-lg font-bold tracking-widest text-emerald-400">
-              {machineCode}
-            </code>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                navigator.clipboard.writeText(machineCode)
-                toast.success('Código copiado al portapapeles')
-              }}
-            >
-              📋 Copiar
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   )
