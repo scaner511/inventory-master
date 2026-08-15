@@ -16,6 +16,7 @@ class ActivateRequest(BaseModel):
 
 class GenerateRequest(BaseModel):
     seed: str | None = None
+    days: int | None = None
 
 
 @router.get("/status")
@@ -41,6 +42,9 @@ def generate(
     db: Session = Depends(get_db),
     _user=Depends(require_admin),
 ):
-    """Genera una clave nueva (solo administradores)."""
-    key = license_service.generate_new_key(data.seed if data else "")
+    """Genera una clave nueva con la duración en días indicada (solo admins)."""
+    key = license_service.generate_new_key(
+        data.seed if data else "",
+        data.days if data else None,
+    )
     return {"key": key}

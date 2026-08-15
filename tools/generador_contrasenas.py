@@ -1,4 +1,9 @@
-"""Generador de contraseñas seguras - programa independiente.
+"""Generador de claves de licencia - programa independiente.
+
+Genera claves con el formato del sistema: MC26-XXXX-XXXX.
+La duración en días (1 a 46655) va codificada en el segundo grupo de la
+clave (K + 3 caracteres base36), igual que en backend/app/utils/licenses.py,
+de modo que la vigencia depende de la clave y no solo de la configuración.
 
 Se ejecuta como aplicación de escritorio (tkinter, solo librería estándar):
 
@@ -6,47 +11,43 @@ Se ejecuta como aplicación de escritorio (tkinter, solo librería estándar):
 
 O haz doble clic en generador_contrasenas.bat
 """
+import hashlib
 import secrets
-import string
 import tkinter as tk
+from datetime import datetime
 from tkinter import ttk
 
-# Caracteres ambiguos que se pueden excluir (O/0, l/1, I, etc.)
-AMBIGUOUS = "O0lI1|'\"`"
+PREFIX = "MC26"
+_B36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
-def generate(
-    length: int,
-    use_upper: bool,
-    use_lower: bool,
-    use_digits: bool,
-    use_symbols: bool,
-    exclude_ambiguous: bool,
-) -> str:
-    chars = ""
-    if use_upper:
-        chars += string.ascii_uppercase
-    if use_lower:
-        chars += string.ascii_lowercase
-    if use_digits:
-        chars += string.digits
-    if use_symbols:
-        chars += "!@#$%^&*()-_=+[]{};:,.<>?/"
+def _base36_encode(n: int) -> str:
+    if n <= 0:
+        return "000"
+    out = ""
+    while n:
+        n, r = divmod(n, 36)
+        out = _B36[r] + out
+    return out
 
-    if not chars:
-        raise ValueError("Selecciona al menos un tipo de carácter")
 
-    if exclude_ambiguous:
-        chars = "".join(c for c in chars if c not in AMBIGUOUS)
+def encode_days(days: int) -> str:
+    n = min(max(int(days), 1), 46655)
+    return _base36_encode(n).zfill(3)
 
-    return "".join(secrets.choice(chars) for _ in range(length))
+
+def generate_key(days: int) -> str:
+    d_part = encode_days(days)
+    raw = f"{PREFIX}{d_part}{secrets.token_hex(8)}{datetime.now().timestamp()}"
+    digest = hashlib.sha256(raw.encode()).hexdigest().upper()
+    return f"{PREFIX}-K{d_part}-{digest[:4]}"
 
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Generador de Contraseñas - Inventory Master")
-        self.geometry("460x380")
+        self.title("Generador de Claves de Licencia - Inventory Master")
+        self.geometry("480x260")
         self.resizable(False, False)
         self.configure(bg="#0b1220")
         self._build()
@@ -56,46 +57,35 @@ class App(tk.Tk):
 
         ttk.Label(
             self,
-            text="Generador de contraseñas",
+            text="Generador de claves de licencia",
             font=("Segoe UI", 14, "bold"),
             foreground="#ffffff",
             background="#0b1220",
         ).pack(pady=(18, 2))
 
+        ttk.Label(
+            self,
+            text="Formato: MC26-XXXX-XXXX",
+            font=("Consolas", 10),
+            foreground="#94a3b8",
+            background="#0b1220",
+        ).pack(pady=(0, 8))
+
         self.result = tk.StringVar(value="")
         entry = ttk.Entry(self, textvariable=self.result, font=("Consolas", 12), state="readonly")
         entry.pack(fill="x", **pad)
 
-        self.len_var = tk.IntVar(value=12)
-        length_frame = ttk.Frame(self)
-        length_frame.pack(fill="x", **pad)
-        ttk.Label(length_frame, text="Longitud:").pack(side="left")
+        days_frame = ttk.Frame(self)
+        days_frame.pack(fill="x", **pad)
+        ttk.Label(days_frame, text="Días de validez:").pack(side="left")
+        self.days_var = tk.IntVar(value=30)
         ttk.Spinbox(
-            length_frame,
-            from_=6,
-            to=64,
-            textvariable=self.len_var,
-            width=5,
+            days_frame,
+            from_=1,
+            to=3650,
+            textvariable=self.days_var,
+            width=6,
         ).pack(side="right")
-
-        opts_frame = ttk.LabelFrame(self, text=" Caracteres ")
-        opts_frame.pack(fill="x", **pad)
-
-        self.upper_var = tk.BooleanVar(value=True)
-        self.lower_var = tk.BooleanVar(value=True)
-        self.digits_var = tk.BooleanVar(value=True)
-        self.symbols_var = tk.BooleanVar(value=False)
-        self.ambig_var = tk.BooleanVar(value=True)
-
-        ttk.Checkbutton(opts_frame, text="Mayúsculas", variable=self.upper_var).grid(row=0, column=0, sticky="w", padx=10, pady=4)
-        ttk.Checkbutton(opts_frame, text="Minúsculas", variable=self.lower_var).grid(row=0, column=1, sticky="w", padx=10)
-        ttk.Checkbutton(opts_frame, text="Números", variable=self.digits_var).grid(row=1, column=0, sticky="w", padx=10, pady=4)
-        ttk.Checkbutton(opts_frame, text="Símbolos", variable=self.symbols_var).grid(row=1, column=1, sticky="w", padx=10)
-        ttk.Checkbutton(
-            opts_frame,
-            text="Evitar ambiguos (O, 0, l, 1...)",
-            variable=self.ambig_var,
-        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=10, pady=6)
 
         buttons = ttk.Frame(self)
         buttons.pack(fill="x", **pad)
@@ -109,28 +99,24 @@ class App(tk.Tk):
 
     def on_generate(self):
         try:
-            pw = generate(
-                self.len_var.get(),
-                self.upper_var.get(),
-                self.lower_var.get(),
-                self.digits_var.get(),
-                self.symbols_var.get(),
-                self.ambig_var.get(),
-            )
-        except ValueError as exc:
-            self.status.config(text=str(exc), foreground="#ef4444")
+            key = generate_key(self.days_var.get())
+        except (TypeError, ValueError):
+            self.status.config(text="Días inválidos", foreground="#ef4444")
             return
-        self.result.set(pw)
-        self.status.config(text="Contraseña generada", foreground="#10b981")
+        self.result.set(key)
+        self.status.config(
+            text=f"Clave generada · válida por {self.days_var.get()} días",
+            foreground="#10b981",
+        )
         self.clipboard_clear()
-        self.clipboard_append(pw)
+        self.clipboard_append(key)
 
     def on_copy(self):
-        pw = self.result.get()
-        if not pw:
+        key = self.result.get()
+        if not key:
             return
         self.clipboard_clear()
-        self.clipboard_append(pw)
+        self.clipboard_append(key)
         self.status.config(text="Copiada al portapapeles", foreground="#3b82f6")
 
 
