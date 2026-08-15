@@ -74,6 +74,11 @@ export async function activateLicense(key) {
   return data
 }
 
+export async function getMachineCode() {
+  const { data } = await api.get('/license/machine-code')
+  return data
+}
+
 export async function getSettings() {
   const { data } = await api.get('/settings')
   return data

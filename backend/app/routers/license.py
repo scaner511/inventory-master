@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import get_current_user, license_status
 from app.utils import licenses as license_service
+from app.utils import offline_license
 
 router = APIRouter(prefix="/api/license", tags=["license"])
 
@@ -17,6 +18,12 @@ class ActivateRequest(BaseModel):
 @router.get("/status")
 def status(db: Session = Depends(get_db), _user=Depends(get_current_user)):
     return license_status(db)
+
+
+@router.get("/machine-code")
+def machine_code(_user=Depends(get_current_user)):
+    """Código de activación de este equipo para la licencia offline."""
+    return {"code": offline_license.get_activation_code()}
 
 
 @router.post("/activate")

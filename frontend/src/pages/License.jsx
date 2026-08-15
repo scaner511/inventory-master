@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { activateLicense, getLicenseStatus } from '../api/index.js'
+import { activateLicense, getLicenseStatus, getMachineCode } from '../api/index.js'
 import { Button, Field, Input } from '../components/ui/Form.jsx'
 
 export default function License() {
   const [status, setStatus] = useState(null)
   const [key, setKey] = useState('')
   const [loading, setLoading] = useState(false)
+  const [machineCode, setMachineCode] = useState('')
 
   const load = useCallback(() => {
     getLicenseStatus().then(setStatus).catch(() => {})
@@ -27,6 +28,15 @@ export default function License() {
       /* interceptor */
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleMachineCode() {
+    try {
+      const { code } = await getMachineCode()
+      setMachineCode(code)
+    } catch {
+      /* interceptor */
     }
   }
 
@@ -72,6 +82,34 @@ export default function License() {
           {loading ? 'Activando...' : 'Activar licencia'}
         </Button>
       </form>
+
+      <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-6">
+        <h3 className="font-bold text-slate-100">Activación por equipo (licencia offline)</h3>
+        <p className="text-sm text-slate-400">
+          Obtén el código de activación de este equipo, genéralo con{' '}
+          <span className="font-mono text-slate-200">tools/generador_licencias_offline.py</span> y pégalo donde
+          corresponda.
+        </p>
+        <Button variant="ghost" onClick={handleMachineCode} disabled={loading}>
+          Obtener código de activación
+        </Button>
+        {machineCode && (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <code className="rounded-lg bg-slate-800 px-4 py-2 font-mono text-lg font-bold tracking-widest text-emerald-400">
+              {machineCode}
+            </code>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                navigator.clipboard.writeText(machineCode)
+                toast.success('Código copiado al portapapeles')
+              }}
+            >
+              📋 Copiar
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
