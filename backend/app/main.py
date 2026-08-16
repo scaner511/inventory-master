@@ -27,6 +27,7 @@ from app.routers import (
     users,
 )
 from app.utils.security import hash_password
+from app.utils import offline_license
 
 
 def _migrate(db: Session) -> None:
@@ -67,6 +68,41 @@ def _migrate_roles(db: Session) -> None:
     db.commit()
 
 
+def _migrate_license_machine_code(db: Session) -> None:
+    """Agrega columnas machine_code y last_key ampliado a la tabla licenses."""
+    cols = _table_columns("licenses")
+    if "machine_code" not in cols:
+        db.execute(text("ALTER TABLE licenses ADD COLUMN machine_code VARCHAR(19)"))
+    if "last_key" in cols:
+        # Ampliar last_key a 500 caracteres para soportar claves offline (LIC....)
+        if engine.dialect.name == "sqlite":
+            row = db.execute(
+                text("SELECT sql FROM sqlite_master WHERE type='table' AND name='licenses'")
+            ).first()
+            if row and "VARCHAR(20)" in (row[0] or ""):
+                db.execute(
+                    text(
+                        """
+                        CREATE TABLE licenses_new (
+                            id INTEGER NOT NULL PRIMARY KEY,
+                            is_active BOOLEAN NOT NULL DEFAULT 0,
+                            activated_at TIMESTAMP,
+                            expires_at DATE,
+                            last_key VARCHAR(500),
+                            machine_code VARCHAR(19)
+                        );
+                        INSERT INTO licenses_new (id, is_active, activated_at, expires_at, last_key, machine_code)
+                        SELECT id, is_active, activated_at, expires_at, last_key, machine_code FROM licenses;
+                        DROP TABLE licenses;
+                        ALTER TABLE licenses_new RENAME TO licenses;
+                        """
+                    )
+                )
+        else:
+            db.execute(text("ALTER TABLE licenses ALTER COLUMN last_key TYPE VARCHAR(500)"))
+    db.commit()
+
+
 def _get_or_create_first_tenant(db: Session) -> models.Tenant:
     tenant = db.query(models.Tenant).order_by(models.Tenant.id).first()
     if tenant is None:
@@ -78,7 +114,12 @@ def _get_or_create_first_tenant(db: Session) -> models.Tenant:
 
 
 def _backfill_tenant(db: Session, tenant_id: int) -> None:
-    """Asigna el tenant principal a los datos existentes (los superadmins no)."""
+    """Asigna el tenant principal a los datos existentes (los superadmins no).
+
+    IMPORTANTE: debe correrse ANTES de _ensure_superadmin. Si se corre después,
+    el superadmin (tenant_id=NULL) quedaría asignado al tenant principal y ya no
+    sería un usuario global.
+    """
     for table in TENANT_TABLES:
         db.execute(
             text(f"UPDATE {table} SET tenant_id = :tid WHERE tenant_id IS NULL"),
@@ -174,8 +215,10 @@ def _ensure_superadmin(db: Session) -> None:
         return  # mismo usuario: el admin principal ya es el superadmin global
     user = db.query(models.User).filter(models.User.username == settings.superadmin_username).first()
     if user is not None:
-        if user.role != "superadmin":
-            user.role = "superadmin"
+        # El Super Admin es GLOBAL: nunca pertenece a un proveedor. El backfill
+        # de tenants corre antes y podría haberle asignado el tenant principal.
+        user.role = "superadmin"
+        if user.tenant_id is not None:
             user.tenant_id = None
             db.commit()
         return
@@ -200,6 +243,7 @@ def init_db() -> None:
         _migrate(db)
         _migrate_tenant_columns(db)
         _migrate_roles(db)
+        _migrate_license_machine_code(db)
 
         # Proveedor principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)
@@ -233,8 +277,16 @@ def init_db() -> None:
             )
 
         # Fila de licencia
-        if not db.get(models.License, 1):
-            db.add(models.License(id=1, is_active=False))
+        lic = db.get(models.License, 1)
+        if lic is None:
+            lic = models.License(id=1, is_active=False)
+            db.add(lic)
+        # Calcular y almacenar el código de activación de máquina UNA sola vez.
+        # Render free cambia de instancia entre reinicios; si no se guarda en la
+        # BD, el código puede cambiar y las licencias offline dejarían de
+        # funcionar. Al guardarlo se usa siempre el mismo valor.
+        if not lic.machine_code:
+            lic.machine_code = offline_license.get_activation_code()
 
         db.commit()
     finally:

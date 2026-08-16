@@ -143,7 +143,12 @@ class License(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
-    last_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    last_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Código de activación de la máquina. Se calcula UNA VEZ y se guarda en
+    # la BD para que no cambie si el servidor (p. ej. Render) cambia de
+    # instancia/contenedor. La herramienta offline y la validación usan este
+    # valor almacenado.
+    machine_code: Mapped[str | None] = mapped_column(String(19), nullable=True)
 
 
 class UsedLicenseKey(Base):

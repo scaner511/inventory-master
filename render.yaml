@@ -36,8 +36,18 @@ services:
         #   CORS_ORIGINS=https://TU-FRONTEND.vercel.app
       - key: ADMIN_PASSWORD
         sync: false
+      - key: SUPERADMIN_USERNAME
+        sync: false
+      - key: SUPERADMIN_PASSWORD
+        sync: false
       - key: CORS_ORIGINS
         sync: false
+
+# IMPORTANTE: la variable DATABASE_URL la inyecta Render automáticamente cuando
+# el Web Service está conectado a la base de datos de este Blueprint. Si NO está
+# conectada, la app AHORA FALLA al arrancar en Render (no usa SQLite en disco
+# efímero). Verifica en Dashboard → servicio → Connect que la base
+# inventory-master-db esté conectada y que DATABASE_URL exista en Environment.
 
 # Nota: el filesystem de Render free es EFÍMERO. El logo subido desde el panel
 # (/uploads) y los backups automáticos se pierden al reiniciar/re-desplegar.

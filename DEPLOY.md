@@ -95,6 +95,17 @@ En el servicio → **Environment**, define:
 | `CORS_ORIGINS` | `https://TU-FRONTEND.vercel.app` | Sí (dominios exactos) |
 | `ADMIN_USERNAME` | `admin` | No |
 | `ADMIN_EMAIL` | `admin@tudominio.com` | No |
+| `SUPERADMIN_USERNAME` | `superadmin` | No (default `superadmin`) |
+| `SUPERADMIN_PASSWORD` | contraseña fuerte del Super Admin | Sí (default solo dev) |
+| `SUPERADMIN_EMAIL` | `superadmin@tudominio.com` | No |
+
+> **CRÍTICO — Sin `DATABASE_URL` la app NO arranca en Render.** Si la base
+> PostgreSQL no está conectada al Web Service, la app **falla con un error
+> visible** en vez de usar SQLite en disco efímero. Render Free usa un disco
+> EFÍMERO: si la app usara SQLite ahí, la licencia, los usuarios y los datos se
+> borrarían en cada reinicio/redeploy. Para conectar la base: **Dashboard →
+> Web Service → Connect → selecciona `inventory-master-db`**. Esto crea
+> automáticamente la variable `DATABASE_URL`.
 
 Otras opcionales (`ACCESS_TOKEN_EXPIRE_MINUTES`, `BACKUP_HOUR`, `BACKUP_RETENTION_DAYS`,
 `LICENSE_PREFIX`, `LICENSE_DURATION_DAYS`, `LOW_STOCK_THRESHOLD`) están documentadas

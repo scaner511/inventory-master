@@ -22,15 +22,33 @@ class OfflineActivateRequest(BaseModel):
     key: str
 
 
+def _get_or_create_machine_code(db: Session) -> str:
+    """Devuelve el código de activación almacenado en la BD.
+
+    Si la columna ``machine_code`` está vacía (base antigua o primera vez),
+    lo calcula una vez a partir del hardware y lo guarda para siempre.
+    Esto evita que el código cambie si el servidor (p. ej. Render) cambia
+    de instancia entre reinicios.
+    """
+    lic = db.get(License, 1)
+    if lic is None:
+        lic = License(id=1)
+        db.add(lic)
+    if not lic.machine_code:
+        lic.machine_code = offline_license.get_activation_code()
+        db.commit()
+    return lic.machine_code
+
+
 @router.get("/status")
 def status(db: Session = Depends(get_db), _user=Depends(get_current_user)):
     return license_status(db)
 
 
 @router.get("/machine-code")
-def machine_code(_user=Depends(get_current_user)):
+def machine_code(db: Session = Depends(get_db), _user=Depends(get_current_user)):
     """Código de activación de este equipo para la licencia offline."""
-    return {"code": offline_license.get_activation_code()}
+    return {"code": _get_or_create_machine_code(db)}
 
 
 @router.post("/offline/activate")
@@ -42,7 +60,7 @@ def activate_offline(
     """Valida y activa una licencia offline ligada a este equipo (HMAC-SHA256)."""
     result = offline_license.validate_license(
         data.key,
-        activation_code=offline_license.get_activation_code(),
+        activation_code=_get_or_create_machine_code(db),
     )
     if not result["valid"]:
         reason = {
@@ -60,7 +78,8 @@ def activate_offline(
     lic.is_active = True
     lic.activated_at = datetime.now()
     lic.expires_at = date.fromisoformat(result["expires_at"])
-    lic.last_key = data.key.strip().upper()
+    lic.last_key = data.key.strip()
+
     db.commit()
 
     return {

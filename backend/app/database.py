@@ -29,11 +29,21 @@ def _resolve_database_url() -> str:
     elif db_url.startswith("postgresql://"):
         db_url = "postgresql+psycopg2://" + db_url[len("postgresql://"):]
 
-    # Fallback a SQLite SOLO en desarrollo:
-    # - no existe archivo .env (el usuario no configuró PostgreSQL explícitamente)
-    # - DATABASE_URL no viene como variable de entorno (en producción, p. ej.
-    #   Render, siempre está definida y si la base no responde debe fallar
-    #   con un error visible, no quedarse en SQLite).
+    # En Render (producción) SIEMPRE se debe usar PostgreSQL. El disco del plan
+    # Free es EFÍMERO: si la app cae a SQLite ahí, la licencia, los usuarios y
+    # los datos se borran en cada reinicio/redeploy. Si falta DATABASE_URL o la
+    # base no responde, fallamos con un error visible en lugar de usar SQLite.
+    is_render = os.environ.get("RENDER") == "true"
+    if is_render and "DATABASE_URL" not in os.environ:
+        raise RuntimeError(
+            "No se definió DATABASE_URL en Render. Conecta la base de datos "
+            "PostgreSQL al Web Service (Dashboard → servicio → Connect) o define "
+            "la variable DATABASE_URL en Environment. Sin PostgreSQL, el sistema "
+            "perdería la licencia y los datos en cada reinicio."
+        )
+
+    # Fallback a SQLite SOLO en desarrollo (fuera de Render) y solo si el usuario
+    # no configuró PostgreSQL explícitamente (sin .env ni DATABASE_URL).
     using_default = "DATABASE_URL" not in os.environ and not env_file.exists()
     if db_url.startswith("postgresql") and using_default:
         probe = create_engine(db_url, connect_args={"connect_timeout": 3})
