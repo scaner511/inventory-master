@@ -22,6 +22,8 @@ import { Button, Field, Input, Select } from '../components/ui/Form.jsx'
 
 const TABS = [
   { id: 'users', label: '👥 Usuarios' },
+  { id: 'company', label: '🏢 Empresa' },
+  { id: 'backups', label: '💾 Backups' },
   { id: 'account', label: '🔑 Mi cuenta' },
 ]
 
@@ -62,6 +64,8 @@ export default function Admin() {
       </div>
 
       {tab === 'users' && <UsersTab />}
+      {tab === 'company' && <CompanyTab />}
+      {tab === 'backups' && <BackupsTab />}
       {tab === 'account' && <AccountTab />}
     </div>
   )
