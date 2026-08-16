@@ -1,7 +1,7 @@
 """Esquemas Pydantic (validación de entrada/salida de la API)."""
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 # ===================== AUTH =====================
 
@@ -66,11 +66,21 @@ class UserCreate(BaseModel):
     security_question: str | None = None
     security_answer: str | None = None
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        return None if v == "" else v
+
 
 class UserUpdate(BaseModel):
     email: EmailStr | None = None
     role: str | None = Field(default=None, pattern="^(admin|user)$")
     is_active: bool | None = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        return None if v == "" else v
 
 
 class AdminResetPassword(BaseModel):
@@ -85,6 +95,11 @@ class TenantCreate(BaseModel):
     admin_username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_.-]+$")
     admin_password: str | None = Field(default=None, min_length=6, max_length=128)
     admin_email: EmailStr | None = None
+
+    @field_validator("admin_email", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        return None if v == "" else v
 
 
 class TenantUpdate(BaseModel):
@@ -109,6 +124,11 @@ class TenantUserCreate(BaseModel):
     role: str = Field(default="user", pattern="^(admin|user)$")
     security_question: str | None = None
     security_answer: str | None = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        return None if v == "" else v
 
 
 # ===================== PRODUCTS =====================
