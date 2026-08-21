@@ -50,6 +50,10 @@ services:
       #     sync: false
       #   - key: PUBLIC_BASE_URL
       #     value: "https://inventory-master-api.onrender.com"
+      # Opcional: origen del panel para volver tras conectar Drive. Si se omite,
+      # se deduce del Referer al iniciar la conexión (normalmente funciona solo).
+      #   - key: FRONTEND_ORIGIN
+      #     value: "https://inventory-master.vercel.app"
       # Subida automática de backups a Drive:
       #   - key: GOOGLE_DRIVE_AUTO_UPLOAD
       #     value: "true"

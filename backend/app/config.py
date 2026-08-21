@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     # URL pública de esta API (ej. https://mi-api.onrender.com). Si se define,
     # la URL de retorno de OAuth se construye con ella; si no, se deduce del request.
     public_base_url: str = ""
+    # Origen del panel (ej. https://mi-panel.vercel.app). Opcional: si se deja
+    # vacío, el retorno tras conectar Google Drive deduce el origen del Referer
+    # capturado al iniciar el flujo y lo viaja firmado dentro del estado.
+    frontend_origin: str = ""
 
     # Uploads (logo)
     uploads_dir: str = str(BASE_DIR / "uploads" / "logos")

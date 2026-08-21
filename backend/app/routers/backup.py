@@ -1,8 +1,9 @@
 """Rutas de backups (solo Super Admin)."""
 import io
+import urllib.parse
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -110,6 +111,22 @@ def _safe_return_path(raw: str | None) -> str:
     return "/admin"
 
 
+def _frontend_origin(request: Request) -> str:
+    """Origen del panel (scheme://host) desde donde se inició la conexión.
+
+    La navegación a /start es cross-origin, así que el navegador manda el
+    Referer reducido al origen; es la forma fiable de saber a qué frontend
+    volver tras autenticar. FRONTEND_ORIGIN (si existe) tiene prioridad.
+    """
+    explicit = (settings.frontend_origin or "").strip().rstrip("/")
+    if explicit.startswith(("http://", "https://")):
+        return explicit
+    parts = urllib.parse.urlsplit(request.headers.get("referer", ""))
+    if parts.scheme in ("http", "https") and parts.netloc:
+        return f"{parts.scheme}://{parts.netloc}"
+    return ""
+
+
 @router.get("/drive/status", dependencies=[Depends(require_superadmin)])
 def drive_status(db: Session = Depends(get_db)):
     return gdrive.status_info(db)
@@ -158,7 +175,7 @@ def oauth_start(request: Request, token: str = "", return_path: str | None = Non
         )
 
     safe_return = _safe_return_path(return_path)
-    state = gdrive.make_state(safe_return)
+    state = gdrive.make_state(safe_return, _frontend_origin(request))
     url = gdrive.build_auth_url(_redirect_uri(request), state)
     return RedirectResponse(url)
 
@@ -166,19 +183,22 @@ def oauth_start(request: Request, token: str = "", return_path: str | None = Non
 @oauth_router.get("/callback")
 def oauth_callback(request: Request, code: str = "", state: str = "", error: str = "", db: Session = Depends(get_db)):
     """Recibe la respuesta de Google, guarda la conexión y vuelve al panel."""
-    origin = request.headers.get("origin") or ""
-    return_path = gdrive.verify_state(state) if state else None
+    verified = gdrive.verify_state(state) if state else None
+    return_path = verified[0] if verified else None
+    state_origin = (verified[1] if verified else "").rstrip("/")
 
-    def _back(ok: bool, msg: str = "") -> RedirectResponse:
-        # Si no podemos confiar en el origen firmado, volver a la API misma.
-        target_origin = origin if origin.startswith(("http://", "https://")) else ""
+    def _back(ok: bool, msg: str = ""):
+        # El origen del panel se capturó en /start y viaja firmado en el estado;
+        # este request viene de Google, así que sus cabeceras no se tienen en cuenta.
+        target_origin = state_origin
         if not target_origin:
-            target_origin = (settings.public_base_url or "").strip().rstrip("/")
-        if not target_origin:
-            return RedirectResponse("/api/backup/drive/status")
+            detail = "Conexión con Google Drive completada." if ok else f"No se completó la conexión: {msg}"
+            return HTMLResponse(
+                f"<h2>{detail}</h2><p>Vuelve al panel y recarga la página para ver el estado.</p>"
+            )
         ret = return_path or "/admin"
         sep = "&" if "?" in ret else "?"
-        flag = "ok" if ok else f"error:{msg}"
+        flag = "ok" if ok else f"error:{urllib.parse.quote(msg)}"
         return RedirectResponse(f"{target_origin}{ret}{sep}drive={flag}")
 
     if error:

@@ -55,25 +55,34 @@ def _sign(data: str) -> str:
     return _b64url(mac)
 
 
-def make_state(return_path: str = "/admin") -> str:
-    """Estado firmado (CSRF) para el flujo OAuth: ts.nonce.return_path.firma."""
+def make_state(return_path: str = "/admin", frontend_origin: str = "") -> str:
+    """Estado firmado (CSRF) para el flujo OAuth: ts.nonce.ruta.origen.firma.
+
+    El origen del panel viaja dentro del estado firmado porque la petición del
+    callback llega desde Google y no permite confiar en sus cabeceras.
+    """
     ts = str(int(time.time()))
     nonce = secrets.token_urlsafe(12)
-    payload = f"{ts}.{nonce}.{_b64url(return_path.encode('utf-8'))}"
+    payload = ".".join(
+        [ts, nonce, _b64url(return_path.encode("utf-8")), _b64url(frontend_origin.encode("utf-8"))]
+    )
     return f"{payload}.{_sign(payload)}"
 
 
-def verify_state(state: str) -> str | None:
-    """Devuelve la ruta de retorno si el estado es válido y reciente; si no, None."""
+def verify_state(state: str) -> tuple[str, str] | None:
+    """Devuelve (ruta_retorno, origen_frontend) si es válido y reciente; si no, None."""
     try:
-        ts, nonce, return_b64, sig = state.split(".")
-        payload = f"{ts}.{nonce}.{return_b64}"
+        ts, nonce, return_b64, origin_b64, sig = state.split(".")
+        payload = f"{ts}.{nonce}.{return_b64}.{origin_b64}"
         if not hmac.compare_digest(sig, _sign(payload)):
             return None
         if int(time.time()) - int(ts) > STATE_MAX_AGE_SECONDS:
             return None
-        padding = "=" * (-len(return_b64) % 4)
-        return base64.urlsafe_b64decode(return_b64 + padding).decode("utf-8")
+        pad_r = "=" * (-len(return_b64) % 4)
+        pad_o = "=" * (-len(origin_b64) % 4)
+        return_path = base64.urlsafe_b64decode(return_b64 + pad_r).decode("utf-8")
+        origin = base64.urlsafe_b64decode(origin_b64 + pad_o).decode("utf-8")
+        return return_path, origin
     except Exception:
         return None
 
