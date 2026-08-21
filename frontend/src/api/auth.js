@@ -11,6 +11,11 @@ export async function fetchMe() {
   return data
 }
 
+export async function acceptTerms() {
+  const { data } = await api.post('/auth/accept-terms')
+  return data
+}
+
 export function logout() {
   clearToken()
   window.location.href = '/login'

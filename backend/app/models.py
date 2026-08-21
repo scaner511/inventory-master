@@ -47,6 +47,9 @@ class User(Base):
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=True)
     security_question: Mapped[str | None] = mapped_column(String(255), nullable=True)
     security_answer: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Aceptación obligatoria de Términos y Condiciones / Política de Privacidad
+    accepted_terms: Mapped[bool] = mapped_column(Boolean, default=False)
+    accepted_terms_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

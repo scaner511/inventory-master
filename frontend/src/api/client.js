@@ -35,6 +35,12 @@ api.interceptors.response.use(
       window.location.href = '/license'
     }
 
+    // Defensa en profundidad: si una pestaña vieja logra llamar a la API sin
+    // haber aceptado los términos, se recarga y App muestra el modal obligatorio.
+    if (status === 403 && detail?.code === 'TERMS_NOT_ACCEPTED') {
+      if (window.location.pathname !== '/') window.location.href = '/'
+    }
+
     const message =
       typeof detail === 'string'
         ? detail

@@ -446,6 +446,7 @@ function UsersTab() {
             { key: 'tenant', label: 'Proveedor' },
             { key: 'role', label: 'Rol', align: 'center' },
             { key: 'active', label: 'Activo', align: 'center' },
+            { key: 'terms', label: 'Términos', align: 'center' },
             { key: 'created', label: 'Creado' },
             { key: 'actions', label: 'Acciones', align: 'center' },
           ]}
@@ -456,6 +457,20 @@ function UsersTab() {
               <td className="px-4 py-3 text-slate-300">{u.tenant_name || '—'}</td>
               <td className="px-4 py-3 text-center">{roleBadge(u.role)}</td>
               <td className="px-4 py-3 text-center">{activeBadge(u.is_active)}</td>
+              <td className="px-4 py-3 text-center">
+                {u.accepted_terms ? (
+                  <span
+                    className="text-sm text-emerald-400"
+                    title={`Aceptado el ${new Date(u.accepted_terms_date).toLocaleString('es-US')}`}
+                  >
+                    ✓
+                  </span>
+                ) : (
+                  <span className="text-sm text-red-400" title="Pendiente de aceptar términos">
+                    ✗
+                  </span>
+                )}
+              </td>
               <td className="px-4 py-3 text-xs text-slate-400">{new Date(u.created_at).toLocaleDateString()}</td>
               <td className="px-4 py-3 text-center">
                 <div className="flex justify-center gap-1">

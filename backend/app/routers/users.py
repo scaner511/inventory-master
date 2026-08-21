@@ -79,6 +79,29 @@ def list_users(db: Session = Depends(get_db), _user: User = Depends(require_admi
     return [user_out(u) for u in users]
 
 
+@router.get("/terms-acceptances")
+def terms_acceptances(db: Session = Depends(get_db), _user: User = Depends(require_admin)):
+    """Consulta administrativa: quién aceptó los términos y cuándo."""
+    users = (
+        db.query(User)
+        .filter(User.tenant_id == _user.tenant_id)
+        .order_by(User.username)
+        .all()
+    )
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "email": u.email,
+            "role": u.role,
+            "is_active": u.is_active,
+            "accepted_terms": bool(u.accepted_terms),
+            "accepted_terms_date": u.accepted_terms_date.isoformat() if u.accepted_terms_date else None,
+        }
+        for u in users
+    ]
+
+
 @router.post("", response_model=UserOut, status_code=201)
 def create_user(data: UserCreate, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     if db.query(User).filter(User.username == data.username).first():

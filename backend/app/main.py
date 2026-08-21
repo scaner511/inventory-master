@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
+from starlette.responses import JSONResponse
 
 from app import models
 from app.config import BASE_DIR, settings
@@ -26,7 +27,7 @@ from app.routers import (
     superadmin,
     users,
 )
-from app.utils.security import hash_password
+from app.utils.security import decode_access_token, hash_password
 from app.utils import offline_license
 
 
@@ -42,6 +43,17 @@ def _migrate(db: Session) -> None:
         # El admin que ya existía no se ve forzado a cambiar su contraseña.
         db.execute(text("UPDATE users SET must_change_password = 0 WHERE username = :u"), {"u": settings.admin_username})
         db.commit()
+
+
+def _migrate_accept_terms(db: Session) -> None:
+    """Agrega las columnas de aceptación de términos a la tabla users."""
+    cols = _table_columns("users")
+    if "accepted_terms" not in cols:
+        default = "0" if engine.dialect.name == "sqlite" else "FALSE"
+        db.execute(text(f"ALTER TABLE users ADD COLUMN accepted_terms BOOLEAN NOT NULL DEFAULT {default}"))
+    if "accepted_terms_date" not in cols:
+        db.execute(text("ALTER TABLE users ADD COLUMN accepted_terms_date TIMESTAMP"))
+    db.commit()
 
 
 def _table_columns(table: str) -> set[str]:
@@ -244,6 +256,7 @@ def init_db() -> None:
         _migrate_tenant_columns(db)
         _migrate_roles(db)
         _migrate_license_machine_code(db)
+        _migrate_accept_terms(db)
 
         # Proveedor principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)
@@ -340,12 +353,86 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
+class TermsAcceptanceMiddleware:
+    """Bloqueo global para usuarios que no han aceptado los términos legales.
+
+    Middleware ASGI puro: cubre TODAS las rutas /api/* actuales y futuras en un
+    único punto, sin depender de que cada router recuerde la dependencia. Solo
+    quedan exentas las llamadas imprescindibles antes de aceptar: login,
+    recuperación de cuenta, perfil, la propia aceptación, health-check,
+    documentación y el flujo OAuth de Drive (que se valida por otros medios).
+    """
+
+    EXEMPT_PATHS = (
+        "/api/health",
+        "/api/auth/login",
+        "/api/auth/me",
+        "/api/auth/forgot-password",
+        "/api/auth/reset-password",
+        "/api/auth/accept-terms",
+        "/api/backup/drive/oauth",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+    )
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["method"] != "OPTIONS":
+            path = scope["path"]
+            exempt = any(path == p or path.startswith(p + "/") for p in self.EXEMPT_PATHS)
+            if path.startswith("/api/") and not exempt:
+                user = self._accepted_user(scope)
+                if user is None:
+                    response = JSONResponse(
+                        status_code=403,
+                        content={
+                            "detail": {
+                                "code": "TERMS_NOT_ACCEPTED",
+                                "message": (
+                                    "Debes leer y aceptar los Términos y Condiciones "
+                                    "y la Política de Privacidad para usar el sistema."
+                                ),
+                            }
+                        },
+                    )
+                    await response(scope, receive, send)
+                    return
+        await self.app(scope, receive, send)
+
+    def _accepted_user(self, scope) -> models.User | None:
+        """Devuelve el usuario si su token es válido y YA aceptó los términos."""
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        auth = headers.get("authorization", "")
+        if not auth.startswith("Bearer "):
+            return None
+        payload = decode_access_token(auth[len("Bearer "):].strip())
+        if not payload or not payload.get("sub"):
+            return None
+        db: Session = SessionLocal()
+        try:
+            user = db.get(models.User, int(payload["sub"]))
+            if user is None or not user.is_active or not user.accepted_terms:
+                return None
+            return user
+        except Exception:
+            return None
+        finally:
+            db.close()
+
+
 app = FastAPI(
     title="Inventory Master OS Web",
     description="Sistema de inventario con préstamos y licencias",
     version="2.0.0",
     lifespan=lifespan,
 )
+
+# El bloqueo por términos corre por DENTRO de CORS: registrado primero, CORS
+# queda como capa más externa y los preflight OPTIONS no tocan la base de datos.
+app.add_middleware(TermsAcceptanceMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

@@ -12,11 +12,15 @@ import License from './pages/License.jsx'
 import ChangePassword from './pages/ChangePassword.jsx'
 import { useEffect, useState } from 'react'
 import { getLicenseStatus } from './api/index.js'
+import TermsModal from './components/TermsModal.jsx'
 
 function Protected({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <FullLoader />
   if (!user) return <Navigate to="/login" replace />
+  // Aceptación OBLIGATORIA de términos: mientras no esté aceptada se muestra
+  // el modal EN LUGAR de la aplicación (imposible navegar ni cerrarlo).
+  if (!user.accepted_terms) return <TermsModal />
   if (user.must_change_password && window.location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />
   }

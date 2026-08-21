@@ -99,6 +99,11 @@ export async function getUsers() {
   return data
 }
 
+export async function getTermsAcceptances() {
+  const { data } = await api.get('/users/terms-acceptances')
+  return data
+}
+
 export async function createUser(payload) {
   const { data } = await api.post('/users', payload)
   return data

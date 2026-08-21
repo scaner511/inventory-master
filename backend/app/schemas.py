@@ -22,6 +22,8 @@ class UserOut(BaseModel):
     role: str
     is_active: bool
     must_change_password: bool = False
+    accepted_terms: bool = False
+    accepted_terms_date: datetime | None = None
     created_at: datetime
     last_login: datetime | None = None
 

@@ -10,6 +10,7 @@ import {
   getDriveStatus,
   getSettings,
   getUsers,
+  getTermsAcceptances,
   listBackups,
   purgeBackups,
   restoreBackup,
@@ -29,6 +30,7 @@ const TABS = [
   { id: 'users', label: '👥 Usuarios' },
   { id: 'company', label: '🏢 Empresa' },
   { id: 'backups', label: '💾 Backups' },
+  { id: 'terms', label: '⚖️ Términos' },
   { id: 'account', label: '🔑 Mi cuenta' },
 ]
 
@@ -75,6 +77,7 @@ export default function Admin() {
       {tab === 'users' && <UsersTab />}
       {tab === 'company' && <CompanyTab />}
       {tab === 'backups' && <BackupsTab />}
+      {tab === 'terms' && <TermsTab />}
       {tab === 'account' && <AccountTab />}
     </div>
   )
@@ -598,6 +601,70 @@ export function BackupsTab() {
                     ⬇️
                   </button>
                 </div>
+              </td>
+            </tr>
+          ))}
+        </Table>
+      )}
+    </div>
+  )
+}
+
+/* ================= TÉRMINOS Y CONDICIONES ================= */
+
+export function TermsTab() {
+  const [rows, setRows] = useState([])
+
+  const load = useCallback(async () => {
+    try {
+      setRows(await getTermsAcceptances())
+    } catch {
+      /* interceptor */
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const acceptedCount = rows.filter((r) => r.accepted_terms).length
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-400">
+        Registro de aceptación de los Términos y Condiciones de Uso y la Política de Privacidad por parte de los usuarios
+        de tu proveedor.{' '}
+        <span className="font-bold text-slate-200">
+          {acceptedCount} de {rows.length}
+        </span>{' '}
+        han aceptado.
+      </p>
+      {rows.length === 0 ? (
+        <EmptyState message="No hay usuarios en tu proveedor" />
+      ) : (
+        <Table
+          columns={[
+            { key: 'username', label: 'Usuario' },
+            { key: 'role', label: 'Rol', align: 'center' },
+            { key: 'accepted', label: 'Aceptación', align: 'center' },
+            { key: 'date', label: 'Fecha y hora de aceptación' },
+          ]}
+        >
+          {rows.map((r) => (
+            <tr key={r.id} className="transition hover:bg-slate-800/40">
+              <td className="px-4 py-3 font-medium text-slate-100">{r.username}</td>
+              <td className="px-4 py-3 text-center text-sm text-slate-300">
+                {r.role === 'admin' ? 'Administrador' : r.role === 'superadmin' ? 'Super Admin' : 'Operador'}
+              </td>
+              <td className="px-4 py-3 text-center">
+                {r.accepted_terms ? (
+                  <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-bold text-emerald-400">✓ Aceptado</span>
+                ) : (
+                  <span className="rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-bold text-red-400">Pendiente</span>
+                )}
+              </td>
+              <td className="px-4 py-3 text-xs text-slate-400">
+                {r.accepted_terms_date ? new Date(r.accepted_terms_date).toLocaleString('es-US') : '—'}
               </td>
             </tr>
           ))}

@@ -16,6 +16,7 @@ from app.schemas import (
     UserOut,
     user_out,
 )
+from app.utils.audit import record_audit
 from app.utils.security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -82,6 +83,29 @@ def reset_password(
 
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
+    return user_out(user)
+
+
+@router.post("/accept-terms", response_model=UserOut)
+def accept_terms(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Registra la aceptación obligatoria de Términos y Política de Privacidad.
+
+    Idempotente: si ya aceptó, no duplica la fecha ni el evento de auditoría.
+    """
+    if not user.accepted_terms:
+        user.accepted_terms = True
+        user.accepted_terms_date = datetime.now()
+        db.commit()
+        record_audit(
+            db,
+            "TERMS_ACCEPTED",
+            user.id,
+            detail=(
+                "Aceptó los Términos y Condiciones de Uso y la Política de "
+                "Privacidad de Inventory Master OS Web v2026"
+            ),
+            tenant_id=user.tenant_id,
+        )
     return user_out(user)
 
 
