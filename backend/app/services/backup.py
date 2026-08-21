@@ -13,6 +13,9 @@ from sqlalchemy import inspect
 
 from app.config import settings
 
+# Tablas que no se incluyen en los respaldos Excel (tokens/credenciales).
+EXCLUDED_TABLES = {"drive_connection"}
+
 
 def _pg_dump_available() -> bool:
     return shutil.which("pg_dump") is not None
@@ -37,6 +40,8 @@ def _excel_backup(db, dest: Path) -> None:
     inspector = inspect(db.bind)
     with pd.ExcelWriter(dest, engine="openpyxl") as writer:
         for table in inspector.get_table_names():
+            if table in EXCLUDED_TABLES:
+                continue  # datos sensibles que no deben copiarse a los respaldos
             df = pd.read_sql_table(table, db.bind)
             sheet = table[:31].replace("$", "_")
             df.to_excel(writer, sheet_name=sheet, index=False)

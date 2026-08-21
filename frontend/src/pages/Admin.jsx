@@ -3,8 +3,11 @@ import toast from 'react-hot-toast'
 import { changePassword } from '../api/auth.js'
 import {
   adminResetPassword,
+  connectDriveUrl,
   createUser,
   deleteUser,
+  disconnectDrive,
+  getDriveStatus,
   getSettings,
   getUsers,
   listBackups,
@@ -12,7 +15,9 @@ import {
   restoreBackup,
   runBackup,
   setSecurityQuestion,
+  testDriveConnection,
   updateSettings,
+  uploadBackupToDrive,
 } from '../api/index.js'
 import { api, API_BASE, openAuthenticatedUrl } from '../api/client.js'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -30,7 +35,11 @@ const TABS = [
 export default function Admin() {
   const { user } = useAuth()
 
-  const [tab, setTab] = useState('users')
+  // Permite abrir directamente en una pestaña: /admin?tab=backups
+  const [tab, setTab] = useState(() => {
+    const t = new URLSearchParams(window.location.search).get('tab')
+    return TABS.some((x) => x.id === t) ? t : 'users'
+  })
 
   if (user?.role !== 'admin') {
     return (
@@ -351,6 +360,9 @@ export function BackupsTab() {
   const [backups, setBackups] = useState([])
   const [running, setRunning] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [drive, setDrive] = useState(null)
+  const [testing, setTesting] = useState(false)
+  const [uploadingName, setUploadingName] = useState(null)
   const restoreRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -359,22 +371,80 @@ export function BackupsTab() {
     } catch {
       /* interceptor */
     }
+    try {
+      setDrive(await getDriveStatus())
+    } catch {
+      setDrive({ configured: false, mode: null, folder_id: null, auto_upload: false, oauth_available: false })
+    }
   }, [])
 
   useEffect(() => {
     load()
   }, [load])
 
+  // Resultado del flujo "Conectar con Google Drive" (?drive=ok | drive=error:...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const flag = params.get('drive')
+    if (!flag) return
+    if (flag === 'ok') toast.success('Google Drive conectado correctamente')
+    else if (flag.startsWith('error:')) toast.error(`No se pudo conectar Drive: ${decodeURIComponent(flag.slice(6))}`)
+    params.delete('drive')
+    const qs = params.toString()
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
+  }, [])
+
   async function handleRun() {
     setRunning(true)
     try {
       const res = await runBackup()
-      toast.success(`${res.message} (${res.kind})`)
+      let msg = `${res.message} (${res.kind})`
+      if (res.drive?.uploaded) msg += ' · subido a Drive ✓'
+      if (res.drive && res.drive.uploaded === false) toast.error(`No se pudo subir a Drive: ${res.drive.error}`)
+      toast.success(msg)
       load()
     } catch {
       /* interceptor */
     } finally {
       setRunning(false)
+    }
+  }
+
+  async function handleTestDrive() {
+    setTesting(true)
+    try {
+      const res = await testDriveConnection()
+      toast.success(res.message)
+    } catch {
+      /* interceptor */
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  async function handleDisconnectDrive() {
+    if (!window.confirm('Se desconectará Google Drive. Los backups seguirán creándose localmente. ¿Continuar?')) return
+    setBusy(true)
+    try {
+      const res = await disconnectDrive()
+      toast.success(res.message)
+      load()
+    } catch {
+      /* interceptor */
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleUploadToDrive(name) {
+    setUploadingName(name)
+    try {
+      const res = await uploadBackupToDrive(name)
+      toast.success(res.message)
+    } catch {
+      /* interceptor */
+    } finally {
+      setUploadingName(null)
     }
   }
 
@@ -435,6 +505,63 @@ export function BackupsTab() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-6">
+        <div>
+          <h3 className="font-bold text-slate-100">
+            Google Drive{' '}
+            {drive?.mode === 'oauth' && (
+              <span className="ml-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-400">Conectado</span>
+            )}
+            {drive?.mode === 'service_account' && (
+              <span className="ml-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-400">Conectado (cuenta de servicio)</span>
+            )}
+            {!drive?.configured && (
+              <span className="ml-1 rounded-full bg-slate-500/10 px-2 py-0.5 text-xs font-semibold text-slate-400">No conectado</span>
+            )}
+            {drive?.auto_upload && (
+              <span className="ml-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-semibold text-blue-400">Auto-subida activada</span>
+            )}
+          </h3>
+          {drive?.mode === 'oauth' ? (
+            <p className="text-sm text-slate-400">
+              Conectado a la cuenta <span className="text-slate-200">{drive.email}</span>
+              {drive.folder_name && (
+                <> · carpeta <span className="font-mono text-xs text-slate-300">{drive.folder_name}</span></>
+              )}. Usa ⬆️ para subir cualquier copia manualmente.
+            </p>
+          ) : drive?.mode === 'service_account' ? (
+            <p className="text-sm text-slate-400">
+              Carpeta destino: <span className="font-mono text-xs text-slate-300">{drive.folder_id}</span> (cuenta de servicio).
+            </p>
+          ) : drive?.oauth_available ? (
+            <p className="text-sm text-slate-400">
+              Guarda tus backups automáticamente en tu propio Google Drive. Autoriza el acceso con tu cuenta y listo.
+            </p>
+          ) : (
+            <p className="text-sm text-slate-400">
+              Para usar Drive configura en el servidor GOOGLE_OAUTH_CLIENT_ID/SECRET (botón Conectar) o las variables de cuenta de servicio (ver .env.example).
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {!drive?.configured && drive?.oauth_available && (
+            <Button variant="success" onClick={() => { window.location.href = connectDriveUrl() }}>
+              🔗 Conectar con Google Drive
+            </Button>
+          )}
+          {drive?.configured && (
+            <Button variant="ghost" onClick={handleTestDrive} disabled={testing}>
+              {testing ? 'Probando...' : '🔌 Probar conexión'}
+            </Button>
+          )}
+          {drive?.mode === 'oauth' && (
+            <Button variant="warning" onClick={handleDisconnectDrive} disabled={busy}>
+              Desconectar
+            </Button>
+          )}
+        </div>
+      </div>
+
       {backups.length === 0 ? (
         <EmptyState message="Aún no hay backups" />
       ) : (
@@ -452,13 +579,25 @@ export function BackupsTab() {
               <td className="px-4 py-3 text-center text-slate-300">{b.size_kb} KB</td>
               <td className="px-4 py-3 text-xs text-slate-400">{new Date(b.created).toLocaleString('es-US')}</td>
               <td className="px-4 py-3 text-center">
-                <button
-                  onClick={() => openAuthenticatedUrl(b.url)}
-                  className="rounded-lg bg-blue-500/10 p-2 text-blue-400 transition hover:bg-blue-500/20"
-                  title="Descargar"
-                >
-                  ⬇️
-                </button>
+                <div className="flex items-center justify-center gap-1">
+                  {drive?.configured && (
+                    <button
+                      onClick={() => handleUploadToDrive(b.name)}
+                      disabled={uploadingName === b.name}
+                      className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400 transition hover:bg-emerald-500/20 disabled:opacity-50"
+                      title={uploadingName === b.name ? 'Subiendo...' : 'Subir a Google Drive'}
+                    >
+                      ⬆️
+                    </button>
+                  )}
+                  <button
+                    onClick={() => openAuthenticatedUrl(b.url)}
+                    className="rounded-lg bg-blue-500/10 p-2 text-blue-400 transition hover:bg-blue-500/20"
+                    title="Descargar"
+                  >
+                    ⬇️
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

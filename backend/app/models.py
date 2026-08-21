@@ -157,3 +157,20 @@ class UsedLicenseKey(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     key_value: Mapped[str] = mapped_column(String(20), unique=True)
     used_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class DriveConnection(Base):
+    """Conexión OAuth de Google Drive (una sola por instalación).
+
+    Se excluye de los respaldos Excel para no propagar el refresh_token.
+    """
+
+    __tablename__ = "drive_connection"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_drive_connection_single_row"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    folder_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    folder_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

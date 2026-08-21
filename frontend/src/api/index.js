@@ -1,4 +1,4 @@
-import { api, getToken } from './client'
+import { api, API_BASE, getToken } from './client'
 
 export async function getDashboard() {
   const { data } = await api.get('/dashboard')
@@ -138,6 +138,33 @@ export async function restoreBackup(file) {
 
 export async function purgeBackups() {
   const { data } = await api.post('/backup/purge')
+  return data
+}
+
+export async function getDriveStatus() {
+  const { data } = await api.get('/backup/drive/status')
+  return data
+}
+
+export async function testDriveConnection() {
+  const { data } = await api.post('/backup/drive/test')
+  return data
+}
+
+export async function uploadBackupToDrive(name) {
+  const { data } = await api.post(`/backup/drive/upload/${encodeURIComponent(name)}`)
+  return data
+}
+
+/* URL para iniciar el flujo "Conectar con Google Drive" (navegación completa,
+   el JWT viaja como parámetro porque Google redirige sin cabeceras). */
+export function connectDriveUrl(returnPath = window.location.pathname) {
+  const token = getToken()
+  return `${API_BASE}/backup/drive/oauth/start?token=${encodeURIComponent(token)}&return_path=${encodeURIComponent(returnPath)}`
+}
+
+export async function disconnectDrive() {
+  const { data } = await api.post('/backup/drive/oauth/disconnect')
   return data
 }
 

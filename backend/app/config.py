@@ -44,6 +44,20 @@ class Settings(BaseSettings):
     backup_hour: str = "03:00"
     backup_retention_days: int = 30
 
+    # Google Drive (respaldos en la nube, opcional)
+    google_drive_folder_id: str = ""
+    google_service_account_json: str = ""
+    google_service_account_file: str = ""
+    google_drive_auto_upload: bool = False
+
+    # Google Drive OAuth ("Conectar con Google Drive", opcional)
+    # Cliente OAuth creado UNA vez en Google Cloud Console por el desarrollador.
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    # URL pública de esta API (ej. https://mi-api.onrender.com). Si se define,
+    # la URL de retorno de OAuth se construye con ella; si no, se deduce del request.
+    public_base_url: str = ""
+
     # Uploads (logo)
     uploads_dir: str = str(BASE_DIR / "uploads" / "logos")
 

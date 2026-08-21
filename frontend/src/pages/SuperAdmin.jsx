@@ -546,7 +546,11 @@ function UsersTab() {
 
 export default function SuperAdmin() {
   const { user } = useAuth()
-  const [tab, setTab] = useState('tenants')
+  // Permite abrir directamente en una pestaña: /superadmin?tab=backups
+  const [tab, setTab] = useState(() => {
+    const t = new URLSearchParams(window.location.search).get('tab')
+    return TABS.some((x) => x.id === t) ? t : 'tenants'
+  })
 
   if (user?.role !== 'superadmin') {
     return (

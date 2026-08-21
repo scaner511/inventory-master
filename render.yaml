@@ -42,6 +42,17 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      # Google Drive OAuth (botón "Conectar con Google Drive" en el panel).
+      # Crea el Cliente OAuth una vez en Google Cloud Console y define aquí:
+      #   - key: GOOGLE_OAUTH_CLIENT_ID
+      #     sync: false
+      #   - key: GOOGLE_OAUTH_CLIENT_SECRET
+      #     sync: false
+      #   - key: PUBLIC_BASE_URL
+      #     value: "https://inventory-master-api.onrender.com"
+      # Subida automática de backups a Drive:
+      #   - key: GOOGLE_DRIVE_AUTO_UPLOAD
+      #     value: "true"
 
 # IMPORTANTE: la variable DATABASE_URL la inyecta Render automáticamente cuando
 # el Web Service está conectado a la base de datos de este Blueprint. Si NO está

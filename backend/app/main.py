@@ -317,8 +317,16 @@ def schedule_backup_job() -> None:
 def _run_scheduled_backup() -> None:
     db: Session = SessionLocal()
     try:
-        backup_service.create_backup(db)
+        path, _kind = backup_service.create_backup(db)
         backup_service.cleanup_old_backups()
+        if settings.google_drive_auto_upload:
+            from app.services import gdrive
+
+            if gdrive.active_mode(db):
+                try:
+                    gdrive.upload_file(path, db)
+                except Exception:
+                    pass  # la copia local ya está a salvo; Drive se reintenta al día siguiente
     finally:
         db.close()
 
@@ -362,6 +370,9 @@ app.include_router(loans.router, dependencies=business_deps)
 app.include_router(dashboard.router, dependencies=business_deps)
 app.include_router(reports.router, dependencies=business_deps)
 app.include_router(backup.router, dependencies=business_deps)
+# El flujo OAuth de Drive lo inicia/retoma Google desde el navegador: sin
+# bloqueo de licencia ni JWT (se valida por otros medios dentro de cada ruta).
+app.include_router(backup.oauth_router)
 app.include_router(audit.router, dependencies=business_deps)
 
 
