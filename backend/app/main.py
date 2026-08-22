@@ -384,8 +384,10 @@ class TermsAcceptanceMiddleware:
             path = scope["path"]
             exempt = any(path == p or path.startswith(p + "/") for p in self.EXEMPT_PATHS)
             if path.startswith("/api/") and not exempt:
-                user = self._accepted_user(scope)
-                if user is None:
+                # Solo se bloquea a quien está AUTENTICADO y aún no aceptó.
+                # Sin token o con token inválido no se toca: el 401 lo pone la
+                # dependencia de autenticación de cada ruta.
+                if self._authenticated_without_terms(scope):
                     response = JSONResponse(
                         status_code=403,
                         content={
@@ -402,23 +404,21 @@ class TermsAcceptanceMiddleware:
                     return
         await self.app(scope, receive, send)
 
-    def _accepted_user(self, scope) -> models.User | None:
-        """Devuelve el usuario si su token es válido y YA aceptó los términos."""
+    def _authenticated_without_terms(self, scope) -> bool:
+        """True solo con un token válido de un usuario activo que NO ha aceptado."""
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
         auth = headers.get("authorization", "")
         if not auth.startswith("Bearer "):
-            return None
+            return False
         payload = decode_access_token(auth[len("Bearer "):].strip())
         if not payload or not payload.get("sub"):
-            return None
+            return False
         db: Session = SessionLocal()
         try:
             user = db.get(models.User, int(payload["sub"]))
-            if user is None or not user.is_active or not user.accepted_terms:
-                return None
-            return user
+            return user is not None and user.is_active and not user.accepted_terms
         except Exception:
-            return None
+            return False
         finally:
             db.close()
 
