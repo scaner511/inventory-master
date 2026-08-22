@@ -161,6 +161,16 @@ export async function uploadBackupToDrive(name) {
   return data
 }
 
+export async function listDriveBackups() {
+  const { data } = await api.get('/backup/drive/list')
+  return data
+}
+
+export async function restoreFromDrive(fileId) {
+  const { data } = await api.post(`/backup/drive/restore/${encodeURIComponent(fileId)}`)
+  return data
+}
+
 /* URL para iniciar el flujo "Conectar con Google Drive" (navegación completa,
    el JWT viaja como parámetro porque Google redirige sin cabeceras). */
 export function connectDriveUrl(returnPath = window.location.pathname) {

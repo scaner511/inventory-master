@@ -3,7 +3,12 @@ import io
 import urllib.parse
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    RedirectResponse,
+    Response,
+)
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -227,3 +232,63 @@ def oauth_disconnect(db: Session = Depends(get_db), _user=Depends(require_supera
         return {"message": "No había conexión de Google Drive.", "disconnected": False}
     record_audit(db, "BACKUP", _user.id, detail="Google Drive desconectado")
     return {"message": "Google Drive desconectado correctamente.", "disconnected": True}
+
+
+@router.get("/drive/list")
+def drive_list(db: Session = Depends(get_db), _user=Depends(require_superadmin)):
+    """Lista los respaldos guardados en la carpeta de Google Drive."""
+    try:
+        return gdrive.list_backups(db)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/drive/download/{file_id}")
+def drive_download(file_id: str, db: Session = Depends(get_db), _user=Depends(require_superadmin)):
+    """Descarga a tu equipo un respaldo concreto desde Google Drive."""
+    try:
+        name, content = gdrive.download_file_bytes(db, file_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"No se pudo descargar de Drive: {e}")
+    if not name.startswith("inventario_backup_"):
+        raise HTTPException(status_code=400, detail="El archivo no es un respaldo del sistema")
+    media = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if name.endswith(".xlsx")
+        else "application/octet-stream"
+    )
+    return Response(
+        content=content,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@router.post("/drive/restore/{file_id}")
+def drive_restore(file_id: str, db: Session = Depends(get_db), _user=Depends(require_superadmin)):
+    """Restaura la base de datos directamente desde una copia en Google Drive.
+
+    Descarga el respaldo Excel desde Drive y reemplaza TODOS los datos
+    actuales por los del respaldo, sin pasar por el equipo local.
+    """
+    try:
+        name, content = gdrive.download_file_bytes(db, file_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"No se pudo descargar de Drive: {e}")
+    if not name.startswith("inventario_backup_") or not name.endswith(".xlsx"):
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se pueden restaurar respaldos Excel (.xlsx) generados por el sistema",
+        )
+    try:
+        counts = backup_service.restore_from_excel(db, io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"No se pudo restaurar el respaldo: {e}")
+
+    record_audit(db, "RESTAURACION", _user.id, detail=f"Base de datos restaurada desde Google Drive ({name})")
+    summary = ", ".join(f"{n}: {c}" for n, c in counts.items())
+    return {
+        "message": f"Base de datos restaurada correctamente ({summary}).",
+        "tables": counts,
+        "file": name,
+    }

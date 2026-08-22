@@ -20,6 +20,7 @@ funciona igual aunque no estén instaladas ni configuradas.
 import base64
 import hashlib
 import hmac
+import io
 import json
 import secrets
 import time
@@ -367,3 +368,77 @@ def upload_file(path: Path, db: Session) -> dict:
     raise RuntimeError(
         "Google Drive no está configurado: conecta tu cuenta desde el panel o define las variables de entorno."
     )
+
+
+def _drive_service(db: Session):
+    """Servicio de Drive según el modo activo (OAuth o cuenta de servicio)."""
+    mode = active_mode(db)
+    if mode == "oauth":
+        return _build_service_from_oauth(get_connection(db))
+    if mode == "service_account":
+        return _get_service_account_service()
+    raise RuntimeError(
+        "Google Drive no está configurado: conecta tu cuenta desde el panel o define las variables de entorno."
+    )
+
+
+def list_backups(db: Session) -> dict:
+    """Lista los respaldos del sistema guardados en la carpeta de Drive.
+
+    Devuelve {"mode": ..., "files": [...]} con los más recientes primero.
+    """
+    svc = _drive_service(db)
+    mode = active_mode(db)
+
+    folder_id = ""
+    if mode == "oauth":
+        conn = get_connection(db)
+        folder_id = (conn.folder_id or "").strip() if conn else ""
+    else:
+        folder_id = (settings.google_drive_folder_id or "").strip()
+    if not folder_id:
+        # La carpeta aún no se ha creado: nunca se subió nada.
+        return {"mode": mode, "files": []}
+
+    query = f"'{folder_id}' in parents and trashed = false and name contains 'inventario_backup_'"
+    result = (
+        svc.files()
+        .list(
+            q=query,
+            orderBy="createdTime desc",
+            pageSize=50,
+            fields="files(id,name,size,modifiedTime,mimeType)",
+        )
+        .execute()
+    )
+    files = []
+    for f in result.get("files", []):
+        size = f.get("size")
+        files.append(
+            {
+                "id": f["id"],
+                "name": f.get("name") or "",
+                "size_kb": round(int(size) / 1024, 1) if size else None,
+                "modified": f.get("modifiedTime"),
+                "kind": "postgres" if (f.get("name") or "").endswith(".sql") else "excel",
+            }
+        )
+    return {"mode": mode, "files": files}
+
+
+def download_file_bytes(db: Session, file_id: str) -> tuple[str, bytes]:
+    """Descarga un archivo por id desde el Drive configurado. Devuelve (nombre, bytes)."""
+    try:
+        from googleapiclient.http import MediaIoBaseDownload
+    except ImportError as e:
+        raise RuntimeError("Faltan las librerías de Google. Instala requirements.txt actualizado.") from e
+
+    svc = _drive_service(db)
+    meta = svc.files().get(fileId=file_id, fields="id,name").execute()
+    name = meta.get("name") or "backup"
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, svc.files().get_media(fileId=file_id))
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    return name, buffer.getvalue()

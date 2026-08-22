@@ -12,8 +12,10 @@ import {
   getUsers,
   getTermsAcceptances,
   listBackups,
+  listDriveBackups,
   purgeBackups,
   restoreBackup,
+  restoreFromDrive,
   runBackup,
   setSecurityQuestion,
   testDriveConnection,
@@ -366,6 +368,8 @@ export function BackupsTab() {
   const [drive, setDrive] = useState(null)
   const [testing, setTesting] = useState(false)
   const [uploadingName, setUploadingName] = useState(null)
+  const [driveFiles, setDriveFiles] = useState(null)
+  const [driveBusyId, setDriveBusyId] = useState(null)
   const restoreRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -384,6 +388,21 @@ export function BackupsTab() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Copias guardadas en Google Drive (solo si hay conexión configurada)
+  const loadDriveFiles = useCallback(async () => {
+    try {
+      const res = await listDriveBackups()
+      setDriveFiles(res.files || [])
+    } catch {
+      /* interceptor */
+      setDriveFiles([])
+    }
+  }, [])
+
+  useEffect(() => {
+    if (drive?.configured) loadDriveFiles()
+  }, [drive?.configured, loadDriveFiles])
 
   // Resultado del flujo "Conectar con Google Drive" (?drive=ok | drive=error:...)
   useEffect(() => {
@@ -444,10 +463,26 @@ export function BackupsTab() {
     try {
       const res = await uploadBackupToDrive(name)
       toast.success(res.message)
+      loadDriveFiles()
     } catch {
       /* interceptor */
     } finally {
       setUploadingName(null)
+    }
+  }
+
+  async function handleRestoreFromDrive(f) {
+    if (!window.confirm(`Esto REEMPLAZARÁ todos los datos actuales con la copia "${f.name}" de Google Drive. ¿Continuar?`)) return
+    setDriveBusyId(f.id)
+    try {
+      const res = await restoreFromDrive(f.id)
+      toast.success(res.message)
+      load()
+      loadDriveFiles()
+    } catch {
+      /* interceptor */
+    } finally {
+      setDriveBusyId(null)
     }
   }
 
@@ -605,6 +640,72 @@ export function BackupsTab() {
             </tr>
           ))}
         </Table>
+      )}
+
+      {drive?.configured && (
+        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h3 className="text-sm font-semibold text-slate-200">
+              ☁️ En Google Drive{' '}
+              {drive.mode === 'oauth' ? (
+                <span className="font-normal text-slate-400">· cuenta {drive.email}</span>
+              ) : (
+                <span className="font-normal text-slate-400">· carpeta compartida</span>
+              )}
+            </h3>
+            <Button variant="ghost" onClick={loadDriveFiles}>
+              🔄 Actualizar
+            </Button>
+          </div>
+          {!driveFiles ? (
+            <p className="text-sm text-slate-400">Cargando copias de Drive...</p>
+          ) : driveFiles.length === 0 ? (
+            <EmptyState message="Todavía no hay copias en Drive" />
+          ) : (
+            <Table
+              columns={[
+                { key: 'name', label: 'Archivo' },
+                { key: 'size', label: 'Tamaño', align: 'center' },
+                { key: 'modified', label: 'Subido' },
+                { key: 'actions', label: '', align: 'center' },
+              ]}
+            >
+              {driveFiles.map((f) => (
+                <tr key={f.id} className="transition hover:bg-slate-800/40">
+                  <td className="px-4 py-3 font-mono text-xs text-slate-200">{f.name}</td>
+                  <td className="px-4 py-3 text-center text-slate-300">{f.size_kb ?? '?'} KB</td>
+                  <td className="px-4 py-3 text-xs text-slate-400">
+                    {f.modified ? new Date(f.modified).toLocaleString('es-US') : '-'}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <button
+                        onClick={() => openAuthenticatedUrl(`/backup/drive/download/${f.id}`)}
+                        className="rounded-lg bg-blue-500/10 p-2 text-blue-400 transition hover:bg-blue-500/20"
+                        title="Descargar a este equipo"
+                      >
+                        ⬇️
+                      </button>
+                      {f.kind === 'excel' && (
+                        <button
+                          onClick={() => handleRestoreFromDrive(f)}
+                          disabled={driveBusyId === f.id}
+                          className="rounded-lg bg-amber-500/10 p-2 text-amber-400 transition hover:bg-amber-500/20 disabled:opacity-50"
+                          title={driveBusyId === f.id ? 'Restaurando...' : 'Restaurar esta copia'}
+                        >
+                          ♻️
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          )}
+          <p className="mt-3 text-xs text-slate-500">
+            ⬇️ descarga el respaldo a tu equipo · ♻️ restaura los datos directamente desde Drive (reemplaza todo lo actual)
+          </p>
+        </div>
       )}
     </div>
   )
