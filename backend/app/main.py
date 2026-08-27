@@ -45,6 +45,13 @@ def _migrate(db: Session) -> None:
         db.commit()
 
 
+def _migrate_tenant_max_users(db: Session) -> None:
+    """Agrega la columna max_users a la tabla tenants (limite por proveedor)."""
+    if "max_users" not in _table_columns("tenants"):
+        db.execute(text("ALTER TABLE tenants ADD COLUMN max_users INTEGER"))
+    db.commit()
+
+
 def _migrate_accept_terms(db: Session) -> None:
     """Agrega las columnas de aceptación de términos a la tabla users."""
     cols = _table_columns("users")
@@ -257,6 +264,7 @@ def init_db() -> None:
         _migrate_roles(db)
         _migrate_license_machine_code(db)
         _migrate_accept_terms(db)
+        _migrate_tenant_max_users(db)
 
         # Proveedor principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)

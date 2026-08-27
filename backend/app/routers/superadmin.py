@@ -38,11 +38,19 @@ def _tenant_users_count(db: Session, tenant_id: int) -> int:
     )
 
 
+def _tenant_max_users(tenant: Tenant) -> int:
+    """Límite de usuarios efectivo: el del proveedor o, si no lo definió el
+    Super Admin, el valor global."""
+    return tenant.max_users or settings.max_users_per_tenant
+
+
 def _ensure_user_quota(db: Session, tenant_id: int) -> None:
-    if _tenant_users_count(db, tenant_id) >= settings.max_users_per_tenant:
+    tenant = db.get(Tenant, tenant_id)
+    limit = _tenant_max_users(tenant)
+    if _tenant_users_count(db, tenant_id) >= limit:
         raise HTTPException(
             status_code=400,
-            detail=f"El proveedor ya alcanzó el máximo de {settings.max_users_per_tenant} usuarios",
+            detail=f"El proveedor ya alcanzó el máximo de {limit} usuarios",
         )
 
 
@@ -100,7 +108,7 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.username == data.admin_username).first():
         raise HTTPException(status_code=400, detail="El nombre de usuario del administrador ya existe")
 
-    tenant = Tenant(name=data.name)
+    tenant = Tenant(name=data.name, max_users=data.max_users)
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
@@ -132,6 +140,21 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
         tenant.name = data.name
     if data.is_active is not None:
         tenant.is_active = data.is_active
+    if data.clear_max_users:
+        # Volver al límite global (NULL).
+        if tenant.max_users and _tenant_users_count(db, tenant_id) > settings.max_users_per_tenant:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No se puede quitar el límite: el proveedor tiene {_tenant_users_count(db, tenant_id)} usuarios y el global es {settings.max_users_per_tenant}",
+            )
+        tenant.max_users = None
+    elif data.max_users is not None:
+        if _tenant_users_count(db, tenant_id) > data.max_users:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No se puede fijar {data.max_users} usuarios: el proveedor ya tiene {_tenant_users_count(db, tenant_id)}",
+            )
+        tenant.max_users = data.max_users
     db.commit()
     db.refresh(tenant)
 

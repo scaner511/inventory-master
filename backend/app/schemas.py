@@ -97,6 +97,10 @@ class TenantCreate(BaseModel):
     admin_username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_.-]+$")
     admin_password: str | None = Field(default=None, min_length=6, max_length=128)
     admin_email: EmailStr | None = None
+    # Límite de usuarios de este proveedor (lo define el Super Admin). Si es
+    # NULL, se usa MAX_USERS_PER_TENANT (global). Debe ser >= 1 porque el
+    # administrador siempre ocupa uno.
+    max_users: int | None = Field(default=None, ge=1)
 
     @field_validator("admin_email", mode="before")
     @classmethod
@@ -107,6 +111,9 @@ class TenantCreate(BaseModel):
 class TenantUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     is_active: bool | None = None
+    max_users: int | None = Field(default=None, ge=1)
+    # Para poder "limpiar" el límite de un proveedor (volver al global).
+    clear_max_users: bool | None = None
 
 
 class TenantOut(BaseModel):
@@ -114,6 +121,7 @@ class TenantOut(BaseModel):
 
     id: int
     name: str
+    max_users: int | None = None
     is_active: bool
     created_at: datetime
     users_count: int = 0

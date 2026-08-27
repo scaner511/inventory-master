@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.deps import require_admin
-from app.models import User
+from app.models import Tenant, User
 from app.schemas import (
     AdminResetPassword,
     UserCreate,
@@ -33,10 +33,12 @@ def _tenant_users_count(db: Session, tenant_id: int) -> int:
 
 
 def _ensure_quota(db: Session, tenant_id: int) -> None:
-    if _tenant_users_count(db, tenant_id) >= settings.max_users_per_tenant:
+    tenant = db.get(Tenant, tenant_id)
+    limit = tenant.max_users if tenant and tenant.max_users else settings.max_users_per_tenant
+    if _tenant_users_count(db, tenant_id) >= limit:
         raise HTTPException(
             status_code=400,
-            detail=f"El proveedor ya alcanzó el máximo de {settings.max_users_per_tenant} usuarios",
+            detail=f"El proveedor ya alcanzó el máximo de {limit} usuarios",
         )
 
 

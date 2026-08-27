@@ -42,7 +42,7 @@ function TenantsTab() {
   const [tenants, setTenants] = useState([])
   const [editOpen, setEditOpen] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '' })
+  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '' })
   const [saving, setSaving] = useState(false)
   const [usersOpen, setUsersOpen] = useState(null)
   const [tenantUsers, setTenantUsers] = useState([])
@@ -68,10 +68,19 @@ function TenantsTab() {
     setSaving(true)
     try {
       if (editing) {
-        await updateTenant(editing.id, { name: form.name })
+        await updateTenant(editing.id, {
+          name: form.name,
+          max_users: form.max_users === '' ? null : Number(form.max_users),
+        })
         toast.success('Proveedor actualizado')
       } else {
-        await createTenant(form)
+        await createTenant({
+          name: form.name,
+          admin_username: form.admin_username,
+          admin_password: form.admin_password,
+          admin_email: form.admin_email,
+          max_users: form.max_users === '' ? null : Number(form.max_users),
+        })
         toast.success('Proveedor creado')
       }
       setEditOpen(false)
@@ -85,13 +94,19 @@ function TenantsTab() {
 
   function openEdit(t) {
     setEditing(t)
-    setForm({ name: t.name, admin_username: '', admin_password: '', admin_email: '' })
+    setForm({
+      name: t.name,
+      admin_username: '',
+      admin_password: '',
+      admin_email: '',
+      max_users: t.max_users ? String(t.max_users) : '',
+    })
     setEditOpen(true)
   }
 
   function openCreate() {
     setEditing(null)
-    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '' })
+    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '' })
     setEditOpen(true)
   }
 
@@ -183,6 +198,7 @@ function TenantsTab() {
           columns={[
             { key: 'name', label: 'Proveedor' },
             { key: 'users', label: 'Usuarios', align: 'center' },
+            { key: 'limit', label: 'Límite', align: 'center' },
             { key: 'active', label: 'Activo', align: 'center' },
             { key: 'created', label: 'Creado' },
             { key: 'actions', label: 'Acciones', align: 'center' },
@@ -192,7 +208,11 @@ function TenantsTab() {
             <tr key={t.id} className="transition hover:bg-slate-800/40">
               <td className="px-4 py-3 font-medium text-slate-100">{t.name}</td>
               <td className="px-4 py-3 text-center text-slate-300">{t.users_count}</td>
-              <td className="px-4 py-3 text-center">{activeBadge(t.is_active)}</td>
+              <td className="px-4 py-3 text-center">
+                <span className="rounded-full bg-slate-700/40 px-2.5 py-0.5 text-xs font-bold text-slate-300">
+                  {t.max_users ?? 'Sin límite'}
+                </span>
+              </td>
               <td className="px-4 py-3 text-xs text-slate-400">{new Date(t.created_at).toLocaleDateString()}</td>
               <td className="px-4 py-3 text-center">
                 <div className="flex justify-center gap-1">
@@ -239,6 +259,15 @@ function TenantsTab() {
           <Field label="Nombre del proveedor">
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ej: Ferretería El Tornillo" required />
           </Field>
+          <Field label="Límite de usuarios del proveedor" hint="Incluye al administrador. Déjalo vacío para usar el límite global del sistema">
+            <Input
+              type="number"
+              min="1"
+              value={form.max_users}
+              onChange={(e) => setForm({ ...form, max_users: e.target.value })}
+              placeholder="Ej: 5"
+            />
+          </Field>
           {!editing && (
             <>
               <Field label="Usuario administrador" hint="Primer usuario del proveedor (rol Administrador)">
@@ -249,6 +278,15 @@ function TenantsTab() {
               </Field>
               <Field label="Contraseña inicial" hint="Si se deja vacía, se usará la genérica">
                 <Input value={form.admin_password} onChange={(e) => setForm({ ...form, admin_password: e.target.value })} placeholder="Mínimo 6 caracteres" />
+              </Field>
+              <Field label="Límite de usuarios del proveedor" hint="Incluye al administrador. Si se deja vacío, se usa el límite global del sistema">
+                <Input
+                  type="number"
+                  min="1"
+                  value={form.max_users}
+                  onChange={(e) => setForm({ ...form, max_users: e.target.value })}
+                  placeholder="Ej: 2"
+                />
               </Field>
               <p className="text-xs text-slate-500">El administrador deberá cambiar su contraseña en el primer inicio de sesión.</p>
             </>
