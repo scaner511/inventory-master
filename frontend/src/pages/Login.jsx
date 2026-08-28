@@ -91,7 +91,7 @@ export default function Login() {
           <img
             src="/favicon.png"
             alt="Inventory Master OS"
-            className="mx-auto mb-4 h-28 w-28 rounded-2xl border border-slate-700 bg-white object-contain p-2 shadow-2xl"
+            className="mx-auto mb-4 h-42 w-42 rounded-2xl border border-slate-700 bg-white object-contain p-2 shadow-2xl"
           />
           <h1 className="text-2xl font-extrabold text-white">Inventory Master OS</h1>
           <p className="mt-1 text-sm text-slate-400">Control Total de Inventario y Préstamos</p>
