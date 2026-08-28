@@ -88,9 +88,11 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#050a18] via-[#0b1220] to-[#111c33] p-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-blue-500 to-indigo-600 p-1.5 shadow-2xl shadow-blue-600/30">
-            <img src="/favicon.png" alt="Inventory Master OS" className="h-full w-full rounded-2xl object-contain" />
-          </div>
+          <img
+            src="/favicon.png"
+            alt="Inventory Master OS"
+            className="mx-auto mb-4 h-28 w-28 rounded-2xl border border-slate-700 bg-white object-contain p-2 shadow-2xl"
+          />
           <h1 className="text-2xl font-extrabold text-white">Inventory Master OS</h1>
           <p className="mt-1 text-sm text-slate-400">Control Total de Inventario y Préstamos</p>
         </div>
