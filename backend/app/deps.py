@@ -61,6 +61,17 @@ def require_superadmin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def require_privileged(user: User = Depends(get_current_user)) -> User:
+    """Super Admin o administrador de un proveedor (acceso a backups/Dirve).
+
+    El Super Admin actúa a nivel global (tenant NULL); el administrador solo
+    sobre su propio proveedor.
+    """
+    if user.role not in ("superadmin", "admin"):
+        raise HTTPException(status_code=403, detail="Acceso restringido al administrador")
+    return user
+
+
 def get_or_create_settings(db: Session) -> Setting:
     setting = db.get(Setting, 1)
     if setting is None:

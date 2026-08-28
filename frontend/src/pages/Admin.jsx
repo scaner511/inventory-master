@@ -362,6 +362,8 @@ export function CompanyTab() {
 /* ================= BACKUPS ================= */
 
 export function BackupsTab() {
+  const { user } = useAuth()
+  const isSuper = user?.role === 'superadmin'
   const [backups, setBackups] = useState([])
   const [running, setRunning] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -373,17 +375,21 @@ export function BackupsTab() {
   const restoreRef = useRef(null)
 
   const load = useCallback(async () => {
-    try {
-      setBackups(await listBackups())
-    } catch {
-      /* interceptor */
+    if (isSuper) {
+      try {
+        setBackups(await listBackups())
+      } catch {
+        /* interceptor */
+      }
+    } else {
+      setBackups([])
     }
     try {
       setDrive(await getDriveStatus())
     } catch {
       setDrive({ configured: false, mode: null, folder_id: null, auto_upload: false, oauth_available: false })
     }
-  }, [])
+  }, [isSuper])
 
   useEffect(() => {
     load()
@@ -526,17 +532,23 @@ export function BackupsTab() {
         <div>
           <h3 className="font-bold text-slate-100">Backups automáticos</h3>
           <p className="text-sm text-slate-400">
-            Se genera un respaldo diario a las 03:00 con retención de 30 días. La copia se crea con pg_dump (o Excel si pg_dump no está disponible).
+            {isSuper
+              ? 'Se genera un respaldo diario a las 03:00 con retención de 30 días. La copia se crea con pg_dump (o Excel si pg_dump no está disponible).'
+              : 'Respalda los datos de tu proveedor (solo los tuyos) y guárdalos en tu propio Google Drive.'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <input ref={restoreRef} type="file" accept=".xlsx" className="hidden" onChange={handleRestore} />
-          <Button variant="ghost" onClick={() => restoreRef.current?.click()} disabled={busy}>
-            📂 Cargar base de datos anterior
-          </Button>
-          <Button variant="warning" onClick={handlePurge} disabled={busy}>
-            🧹 Borrar todas menos la última
-          </Button>
+          {isSuper && (
+            <>
+              <input ref={restoreRef} type="file" accept=".xlsx" className="hidden" onChange={handleRestore} />
+              <Button variant="ghost" onClick={() => restoreRef.current?.click()} disabled={busy}>
+                📂 Cargar base de datos anterior
+              </Button>
+              <Button variant="warning" onClick={handlePurge} disabled={busy}>
+                🧹 Borrar todas menos la última
+              </Button>
+            </>
+          )}
           <Button variant="success" onClick={handleRun} disabled={running || busy}>
             {running ? 'Generando...' : '💾 Hacer backup ahora'}
           </Button>
@@ -600,9 +612,9 @@ export function BackupsTab() {
         </div>
       </div>
 
-      {backups.length === 0 ? (
-        <EmptyState message="Aún no hay backups" />
-      ) : (
+      {isSuper && backs.length === 0 && <EmptyState message="Aún no hay backups" />}
+
+      {isSuper && backups.length > 0 && (
         <Table
           columns={[
             { key: 'name', label: 'Archivo' },
@@ -686,7 +698,7 @@ export function BackupsTab() {
                       >
                         ⬇️
                       </button>
-                      {f.kind === 'excel' && (
+                      {isSuper && f.kind === 'excel' && (
                         <button
                           onClick={() => handleRestoreFromDrive(f)}
                           disabled={driveBusyId === f.id}
@@ -703,7 +715,7 @@ export function BackupsTab() {
             </Table>
           )}
           <p className="mt-3 text-xs text-slate-500">
-            ⬇️ descarga el respaldo a tu equipo · ♻️ restaura los datos directamente desde Drive (reemplaza todo lo actual)
+            ⬇️ descarga el respaldo a tu equipo{isSuper ? ' · ♻️ restaura los datos directamente desde Drive (reemplaza todo lo actual)' : ''}
           </p>
         </div>
       )}

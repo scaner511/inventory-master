@@ -56,34 +56,45 @@ def _sign(data: str) -> str:
     return _b64url(mac)
 
 
-def make_state(return_path: str = "/admin", frontend_origin: str = "") -> str:
-    """Estado firmado (CSRF) para el flujo OAuth: ts.nonce.ruta.origen.firma.
+def make_state(return_path: str = "/admin", frontend_origin: str = "", tenant_id: str = "") -> str:
+    """Estado firmado (CSRF) para el flujo OAuth: ts.nonce.tenant.ruta.origen.firma.
 
-    El origen del panel viaja dentro del estado firmado porque la petición del
-    callback llega desde Google y no permite confiar en sus cabeceras.
+    El origen del panel y el tenant del proveedor viajan dentro del estado
+    firmado porque el callback llega desde Google y no permite confiar en sus
+    cabeceras.
     """
     ts = str(int(time.time()))
     nonce = secrets.token_urlsafe(12)
     payload = ".".join(
-        [ts, nonce, _b64url(return_path.encode("utf-8")), _b64url(frontend_origin.encode("utf-8"))]
+        [
+            ts,
+            nonce,
+            _b64url(tenant_id.encode("utf-8")),
+            _b64url(return_path.encode("utf-8")),
+            _b64url(frontend_origin.encode("utf-8")),
+        ]
     )
     return f"{payload}.{_sign(payload)}"
 
 
-def verify_state(state: str) -> tuple[str, str] | None:
-    """Devuelve (ruta_retorno, origen_frontend) si es válido y reciente; si no, None."""
+def verify_state(state: str) -> tuple[str, str, str] | None:
+    """Devuelve (ruta_retorno, origen_frontend, tenant_id) si es válido/reciente; si no, None."""
     try:
-        ts, nonce, return_b64, origin_b64, sig = state.split(".")
-        payload = f"{ts}.{nonce}.{return_b64}.{origin_b64}"
+        ts, nonce, tenant_b64, return_b64, origin_b64, sig = state.split(".")
+        payload = f"{ts}.{nonce}.{tenant_b64}.{return_b64}.{origin_b64}"
         if not hmac.compare_digest(sig, _sign(payload)):
             return None
         if int(time.time()) - int(ts) > STATE_MAX_AGE_SECONDS:
             return None
-        pad_r = "=" * (-len(return_b64) % 4)
-        pad_o = "=" * (-len(origin_b64) % 4)
-        return_path = base64.urlsafe_b64decode(return_b64 + pad_r).decode("utf-8")
-        origin = base64.urlsafe_b64decode(origin_b64 + pad_o).decode("utf-8")
-        return return_path, origin
+
+        def _dec(b64: str) -> str:
+            pad = "=" * (-len(b64) % 4)
+            return base64.urlsafe_b64decode(b64 + pad).decode("utf-8")
+
+        tenant_id = _dec(tenant_b64)
+        return_path = _dec(return_b64)
+        origin = _dec(origin_b64)
+        return return_path, origin, tenant_id
     except Exception:
         return None
 
@@ -110,10 +121,14 @@ def oauth_configured() -> bool:
     return bool(settings.google_oauth_client_id.strip()) and bool(settings.google_oauth_client_secret.strip())
 
 
-def get_connection(db: Session):
+def get_connection(db: Session, tenant_id: int | None):
     from app.models import DriveConnection
 
-    conn = db.get(DriveConnection, 1)
+    conn = (
+        db.query(DriveConnection)
+        .filter(DriveConnection.tenant_id == tenant_id)
+        .first()
+    )
     if conn is not None and conn.refresh_token:
         return conn
     return None
@@ -155,25 +170,32 @@ def fetch_user_email(access_token: str) -> str | None:
         return None
 
 
-def save_connection(db: Session, refresh_token: str, email: str | None) -> None:
+def save_connection(db: Session, tenant_id: int | None, refresh_token: str, email: str | None) -> None:
     from app.models import DriveConnection
 
-    conn = db.get(DriveConnection, 1)
+    conn = (
+        db.query(DriveConnection)
+        .filter(DriveConnection.tenant_id == tenant_id)
+        .first()
+    )
     if conn is None:
-        conn = DriveConnection(id=1)
+        conn = DriveConnection(tenant_id=tenant_id)
         db.add(conn)
     conn.refresh_token = refresh_token
     conn.email = email
     conn.connected_at = datetime.now()
-    # La carpeta se descubre/crea en la primera subida; conservar la previa si existe.
     db.commit()
 
 
-def disconnect(db: Session) -> bool:
-    """Revoca el token en Google y borra la conexión local. Devuelve si había conexión."""
+def disconnect(db: Session, tenant_id: int | None) -> bool:
+    """Revoca el token en Google y borra la conexión del proveedor."""
     from app.models import DriveConnection
 
-    conn = db.get(DriveConnection, 1)
+    conn = (
+        db.query(DriveConnection)
+        .filter(DriveConnection.tenant_id == tenant_id)
+        .first()
+    )
     if conn is None or not conn.refresh_token:
         return False
     try:
@@ -267,18 +289,18 @@ def test_service_account_connection() -> dict:
 # API unificada
 # ==========================================================================
 
-def active_mode(db: Session) -> str | None:
+def active_mode(db: Session, tenant_id: int | None) -> str | None:
     """'oauth' | 'service_account' | None según lo que esté listo para usarse."""
-    if oauth_configured() and get_connection(db) is not None:
+    if oauth_configured() and get_connection(db, tenant_id) is not None:
         return "oauth"
     if is_service_account_configured():
         return "service_account"
     return None
 
 
-def status_info(db: Session) -> dict:
-    mode = active_mode(db)
-    conn = get_connection(db) if mode == "oauth" else None
+def status_info(db: Session, tenant_id: int | None) -> dict:
+    mode = active_mode(db, tenant_id)
+    conn = get_connection(db, tenant_id) if mode == "oauth" else None
     return {
         "configured": mode is not None,
         "mode": mode,
@@ -292,11 +314,11 @@ def status_info(db: Session) -> dict:
     }
 
 
-def test_connection(db: Session) -> dict:
+def test_connection(db: Session, tenant_id: int | None) -> dict:
     """Comprueba la conexión activa. Devuelve info descriptiva o lanza error."""
-    mode = active_mode(db)
+    mode = active_mode(db, tenant_id)
     if mode == "oauth":
-        conn = get_connection(db)
+        conn = get_connection(db, tenant_id)
         svc = _build_service_from_oauth(conn)
         folder_id, folder_name = _ensure_folder(svc, conn)
         db.commit()  # persistir carpeta si se acaba de crear
@@ -328,13 +350,13 @@ def _build_service_from_oauth(conn):
     return build("drive", "v3", credentials=_oauth_credentials(conn), cache_discovery=False)
 
 
-def upload_file(path: Path, db: Session) -> dict:
+def upload_file(path: Path, db: Session, tenant_id: int | None) -> dict:
     """Sube un archivo al Drive configurado (OAuth o cuenta de servicio)."""
-    mode = active_mode(db)
+    mode = active_mode(db, tenant_id)
     if mode == "oauth":
         from googleapiclient.http import MediaFileUpload
 
-        conn = get_connection(db)
+        conn = get_connection(db, tenant_id)
         svc = _build_service_from_oauth(conn)
         folder_id, folder_name = _ensure_folder(svc, conn)
         media = MediaFileUpload(str(path), resumable=True)
@@ -370,11 +392,11 @@ def upload_file(path: Path, db: Session) -> dict:
     )
 
 
-def _drive_service(db: Session):
+def _drive_service(db: Session, tenant_id: int | None):
     """Servicio de Drive según el modo activo (OAuth o cuenta de servicio)."""
-    mode = active_mode(db)
+    mode = active_mode(db, tenant_id)
     if mode == "oauth":
-        return _build_service_from_oauth(get_connection(db))
+        return _build_service_from_oauth(get_connection(db, tenant_id))
     if mode == "service_account":
         return _get_service_account_service()
     raise RuntimeError(
@@ -382,17 +404,17 @@ def _drive_service(db: Session):
     )
 
 
-def list_backups(db: Session) -> dict:
-    """Lista los respaldos del sistema guardados en la carpeta de Drive.
+def list_backups(db: Session, tenant_id: int | None) -> dict:
+    """Lista los respaldos del proveedor guardados en la carpeta de Drive.
 
     Devuelve {"mode": ..., "files": [...]} con los más recientes primero.
     """
-    svc = _drive_service(db)
-    mode = active_mode(db)
+    svc = _drive_service(db, tenant_id)
+    mode = active_mode(db, tenant_id)
 
     folder_id = ""
     if mode == "oauth":
-        conn = get_connection(db)
+        conn = get_connection(db, tenant_id)
         folder_id = (conn.folder_id or "").strip() if conn else ""
     else:
         folder_id = (settings.google_drive_folder_id or "").strip()
@@ -426,14 +448,14 @@ def list_backups(db: Session) -> dict:
     return {"mode": mode, "files": files}
 
 
-def download_file_bytes(db: Session, file_id: str) -> tuple[str, bytes]:
+def download_file_bytes(db: Session, file_id: str, tenant_id: int | None) -> tuple[str, bytes]:
     """Descarga un archivo por id desde el Drive configurado. Devuelve (nombre, bytes)."""
     try:
         from googleapiclient.http import MediaIoBaseDownload
     except ImportError as e:
         raise RuntimeError("Faltan las librerías de Google. Instala requirements.txt actualizado.") from e
 
-    svc = _drive_service(db)
+    svc = _drive_service(db, tenant_id)
     meta = svc.files().get(fileId=file_id, fields="id,name").execute()
     name = meta.get("name") or "backup"
     buffer = io.BytesIO()

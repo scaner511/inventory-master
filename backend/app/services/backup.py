@@ -9,12 +9,15 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 
 from app.config import settings
 
 # Tablas que no se incluyen en los respaldos Excel (tokens/credenciales).
 EXCLUDED_TABLES = {"drive_connection"}
+
+# Tablas que NO se respaldan por proveedor (son globales del sistema).
+_GLOBAL_TABLES = {"settings", "licenses", "used_license_keys"}
 
 
 def _pg_dump_available() -> bool:
@@ -47,6 +50,47 @@ def _excel_backup(db, dest: Path) -> None:
             df.to_excel(writer, sheet_name=sheet, index=False)
 
 
+def _df_for_tenant(db, table: str, tenant_id: int | None) -> pd.DataFrame:
+    """Devuelve el DataFrame de una tabla, filtrado a un proveedor.
+
+    - Tablas globales del sistema (settings/licenses/used_license_keys): se
+      incluyen completas (son compartidas por todos los proveedores).
+    - Tablas con tenant_id (products, loans, users, audit_logs): SOLO las filas
+      de ese proveedor.
+    - Super Admin (tenant_id None): respaldo completo.
+    """
+    cols = {c["name"] for c in inspect(db.bind).get_columns(table)}
+    if table in _GLOBAL_TABLES:
+        return pd.read_sql_table(table, db.bind)
+    if tenant_id is not None and "tenant_id" in cols:
+        return pd.read_sql(
+            text(f"SELECT * FROM {table} WHERE tenant_id = :t"),
+            db.bind, params={"t": tenant_id},
+        )
+    return pd.read_sql_table(table, db.bind)
+
+
+def create_tenant_backup(db, tenant_id: int | None, tenant_prefix: str = "") -> tuple[Path, str]:
+    """Crea un backup del proveedor (solo sus datos) en Excel.
+
+    Retorna (ruta, tipo='excel'). El nombre incluye un prefijo del proveedor
+    para distinguir los backups de cada uno cuando se comparte carpeta.
+    """
+    folder = settings.backup_path
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    name = f"backup_{tenant_prefix or 'global'}_{stamp}.xlsx"
+    dest = folder / name
+    inspector = inspect(db.bind)
+    with pd.ExcelWriter(dest, engine="openpyxl") as writer:
+        for table in inspector.get_table_names():
+            if table in EXCLUDED_TABLES:
+                continue
+            df = _df_for_tenant(db, table, tenant_id)
+            sheet = table[:31].replace("$", "_")
+            df.to_excel(writer, sheet_name=sheet, index=False)
+    return dest, "excel"
+
+
 def create_backup(db) -> tuple[Path, str]:
     """Crea un backup. Retorna (ruta, tipo) donde tipo es 'postgres' o 'excel'."""
     folder = settings.backup_path
@@ -67,7 +111,7 @@ def cleanup_old_backups() -> int:
     folder = settings.backup_path
     retention = settings.backup_retention_days
     deleted = 0
-    for f in folder.glob("inventario_backup_*"):
+    for f in _backup_files(folder):
         try:
             age_days = (datetime.now() - datetime.fromtimestamp(f.stat().st_mtime)).days
             if age_days > retention:
@@ -78,20 +122,29 @@ def cleanup_old_backups() -> int:
     return deleted
 
 
+def _backup_files(folder: Path):
+    """Archivos de backup locales (legados 'inventario_backup_*' y actuales 'backup_*')."""
+    seen = {}
+    for pat in ("inventario_backup_*", "backup_*"):
+        for f in folder.glob(pat):
+            if f.is_file():
+                seen[f.name] = f
+    return seen.values()
+
+
 def list_backups() -> list[dict]:
     folder = settings.backup_path
     backups = []
-    for f in folder.glob("inventario_backup_*"):
-        if f.is_file():
-            backups.append(
-                {
-                    "name": f.name,
-                    "size_kb": round(f.stat().st_size / 1024, 1),
-                    "created": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-                    "url": f"/api/backup/download/{f.name}",
-                    "kind": "postgres" if f.suffix == ".sql" else "excel",
-                }
-            )
+    for f in _backup_files(folder):
+        backups.append(
+            {
+                "name": f.name,
+                "size_kb": round(f.stat().st_size / 1024, 1),
+                "created": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+                "url": f"/api/backup/download/{f.name}",
+                "kind": "postgres" if f.suffix == ".sql" else "excel",
+            }
+        )
     backups.sort(key=lambda b: b["created"], reverse=True)
     return backups
 

@@ -63,9 +63,62 @@ def _migrate_accept_terms(db: Session) -> None:
     db.commit()
 
 
+def _migrate_drive_per_tenant(db: Session) -> None:
+    """Convierte drive_connection a conexión por proveedor (columna tenant_id)."""
+    if "drive_connection" not in _table_names():
+        return
+    if "tenant_id" not in _table_columns("drive_connection"):
+        db.execute(text("ALTER TABLE drive_connection ADD COLUMN tenant_id INTEGER"))
+        db.commit()
+    # La antigua conexión única (id=1) era del Super Admin global (tenant NULL);
+    # ya queda así con tenant_id NULL, no requiere migración adicional.
+    if engine.dialect.name == "postgresql":
+        db.execute(
+            text("ALTER TABLE drive_connection DROP CONSTRAINT IF EXISTS ck_drive_connection_single_row")
+        )
+        db.commit()
+    elif engine.dialect.name == "sqlite":
+        # SQLite no admite DROP CONSTRAINT; comprobamos si la restricción sigue
+        # y, de existir, la quitamos reconstruyendo la tabla.
+        row = db.execute(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='drive_connection'"
+            )
+        ).fetchone()
+        if row and row[0] and "ck_drive_connection_single_row" in row[0]:
+            _rebuild_drive_connection_sqlite(db)
+
+
+def _rebuild_drive_connection_sqlite(db: Session) -> None:
+    """Reconstruye drive_connection sin la restricción de una sola fila (SQLite)."""
+    db.execute(text("CREATE TABLE drive_connection_new ("
+                    "id INTEGER NOT NULL PRIMARY KEY, "
+                    "tenant_id INTEGER, "
+                    "email VARCHAR(255), "
+                    "refresh_token TEXT, "
+                    "folder_id TEXT, "
+                    "folder_name VARCHAR(255), "
+                    "connected_at DATETIME, "
+                    "UNIQUE (tenant_id))"))
+    db.execute(text("INSERT INTO drive_connection_new (id, tenant_id, email, refresh_token, "
+                    "folder_id, folder_name, connected_at) "
+                    "SELECT id, tenant_id, email, refresh_token, folder_id, folder_name, "
+                    "connected_at FROM drive_connection"))
+    db.execute(text("DROP TABLE drive_connection"))
+    db.execute(text("ALTER TABLE drive_connection_new RENAME TO drive_connection"))
+    db.commit()
+
+
 def _table_columns(table: str) -> set[str]:
     try:
         return {c["name"] for c in inspect(engine).get_columns(table)}
+    except Exception:
+        return set()
+
+
+def _table_names() -> set[str]:
+    try:
+        return {t for t in inspect(engine).get_table_names()}
     except Exception:
         return set()
 
@@ -265,6 +318,7 @@ def init_db() -> None:
         _migrate_license_machine_code(db)
         _migrate_accept_terms(db)
         _migrate_tenant_max_users(db)
+        _migrate_drive_per_tenant(db)
 
         # Proveedor principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)
@@ -343,9 +397,9 @@ def _run_scheduled_backup() -> None:
         if settings.google_drive_auto_upload:
             from app.services import gdrive
 
-            if gdrive.active_mode(db):
+            if gdrive.active_mode(db, None):
                 try:
-                    gdrive.upload_file(path, db)
+                    gdrive.upload_file(path, db, None)
                 except Exception:
                     pass  # la copia local ya está a salvo; Drive se reintenta al día siguiente
     finally:

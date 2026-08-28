@@ -166,15 +166,20 @@ class UsedLicenseKey(Base):
 
 
 class DriveConnection(Base):
-    """Conexión OAuth de Google Drive (una sola por instalación).
+    """Conexión OAuth de Google Drive por proveedor (tenant).
 
-    Se excluye de los respaldos Excel para no propagar el refresh_token.
+    Cada proveedor vincula su propia cuenta de Google de su administrador y
+    respalda ahí SOLO sus propios datos. Por eso hay una fila por tenant y
+    NO se incluye en los respaldos Excel (no se propaga el refresh_token).
     """
 
     __tablename__ = "drive_connection"
-    __table_args__ = (CheckConstraint("id = 1", name="ck_drive_connection_single_row"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Proveedor al que pertenece esta conexión. NULL = global (superadmin).
+    tenant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tenants.id"), nullable=True, unique=True, index=True
+    )
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     folder_id: Mapped[str | None] = mapped_column(Text, nullable=True)
