@@ -279,15 +279,6 @@ function TenantsTab() {
               <Field label="Contraseña inicial" hint="Si se deja vacía, se usará la genérica">
                 <Input value={form.admin_password} onChange={(e) => setForm({ ...form, admin_password: e.target.value })} placeholder="Mínimo 6 caracteres" />
               </Field>
-              <Field label="Límite de usuarios del proveedor" hint="Incluye al administrador. Si se deja vacío, se usa el límite global del sistema">
-                <Input
-                  type="number"
-                  min="1"
-                  value={form.max_users}
-                  onChange={(e) => setForm({ ...form, max_users: e.target.value })}
-                  placeholder="Ej: 2"
-                />
-              </Field>
               <p className="text-xs text-slate-500">El administrador deberá cambiar su contraseña en el primer inicio de sesión.</p>
             </>
           )}
