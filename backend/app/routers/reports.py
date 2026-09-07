@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timedelta
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -37,15 +38,17 @@ def daily_report(db: Session = Depends(get_db), user: User = Depends(get_current
     day_start = datetime.combine(today, time.min)          # hoy 00:00
     day_end = day_start + timedelta(days=1)                # mañana 00:00
 
-    df_inventory = pd.read_sql_query(
-        """
-        SELECT code AS Codigo, name AS Nombre, stock AS Stock,
-               purchase_price AS Compra, sale_price AS Venta,
-               location1 AS Ubicacion1, location2 AS Ubicacion2, location3 AS Ubicacion3
-        FROM products
-        WHERE tenant_id = :tid
-        ORDER BY name
-        """,
+    df_inventory = pd.read_sql(
+        text(
+            """
+            SELECT code AS Codigo, name AS Nombre, stock AS Stock,
+                   purchase_price AS Compra, sale_price AS Venta,
+                   location1 AS Ubicacion1, location2 AS Ubicacion2, location3 AS Ubicacion3
+            FROM products
+            WHERE tenant_id = :tid
+            ORDER BY name
+            """
+        ),
         db.bind,
         params={"tid": user.tenant_id},
     )
@@ -54,14 +57,18 @@ def daily_report(db: Session = Depends(get_db), user: User = Depends(get_current
     # siguiente) en vez de DATE(): así la consulta sirve igual en SQLite y en
     # PostgreSQL, donde comparar una columna date con un parámetro de texto
     # rompe porque no existe el operador date = character varying.
-    df_movements = pd.read_sql_query(
-        """
-        SELECT a.timestamp AS Fecha, COALESCE(u.username, 'Sistema') AS Usuario,
-               a.action AS Accion, a.product_name AS Producto, a.quantity AS Cantidad
-        FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
-        WHERE a.tenant_id = :tid AND a.timestamp >= :start AND a.timestamp < :end
-        ORDER BY a.timestamp DESC
-        """,
+    # IMPORTANTE: se usa text(...) para que SQLAlchemy bindee :tid/:start/:end;
+    # pasar SQL crudo a pandas con params rompe en PostgreSQL (sintaxis ':').
+    df_movements = pd.read_sql(
+        text(
+            """
+            SELECT a.timestamp AS Fecha, COALESCE(u.username, 'Sistema') AS Usuario,
+                   a.action AS Accion, a.product_name AS Producto, a.quantity AS Cantidad
+            FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
+            WHERE a.tenant_id = :tid AND a.timestamp >= :start AND a.timestamp < :end
+            ORDER BY a.timestamp DESC
+            """
+        ),
         db.bind,
         params={"tid": user.tenant_id, "start": day_start, "end": day_end},
     )
