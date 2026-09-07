@@ -1,6 +1,6 @@
 """Reportes: Excel diario y comprobante PDF de préstamo."""
 import io
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,7 +32,10 @@ def _excel_response(df: pd.DataFrame, filename: str) -> StreamingResponse:
 @router.get("/daily")
 def daily_report(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Inventario completo + movimientos del día en un solo Excel."""
-    today_str = date.today().strftime("%Y-%m-%d")
+    today = date.today()
+    today_str = today.strftime("%Y-%m-%d")
+    day_start = datetime.combine(today, time.min)          # hoy 00:00
+    day_end = day_start + timedelta(days=1)                # mañana 00:00
 
     df_inventory = pd.read_sql_query(
         """
@@ -47,16 +50,20 @@ def daily_report(db: Session = Depends(get_db), user: User = Depends(get_current
         params={"tid": user.tenant_id},
     )
 
+    # Se filtran los movimientos por rango (>= inicio del día y < inicio del
+    # siguiente) en vez de DATE(): así la consulta sirve igual en SQLite y en
+    # PostgreSQL, donde comparar una columna date con un parámetro de texto
+    # rompe porque no existe el operador date = character varying.
     df_movements = pd.read_sql_query(
         """
         SELECT a.timestamp AS Fecha, COALESCE(u.username, 'Sistema') AS Usuario,
                a.action AS Accion, a.product_name AS Producto, a.quantity AS Cantidad
         FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
-        WHERE a.tenant_id = :tid AND DATE(a.timestamp) = :day
+        WHERE a.tenant_id = :tid AND a.timestamp >= :start AND a.timestamp < :end
         ORDER BY a.timestamp DESC
         """,
         db.bind,
-        params={"tid": user.tenant_id, "day": today_str},
+        params={"tid": user.tenant_id, "start": day_start, "end": day_end},
     )
 
     buffer = io.BytesIO()
