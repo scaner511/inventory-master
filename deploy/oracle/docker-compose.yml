@@ -1,0 +1,114 @@
+name: inventario-master
+
+# ============================================================
+# Despliegue para Oracle Cloud Always Free (VM ARM64 Ampere)
+# Servicios: PostgreSQL + API FastAPI + Caddy (HTTPS automático)
+#
+# Uso:
+#   cp deploy/oracle/.env.oracle.example deploy/oracle/.env
+#   # editar .env con credenciales y dominio reales
+#   docker compose -f deploy/oracle/docker-compose.yml up -d --build
+# ============================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: inventario_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-inventario}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en deploy/oracle/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-inventario_db}
+      TZ: ${TZ:-America/Mexico_City}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  api:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    container_name: inventario_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Base de datos (host = nombre de servicio `db`, no usar localhost)
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-inventario}:${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en deploy/oracle/.env}@db:5432/${POSTGRES_DB:-inventario_db}
+
+      # Seguridad (OBLIGATORIO cambiarlas en tu .env)
+      SECRET_KEY: ${SECRET_KEY:?define SECRET_KEY en deploy/oracle/.env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?define ADMIN_PASSWORD en deploy/oracle/.env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@mccea.local}
+      SUPERADMIN_USERNAME: ${SUPERADMIN_USERNAME:-superadmin}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:?define SUPERADMIN_PASSWORD en deploy/oracle/.env}
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-superadmin@mccea.local}
+
+      # CORS: orígenes del panel (Vercel o dominio propio) y regex de respaldo
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://tu-panel.vercel.app}
+      CORS_ORIGIN_REGEX: ${CORS_ORIGIN_REGEX:-https://.*\.vercel\.app}
+
+      # URL pública de esta API (para OAuth de Google Drive)
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://TU-API.tudominio.com}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-https://tu-panel.vercel.app}
+
+      # Multi-proveedor
+      DEFAULT_TENANT_NAME: ${DEFAULT_TENANT_NAME:-Proveedor Principal}
+      MAX_USERS_PER_TENANT: ${MAX_USERS_PER_TENANT:-4}
+
+      # Backups diarios (programados por APScheduler; carpeta montada en volumen)
+      BACKUP_HOUR: ${BACKUP_HOUR:-03:00}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+
+      # Google Drive (opcional)
+      GOOGLE_DRIVE_FOLDER_ID: ${GOOGLE_DRIVE_FOLDER_ID:-}
+      GOOGLE_DRIVE_AUTO_UPLOAD: ${GOOGLE_DRIVE_AUTO_UPLOAD:-false}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+
+      # Licencia offline (la MISMA SECRET_KEY que usa tools/generador_licencias_offline.py)
+      LICENSE_PREFIX: ${LICENSE_PREFIX:-MC26}
+      LICENSE_DURATION_DAYS: ${LICENSE_DURATION_DAYS:-30}
+      # Mismo valor por defecto que offline_license.py: así las claves ya
+      # generadas siguen validando. Si usas LICENSE_SECRET_KEY distinta en el
+      # generador, pon la misma aquí.
+      LICENSE_SECRET_KEY: ${LICENSE_SECRET_KEY:-6c5ab6f076be4a57a76a81c1dfc19000a6dd493b054f91b3520dc8206919fcf8}
+
+      # Comportamiento general
+      LOW_STOCK_THRESHOLD: ${LOW_STOCK_THRESHOLD:-5}
+      DEFAULT_GENERIC_PASSWORD: ${DEFAULT_GENERIC_PASSWORD:-Cambiar123!}
+    volumes:
+      - backups_data:/app/backups
+      - uploads_data:/app/uploads/logos
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: inventario_caddy
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?define API_DOMAIN (ej. api.tudominio.com) en deploy/oracle/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  backups_data:
+  uploads_data:
+  caddy_data:
+  caddy_config:

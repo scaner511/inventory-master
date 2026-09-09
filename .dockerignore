@@ -1,0 +1,40 @@
+# ===== Git / metadatos =====
+.git
+.gitignore
+.gitattributes
+.github
+README.md
+
+# ===== Python =====
+__pycache__
+*.py[cod]
+*.egg-info
+.venv
+venv
+env
+.pytest_cache
+.mypy_cache
+
+# ===== Credenciales / entorno (NUNCA en la imagen) =====
+.env
+.env.*
+!.env.example
+!.env.oracle.example
+render.yaml
+
+# ===== Frontend (no se sirve desde el contenedor de la API) =====
+frontend
+node_modules
+
+# ===== Datos generados por la app =====
+*.db
+*.sqlite3
+backend/inventario_dev.db
+backend/backups
+backend/uploads
+
+# ===== Documentación / móvil / herramientas locales =====
+docs
+mobile
+tools
+Designer.png
