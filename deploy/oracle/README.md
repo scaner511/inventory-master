@@ -183,9 +183,10 @@ del `Caddyfile` y usa el bloque `:80` (HTTP simple con la IP).
 
 Una vez el API responde en el dominio nuevo:
 
-1. **Panel (Vercel)**: en el proyecto, variable de entorno
-   `VITE_API_URL=http://localhost:5173/api` → `https://tu-dominio/api` y redeploy.
-   (Según cómo consumes el API; ajusta la variable real usada por el frontend).
+1. **Panel (Vercel)**: sigue la guía
+   [deploy/oracle/VERCEL.md](VERCEL.md): cambia `VITE_API_URL` al dominio nuevo
+   y redeployea. (Cómo funciona: `frontend/src/client.js` construye `API_BASE`
+   desde `VITE_API_URL` y agrega `/api` automáticamente).
 2. **CORS**: `CORS_ORIGINS` en `deploy/oracle/.env` debe incluir el origen exacto
    del panel (`https://tu-panel.vercel.app`).
 3. **Google Drive OAuth** (si usas "Conectar con Google Drive"): en
