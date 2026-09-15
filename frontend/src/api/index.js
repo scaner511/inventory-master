@@ -183,7 +183,7 @@ export async function disconnectDrive() {
   return data
 }
 
-/* ================= SUPER ADMIN (multi-proveedor) ================= */
+/* ================= SUPER ADMIN (multi-cliente) ================= */
 
 export async function getTenants() {
   const { data } = await api.get('/superadmin/tenants')

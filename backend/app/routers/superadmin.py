@@ -1,4 +1,4 @@
-"""Panel de Super Admin: proveedores (tenants) y gestión global de usuarios.
+"""Panel de Super Admin: clientes (tenants) y gestión global de usuarios.
 
 Solo el Super Admin (role=superadmin) puede acceder a estas rutas.
 """
@@ -39,7 +39,7 @@ def _tenant_users_count(db: Session, tenant_id: int) -> int:
 
 
 def _tenant_max_users(tenant: Tenant) -> int:
-    """Límite de usuarios efectivo: el del proveedor o, si no lo definió el
+    """Límite de usuarios efectivo: el del cliente o, si no lo definió el
     Super Admin, el valor global."""
     return tenant.max_users or settings.max_users_per_tenant
 
@@ -50,14 +50,14 @@ def _ensure_user_quota(db: Session, tenant_id: int) -> None:
     if _tenant_users_count(db, tenant_id) >= limit:
         raise HTTPException(
             status_code=400,
-            detail=f"El proveedor ya alcanzó el máximo de {limit} usuarios",
+            detail=f"El cliente ya alcanzó el máximo de {limit} usuarios",
         )
 
 
 def _get_tenant(db: Session, tenant_id: int) -> Tenant:
     tenant = db.get(Tenant, tenant_id)
     if tenant is None:
-        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
     return tenant
 
 
@@ -69,7 +69,7 @@ def _get_user(db: Session, user_id: int) -> User:
 
 
 def _ensure_admin_remains(db: Session, user: User) -> None:
-    """Evita dejar a un proveedor sin ningún administrador."""
+    """Evita dejar a un cliente sin ningún administrador."""
     if user.role != "admin" or user.tenant_id is None:
         return
     others = (
@@ -86,7 +86,7 @@ def _ensure_admin_remains(db: Session, user: User) -> None:
     if others == 0:
         raise HTTPException(
             status_code=400,
-            detail="No se puede dejar al proveedor sin ningún administrador",
+            detail="No se puede dejar al cliente sin ningún administrador",
         )
 
 
@@ -104,7 +104,7 @@ def list_tenants(db: Session = Depends(get_db)):
 @router.post("/tenants", response_model=TenantOut, status_code=201)
 def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
     if db.query(Tenant).filter(Tenant.name == data.name).first():
-        raise HTTPException(status_code=400, detail="Ya existe un proveedor con ese nombre")
+        raise HTTPException(status_code=400, detail="Ya existe un cliente con ese nombre")
     if db.query(User).filter(User.username == data.admin_username).first():
         raise HTTPException(status_code=400, detail="El nombre de usuario del administrador ya existe")
 
@@ -136,7 +136,7 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
     tenant = _get_tenant(db, tenant_id)
     if data.name is not None:
         if data.name != tenant.name and db.query(Tenant).filter(Tenant.name == data.name).first():
-            raise HTTPException(status_code=400, detail="Ya existe un proveedor con ese nombre")
+            raise HTTPException(status_code=400, detail="Ya existe un cliente con ese nombre")
         tenant.name = data.name
     if data.is_active is not None:
         tenant.is_active = data.is_active
@@ -145,14 +145,14 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
         if tenant.max_users and _tenant_users_count(db, tenant_id) > settings.max_users_per_tenant:
             raise HTTPException(
                 status_code=400,
-                detail=f"No se puede quitar el límite: el proveedor tiene {_tenant_users_count(db, tenant_id)} usuarios y el global es {settings.max_users_per_tenant}",
+                detail=f"No se puede quitar el límite: el cliente tiene {_tenant_users_count(db, tenant_id)} usuarios y el global es {settings.max_users_per_tenant}",
             )
         tenant.max_users = None
     elif data.max_users is not None:
         if _tenant_users_count(db, tenant_id) > data.max_users:
             raise HTTPException(
                 status_code=400,
-                detail=f"No se puede fijar {data.max_users} usuarios: el proveedor ya tiene {_tenant_users_count(db, tenant_id)}",
+                detail=f"No se puede fijar {data.max_users} usuarios: el cliente ya tiene {_tenant_users_count(db, tenant_id)}",
             )
         tenant.max_users = data.max_users
     db.commit()
@@ -172,7 +172,7 @@ def delete_tenant(tenant_id: int, db: Session = Depends(get_db)):
     db.query(User).filter(User.tenant_id == tenant_id).delete()
     db.delete(tenant)
     db.commit()
-    return {"message": f"Proveedor '{tenant.name}' eliminado correctamente."}
+    return {"message": f"Cliente '{tenant.name}' eliminado correctamente."}
 
 
 @router.get("/tenants/{tenant_id}/users", response_model=list[UserOut])

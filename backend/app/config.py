@@ -29,14 +29,14 @@ class Settings(BaseSettings):
     admin_password: str = "admin1234"
     admin_email: str = "admin@mccea.local"
 
-    # Super Admin global: crea proveedores (tenants) y administra todo el sistema.
+    # Super Admin global: crea clientes (tenants) y administra todo el sistema.
     # Si no se configuran variables de entorno, se usan estos valores de desarrollo.
     superadmin_username: str = "superadmin"
     superadmin_password: str = "SuperAdmin123!"
     superadmin_email: str = "superadmin@mccea.local"
 
-    # Multi-proveedor
-    default_tenant_name: str = "Proveedor Principal"
+    # Multi-cliente
+    default_tenant_name: str = "Cliente Principal"
     max_users_per_tenant: int = 4
 
     # Backups

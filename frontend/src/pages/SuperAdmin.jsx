@@ -19,7 +19,7 @@ import Table, { EmptyState } from '../components/ui/Table.jsx'
 import { Button, Field, Input, Select } from '../components/ui/Form.jsx'
 
 const TABS = [
-  { id: 'tenants', label: '🏢 Proveedores' },
+  { id: 'tenants', label: '🏢 Clientes' },
   { id: 'users', label: '👥 Usuarios' },
   { id: 'company', label: '🏭 Empresa' },
   { id: 'backups', label: '💾 Backups' },
@@ -36,7 +36,7 @@ function activeBadge(active) {
   return active ? <span className="text-sm text-emerald-400">✓</span> : <span className="text-sm text-red-400">✗</span>
 }
 
-/* ================= PROVEEDORES ================= */
+/* ================= CLIENTES ================= */
 
 function TenantsTab() {
   const [tenants, setTenants] = useState([])
@@ -72,7 +72,7 @@ function TenantsTab() {
           name: form.name,
           max_users: form.max_users === '' ? null : Number(form.max_users),
         })
-        toast.success('Proveedor actualizado')
+        toast.success('Cliente actualizado')
       } else {
         await createTenant({
           name: form.name,
@@ -81,7 +81,7 @@ function TenantsTab() {
           admin_email: form.admin_email,
           max_users: form.max_users === '' ? null : Number(form.max_users),
         })
-        toast.success('Proveedor creado')
+        toast.success('Cliente creado')
       }
       setEditOpen(false)
       load()
@@ -113,7 +113,7 @@ function TenantsTab() {
   async function handleToggleActive(t) {
     try {
       await updateTenant(t.id, { is_active: !t.is_active })
-      toast.success(t.is_active ? 'Proveedor desactivado' : 'Proveedor activado')
+      toast.success(t.is_active ? 'Cliente desactivado' : 'Cliente activado')
       load()
     } catch {
       /* interceptor */
@@ -121,10 +121,10 @@ function TenantsTab() {
   }
 
   async function handleDelete(t) {
-    if (!window.confirm(`Se eliminará el proveedor "${t.name}" con TODOS sus usuarios, productos, préstamos e historial. ¿Continuar?`)) return
+    if (!window.confirm(`Se eliminará el cliente "${t.name}" con TODOS sus usuarios, productos, préstamos e historial. ¿Continuar?`)) return
     try {
       await deleteTenant(t.id)
-      toast.success('Proveedor eliminado')
+      toast.success('Cliente eliminado')
       load()
     } catch {
       /* interceptor */
@@ -186,17 +186,17 @@ function TenantsTab() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-400">
-          Cada proveedor tiene sus propios productos, préstamos e historial, con hasta <span className="font-bold text-slate-200">4 usuarios</span>.
+          Cada cliente tiene sus propios productos, préstamos e historial, con hasta <span className="font-bold text-slate-200">4 usuarios</span>.
         </p>
-        <Button onClick={openCreate}>➕ Crear proveedor</Button>
+        <Button onClick={openCreate}>➕ Crear cliente</Button>
       </div>
 
       {tenants.length === 0 ? (
-        <EmptyState message="Aún no hay proveedores" />
+        <EmptyState message="Aún no hay clientes" />
       ) : (
         <Table
           columns={[
-            { key: 'name', label: 'Proveedor' },
+            { key: 'name', label: 'Cliente' },
             { key: 'users', label: 'Usuarios', align: 'center' },
             { key: 'limit', label: 'Límite', align: 'center' },
             { key: 'active', label: 'Activo', align: 'center' },
@@ -254,12 +254,12 @@ function TenantsTab() {
         </Table>
       )}
 
-      <Modal open={editOpen} onClose={() => setEditOpen(false)} title={editing ? 'Editar proveedor' : 'Crear proveedor'}>
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title={editing ? 'Editar cliente' : 'Crear cliente'}>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <Field label="Nombre del proveedor">
+          <Field label="Nombre del cliente">
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ej: Ferretería El Tornillo" required />
           </Field>
-          <Field label="Límite de usuarios del proveedor" hint="Incluye al administrador. Déjalo vacío para usar el límite global del sistema">
+          <Field label="Límite de usuarios del cliente" hint="Incluye al administrador. Déjalo vacío para usar el límite global del sistema">
             <Input
               type="number"
               min="1"
@@ -270,11 +270,11 @@ function TenantsTab() {
           </Field>
           {!editing && (
             <>
-              <Field label="Usuario administrador" hint="Primer usuario del proveedor (rol Administrador)">
+              <Field label="Usuario administrador" hint="Primer usuario del cliente (rol Administrador)">
                 <Input value={form.admin_username} onChange={(e) => setForm({ ...form, admin_username: e.target.value })} placeholder="Ej: juan_admin" required />
               </Field>
               <Field label="Email del administrador" hint="Opcional">
-                <Input type="email" value={form.admin_email} onChange={(e) => setForm({ ...form, admin_email: e.target.value })} placeholder="admin@proveedor.com" />
+                <Input type="email" value={form.admin_email} onChange={(e) => setForm({ ...form, admin_email: e.target.value })} placeholder="admin@cliente.com" />
               </Field>
               <Field label="Contraseña inicial" hint="Si se deja vacía, se usará la genérica">
                 <Input value={form.admin_password} onChange={(e) => setForm({ ...form, admin_password: e.target.value })} placeholder="Mínimo 6 caracteres" />
@@ -287,19 +287,19 @@ function TenantsTab() {
               Cancelar
             </Button>
             <Button type="submit" variant="success" disabled={saving}>
-              {saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Crear proveedor'}
+              {saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Crear cliente'}
             </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={Boolean(usersOpen)} onClose={() => setUsersOpen(null)} title={`Usuarios del proveedor`} wide>
+      <Modal open={Boolean(usersOpen)} onClose={() => setUsersOpen(null)} title={`Usuarios del cliente`} wide>
         <div className="space-y-4">
           <div className="flex justify-end">
             <Button onClick={() => setAddUserOpen(true)}>➕ Crear usuario</Button>
           </div>
           {tenantUsers.length === 0 ? (
-            <EmptyState message="Este proveedor aún no tiene usuarios" />
+            <EmptyState message="Este cliente aún no tiene usuarios" />
           ) : (
             <Table
               columns={[
@@ -344,13 +344,13 @@ function TenantsTab() {
         </div>
       </Modal>
 
-      <Modal open={addUserOpen} onClose={() => setAddUserOpen(false)} title="Crear usuario del proveedor">
+      <Modal open={addUserOpen} onClose={() => setAddUserOpen(false)} title="Crear usuario del cliente">
         <form onSubmit={handleAddUser} className="space-y-4">
           <Field label="Usuario">
             <Input value={userForm.username} onChange={(e) => setUserForm({ ...userForm, username: e.target.value })} placeholder="Mínimo 3 caracteres" required />
           </Field>
           <Field label="Email" hint="Opcional">
-            <Input type="email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} placeholder="usuario@proveedor.com" />
+            <Input type="email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} placeholder="usuario@cliente.com" />
           </Field>
           <Field label="Rol">
             <Select value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
@@ -465,14 +465,14 @@ function UsersTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-400">Usuarios de todos los proveedores.</p>
+      <p className="text-sm text-slate-400">Usuarios de todos los clientes.</p>
       {users.length === 0 ? (
         <EmptyState message="No hay usuarios" />
       ) : (
         <Table
           columns={[
             { key: 'username', label: 'Usuario' },
-            { key: 'tenant', label: 'Proveedor' },
+            { key: 'tenant', label: 'Cliente' },
             { key: 'role', label: 'Rol', align: 'center' },
             { key: 'active', label: 'Activo', align: 'center' },
             { key: 'terms', label: 'Términos', align: 'center' },
@@ -610,7 +610,7 @@ export default function SuperAdmin() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white md:text-3xl">Panel de Super Admin</h2>
-        <p className="text-sm text-slate-400">Gestión global de proveedores, usuarios, empresa y backups</p>
+        <p className="text-sm text-slate-400">Gestión global de clientes, usuarios, empresa y backups</p>
       </div>
 
       <div className="flex flex-wrap gap-2">

@@ -59,7 +59,7 @@ export default function Admin() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white md:text-3xl">Panel de control administrativo</h2>
-        <p className="text-sm text-slate-400">Gestión de usuarios de tu proveedor y de tu cuenta</p>
+        <p className="text-sm text-slate-400">Gestión de usuarios de tu empresa y de tu cuenta</p>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -159,7 +159,7 @@ function UsersTab() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-400">
-          Usuarios de tu proveedor: <span className="font-bold text-slate-200">{users.length}/{MAX_USERS}</span>
+          Usuarios de tu empresa: <span className="font-bold text-slate-200">{users.length}/{MAX_USERS}</span>
         </p>
         {users.length < MAX_USERS && <Button onClick={() => setCreateOpen(true)}>➕ Crear usuario</Button>}
       </div>
@@ -534,7 +534,7 @@ export function BackupsTab() {
           <p className="text-sm text-slate-400">
             {isSuper
               ? 'Se genera un respaldo diario a las 03:00 con retención de 30 días. La copia se crea con pg_dump (o Excel si pg_dump no está disponible).'
-              : 'Respalda los datos de tu proveedor (solo los tuyos) y guárdalos en tu propio Google Drive.'}
+              : 'Respalda los datos de tu empresa (solo los tuyos) y guárdalos en tu propio Google Drive.'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -746,14 +746,14 @@ export function TermsTab() {
     <div className="space-y-4">
       <p className="text-sm text-slate-400">
         Registro de aceptación de los Términos y Condiciones de Uso y la Política de Privacidad por parte de los usuarios
-        de tu proveedor.{' '}
+        de tu empresa.{' '}
         <span className="font-bold text-slate-200">
           {acceptedCount} de {rows.length}
         </span>{' '}
         han aceptado.
       </p>
       {rows.length === 0 ? (
-        <EmptyState message="No hay usuarios en tu proveedor" />
+        <EmptyState message="No hay usuarios en tu empresa" />
       ) : (
         <Table
           columns={[

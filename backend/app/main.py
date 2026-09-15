@@ -320,7 +320,7 @@ def init_db() -> None:
         _migrate_tenant_max_users(db)
         _migrate_drive_per_tenant(db)
 
-        # Proveedor principal + datos existentes
+        # Cliente principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)
         _backfill_tenant(db, first_tenant.id)
         _migrate_products_unique(db)
@@ -328,7 +328,7 @@ def init_db() -> None:
 
         _ensure_superadmin(db)
 
-        # Usuario administrador del proveedor principal
+        # Usuario administrador del cliente principal
         if not db.query(models.User).filter(models.User.username == settings.admin_username).first():
             db.add(
                 models.User(

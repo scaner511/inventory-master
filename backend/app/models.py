@@ -19,13 +19,13 @@ from app.database import Base
 
 
 class Tenant(Base):
-    """Proveedor (tenant). Aísla inventario, productos y movimientos."""
+    """Cliente (tenant). Aísla inventario, productos y movimientos."""
 
     __tablename__ = "tenants"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
-    # Límite de usuarios permitidos para este proveedor. Si es NULL, se usa el
+    # Límite de usuarios permitidos para este cliente. Si es NULL, se usa el
     # valor global MAX_USERS_PER_TENANT. Lo define el Super Admin al crearlo.
     max_users: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

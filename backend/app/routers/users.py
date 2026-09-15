@@ -1,7 +1,7 @@
-"""Rutas de gestión de usuarios del proveedor (solo su administrador).
+"""Rutas de gestión de usuarios del cliente (solo su administrador).
 
-Cada administrador solo ve y gestiona los usuarios de su propio proveedor.
-El Super Admin administra todos los proveedores desde /api/superadmin.
+Cada administrador solo ve y gestiona los usuarios de su propio cliente.
+El Super Admin administra todos los clientes desde /api/superadmin.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
@@ -38,7 +38,7 @@ def _ensure_quota(db: Session, tenant_id: int) -> None:
     if _tenant_users_count(db, tenant_id) >= limit:
         raise HTTPException(
             status_code=400,
-            detail=f"El proveedor ya alcanzó el máximo de {limit} usuarios",
+            detail=f"El cliente ya alcanzó el máximo de {limit} usuarios",
         )
 
 
@@ -66,7 +66,7 @@ def _ensure_admin_remains(db: Session, user: User) -> None:
     if others == 0:
         raise HTTPException(
             status_code=400,
-            detail="No se puede dejar al proveedor sin ningún administrador",
+            detail="No se puede dejar al cliente sin ningún administrador",
         )
 
 

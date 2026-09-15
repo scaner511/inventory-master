@@ -38,34 +38,34 @@ def get_current_user(
     if user is None or not user.is_active:
         raise unauthorized
 
-    # Si el usuario pertenece a un proveedor desactivado, se bloquea el acceso.
+    # Si el usuario pertenece a un cliente desactivado, se bloquea el acceso.
     if user.tenant_id is not None:
         tenant = db.get(Tenant, user.tenant_id)
         if tenant is None or not tenant.is_active:
-            raise HTTPException(status_code=403, detail="El proveedor al que perteneces está desactivado")
+            raise HTTPException(status_code=403, detail="El cliente al que perteneces está desactivado")
 
     return user
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    """Solo administradores de un proveedor (tenant)."""
+    """Solo administradores de un cliente (tenant)."""
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Acceso restringido a administradores")
     return user
 
 
 def require_superadmin(user: User = Depends(get_current_user)) -> User:
-    """Solo el Super Admin global (crea proveedores y administra todo)."""
+    """Solo el Super Admin global (crea clientes y administra todo)."""
     if user.role != "superadmin":
         raise HTTPException(status_code=403, detail="Acceso restringido al Super Admin")
     return user
 
 
 def require_privileged(user: User = Depends(get_current_user)) -> User:
-    """Super Admin o administrador de un proveedor (acceso a backups/Dirve).
+    """Super Admin o administrador de un cliente (acceso a backups/Dirve).
 
     El Super Admin actúa a nivel global (tenant NULL); el administrador solo
-    sobre su propio proveedor.
+    sobre su propio cliente.
     """
     if user.role not in ("superadmin", "admin"):
         raise HTTPException(status_code=403, detail="Acceso restringido al administrador")
