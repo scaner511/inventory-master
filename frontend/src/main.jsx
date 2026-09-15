@@ -1,3 +1,4 @@
+// build-trigger: apuntar panel a API de Oracle (inventorymasteros.duckdns.org)
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
