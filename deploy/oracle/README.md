@@ -215,3 +215,6 @@ Una vez el API responde en el dominio nuevo:
 Oracle Cloud **Always Free** incluye: 4 OCPU ARM Ampere (24 GB), 200 GB de bloque,
 y 10 TB de salida al mes. Mientras no uses instancias, shapes o volúmenes de pago,
 no debería llegar ningún cargo. Conviene activar *Usage reports* para monitorearlo.
+
+**Revisión mensual**: verifica 5 minutos cada mes que el total sea $0.00 con la
+[lista de verificación mensual](CHECKLIST-MENSUAL.md).
