@@ -612,7 +612,7 @@ export function BackupsTab() {
         </div>
       </div>
 
-      {isSuper && backs.length === 0 && <EmptyState message="Aún no hay backups" />}
+      {isSuper && backups.length === 0 && <EmptyState message="Aún no hay backups" />}
 
       {isSuper && backups.length > 0 && (
         <Table
