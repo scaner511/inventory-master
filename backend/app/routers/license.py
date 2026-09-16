@@ -42,7 +42,7 @@ def _get_or_create_machine_code(db: Session) -> str:
 
 @router.get("/status")
 def status(db: Session = Depends(get_db), _user=Depends(get_current_user)):
-    return license_status(db)
+    return license_status(db, _user)
 
 
 @router.get("/machine-code")

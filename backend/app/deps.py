@@ -82,8 +82,15 @@ def get_or_create_settings(db: Session) -> Setting:
     return setting
 
 
-def license_status(db: Session) -> dict:
-    """Devuelve el estado de la licencia: {required, active, expires_at, days_left}."""
+def license_status(db: Session, user: User | None = None) -> dict:
+    """Devuelve el estado de la licencia: {required, active, expires_at, days_left}.
+
+    El Super Admin es el operador del sistema y NO está sujeto a licencia
+    ni a vencimiento.
+    """
+    if user is not None and user.role == "superadmin":
+        return {"required": False, "active": True, "expires_at": None, "days_left": None}
+
     lic = db.get(License, 1)
     if lic is None or not lic.is_active or lic.expires_at is None:
         return {"required": True, "active": False, "expires_at": None, "days_left": 0}
@@ -97,9 +104,16 @@ def license_status(db: Session) -> dict:
     }
 
 
-def require_valid_license(db: Session = Depends(get_db)):
-    """Bloquea la app si la licencia está vencida o no activa."""
-    status_info = license_status(db)
+def require_valid_license(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Bloquea la app si la licencia está vencida o no activa.
+
+    El Super Admin (operador del sistema) queda EXENTO: solo los clientes
+    (admins y operadores de cada tenant) están sujetos a la licencia.
+    """
+    status_info = license_status(db, user)
     if not status_info["active"]:
         raise HTTPException(
             status_code=403,

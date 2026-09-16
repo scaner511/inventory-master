@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { activateLicense, activateOfflineLicense, getLicenseStatus, getMachineCode } from '../api/index.js'
+import { useAuth } from '../context/AuthContext.jsx'
 import { Button, Field, Input } from '../components/ui/Form.jsx'
 
 export default function License() {
+  const { user } = useAuth()
+  const isSuper = user?.role === 'superadmin'
   const [status, setStatus] = useState(null)
   const [key, setKey] = useState('')
   const [loading, setLoading] = useState(false)
@@ -66,26 +69,32 @@ export default function License() {
         <p className="text-sm text-slate-400">Activa o renueva tu licencia</p>
       </div>
 
-      <div className={`rounded-2xl border p-6 ${active ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
+      <div className={`rounded-2xl border p-6 ${isSuper || active ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
         <div className="flex items-center gap-3">
-          <span className="text-3xl">{active ? '✅' : '🔒'}</span>
+          <span className="text-3xl">{isSuper || active ? '✅' : '🔒'}</span>
           <div>
-            <p className={`text-lg font-bold ${active ? 'text-emerald-400' : 'text-red-400'}`}>
-              {active ? 'Licencia activa' : 'Licencia requerida o vencida'}
+            <p className={`text-lg font-bold ${isSuper || active ? 'text-emerald-400' : 'text-red-400'}`}>
+              {isSuper ? 'Super Admin: sin restricción de licencia' : active ? 'Licencia activa' : 'Licencia requerida o vencida'}
             </p>
-            {status?.expires_at && (
-              <p className="text-sm text-slate-400">
-                Vence el <span className="font-semibold text-slate-200">{status.expires_at}</span>
-                {status.days_left > 0 && status.days_left <= 7 && (
-                  <span className="ml-2 text-amber-400">⚠️ solo {status.days_left} día(s) restante(s)</span>
-                )}
-              </p>
+            {isSuper ? (
+              <p className="text-sm text-slate-400">El Super Admin no requiere licencia ni tiene fecha de vencimiento.</p>
+            ) : (
+              status?.expires_at && (
+                <p className="text-sm text-slate-400">
+                  Vence el <span className="font-semibold text-slate-200">{status.expires_at}</span>
+                  {status.days_left > 0 && status.days_left <= 7 && (
+                    <span className="ml-2 text-amber-400">⚠️ solo {status.days_left} día(s) restante(s)</span>
+                  )}
+                </p>
+              )
             )}
           </div>
         </div>
       </div>
 
-      <form onSubmit={handleActivate} className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-6">
+      {!isSuper && (
+        <>
+          <form onSubmit={handleActivate} className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-6">
         <h3 className="font-bold text-slate-100">Activar o renovar licencia</h3>
         <Field label="Clave de licencia" hint="Formato: MC26-XXXX-XXXX. La vigencia depende de la clave emitida">
           <Input
@@ -142,6 +151,8 @@ export default function License() {
           {offlineLoading ? 'Activando...' : 'Activar licencia'}
         </Button>
       </div>
+        </>
+      )}
     </div>
   )
 }
