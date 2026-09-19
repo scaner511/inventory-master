@@ -11,15 +11,18 @@ export default function Loans() {
   const [loans, setLoans] = useState([])
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('')
+  const [dateFilter, setDateFilter] = useState('')
   const [loading, setLoading] = useState(true)
 
   const [registerOpen, setRegisterOpen] = useState(false)
   const [products, setProducts] = useState([])
-  const [form, setForm] = useState({ product_id: '', quantity: 1, seller: '', phone: '', due_date: '', note: '' })
+  const [form, setForm] = useState({ product_id: '', quantity: 1, seller: '', phone: '', due_date: '', note: '', location_out: '' })
   const [saving, setSaving] = useState(false)
 
   const [returnTarget, setReturnTarget] = useState(null)
   const [returnQty, setReturnQty] = useState(1)
+  const [returnLocation, setReturnLocation] = useState('')
+  const [returnProducts, setReturnProducts] = useState([])
   const [extendTarget, setExtendTarget] = useState(null)
   const [extendDays, setExtendDays] = useState(7)
 
@@ -30,13 +33,13 @@ export default function Loans() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      setLoans(await getLoans({ q, status }))
+      setLoans(await getLoans({ q, status, date: dateFilter }))
     } catch {
       /* interceptor */
     } finally {
       setLoading(false)
     }
-  }, [q, status])
+  }, [q, status, dateFilter])
 
   useEffect(() => {
     const timer = setTimeout(load, 250)
@@ -44,17 +47,23 @@ export default function Loans() {
   }, [load])
 
   function openRegister() {
-    setForm({ product_id: '', quantity: 1, seller: '', phone: '', due_date: '', note: '' })
+    setForm({ product_id: '', quantity: 1, seller: '', phone: '', due_date: '', note: '', location_out: '' })
     getProducts()
       .then((p) => setProducts(p))
       .catch(() => {})
     setRegisterOpen(true)
   }
 
+  const selectedProduct = products.find((p) => String(p.id) === String(form.product_id))
+
   async function handleCreate(e) {
     e.preventDefault()
     if (!form.product_id || !form.seller.trim() || !form.due_date) {
       return toast.error('Completa producto, vendedor y fecha de devolución')
+    }
+    const withLocations = (selectedProduct?.locations || []).length > 0
+    if (withLocations && !form.location_out) {
+      return toast.error('Elige la ubicación de dónde sale el producto')
     }
     setSaving(true)
     try {
@@ -65,6 +74,7 @@ export default function Loans() {
         phone: form.phone.trim() || null,
         due_date: form.due_date,
         note: form.note.trim() || null,
+        location_out: form.location_out || null,
       })
       toast.success('Préstamo registrado correctamente')
       setRegisterOpen(false)
@@ -89,9 +99,13 @@ export default function Loans() {
 
   async function handleReturn() {
     if (!returnTarget) return
+    const qty = Number(returnQty)
+    if (!qty || qty < 1 || qty > returnTarget.pending) {
+      return toast.error(`La cantidad debe estar entre 1 y ${returnTarget.pending}`)
+    }
     setSaving(true)
     try {
-      await returnLoan(returnTarget.id, Number(returnQty))
+      await returnLoan(returnTarget.id, qty, returnLocation)
       toast.success('Devolución registrada')
       setReturnTarget(null)
       load()
@@ -127,6 +141,7 @@ export default function Loans() {
       phone: loan.phone || '',
       due_date: loan.due_date,
       note: loan.note || '',
+      location_out: loan.location_out || '',
     })
     getProducts()
       .then((p) => setProducts(p))
@@ -141,6 +156,7 @@ export default function Loans() {
     if (editForm.phone.trim() !== (editTarget.phone || '')) payload.phone = editForm.phone.trim() || null
     if (editForm.due_date && editForm.due_date !== editTarget.due_date) payload.due_date = editForm.due_date
     if (editForm.note.trim() !== (editTarget.note || '')) payload.note = editForm.note.trim() || null
+    if (editForm.location_out.trim() !== (editTarget.location_out || '')) payload.location_out = editForm.location_out.trim() || null
     if (!editLocked) {
       if (editForm.product_id !== (editTarget.product_id ?? '')) payload.product_id = Number(editForm.product_id)
       if (Number(editForm.quantity) !== editTarget.quantity) payload.quantity = Number(editForm.quantity)
@@ -172,7 +188,7 @@ export default function Loans() {
         <Button onClick={openRegister}>🤝 Registrar préstamo</Button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por vendedor o producto..." className="max-w-xs" />
         <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-44">
           <option value="">Todos los estados</option>
@@ -181,6 +197,18 @@ export default function Loans() {
           <option value="VENCE_HOY">Vencen hoy</option>
           <option value="COMPLETADO">Completados</option>
         </Select>
+        <div className="flex items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-slate-500">Fecha:</span>
+          <Input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="w-40" />
+          {dateFilter && (
+            <button
+              onClick={() => setDateFilter('')}
+              className="rounded-lg bg-slate-600/20 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-600/40"
+            >
+              ✕ Quitar
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -207,7 +235,14 @@ export default function Loans() {
                 <p className="font-medium text-slate-100">{loan.seller}</p>
                 {loan.phone && <p className="text-xs text-slate-500">{loan.phone}</p>}
               </td>
-              <td className="px-4 py-3 text-slate-300">{loan.product_name}</td>
+              <td className="px-4 py-3">
+                <p className="text-slate-300">{loan.product_name}</p>
+                {loan.location_out && (
+                  <span className="mt-0.5 inline-block rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[11px] text-violet-300">
+                    Salida: {loan.location_out}
+                  </span>
+                )}
+              </td>
               <td className="px-4 py-3 text-center">
                 <span className="font-mono text-sm font-bold text-slate-200">
                   {loan.returned_qty} / {loan.quantity}
@@ -232,6 +267,10 @@ export default function Loans() {
                       onClick={() => {
                         setReturnTarget(loan)
                         setReturnQty(loan.pending)
+                        setReturnLocation(loan.location_out || '')
+                        getProducts()
+                          .then((p) => setReturnProducts(p))
+                          .catch(() => setReturnProducts([]))
                       }}
                       className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400 transition hover:bg-emerald-500/20"
                       title="Registrar devolución"
@@ -289,6 +328,18 @@ export default function Loans() {
               ))}
             </Select>
           </Field>
+          {(selectedProduct?.locations || []).length > 0 && (
+            <Field label="Ubicación de salida">
+              <Select value={form.location_out} onChange={(e) => setForm({ ...form, location_out: e.target.value })} required>
+                <option value="">¿De dónde sale?</option>
+                {selectedProduct.locations.map((l) => (
+                  <option key={l.location} value={l.location}>
+                    {l.location} (disponible: {l.quantity})
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <Field label="Cantidad a prestar">
             <Input type="number" min="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} required />
           </Field>
@@ -349,6 +400,21 @@ export default function Loans() {
                 required
               />
             </Field>
+            <Field label="Ubicación de salida">
+              <Select
+                value={editForm.location_out}
+                onChange={(e) => setEditForm({ ...editForm, location_out: e.target.value })}
+                disabled={editLocked}
+              >
+                <option value="">Sin ubicación</option>
+                {editForm.product_id &&
+                  (products.find((p) => String(p.id) === String(editForm.product_id))?.locations || []).map((l) => (
+                    <option key={l.location} value={l.location}>
+                      {l.location} (disponible: {l.quantity})
+                    </option>
+                  ))}
+              </Select>
+            </Field>
             <Field label="Vendedor">
               <Input value={editForm.seller} onChange={(e) => setEditForm({ ...editForm, seller: e.target.value })} required />
             </Field>
@@ -384,6 +450,20 @@ export default function Loans() {
             </p>
             <Field label="Cantidad que entrega hoy">
               <Input type="number" min="1" max={returnTarget.pending} value={returnQty} onChange={(e) => setReturnQty(e.target.value)} />
+            </Field>
+            <Field label="Ubicación donde se recibe">
+              <Select value={returnLocation} onChange={(e) => setReturnLocation(e.target.value)}>
+                <option value="">Misma de salida ({returnTarget.location_out || '—'})</option>
+                {returnTarget.location_out && <option value={returnTarget.location_out}>{returnTarget.location_out}</option>}
+                {(returnProducts
+                  .find((p) => String(p.id) === String(returnTarget.product_id))
+                  ?.locations || [])
+                  .map((l) => (
+                    <option key={l.location} value={l.location}>
+                      {l.location} (disponible: {l.quantity})
+                    </option>
+                  ))}
+              </Select>
             </Field>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setReturnTarget(null)}>

@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import inspect, text
+from sqlalchemy import DateTime, inspect, text
 
 from app.config import settings
 
@@ -179,6 +179,7 @@ def restore_from_excel(db, buffer) -> dict:
     workbook = pd.read_excel(buffer, sheet_name=None)
     known = {
         "products": models.Product,
+        "product_stock_locations": models.ProductStockLocation,
         "loans": models.Loan,
         "users": models.User,
         "settings": models.Setting,
@@ -188,14 +189,47 @@ def restore_from_excel(db, buffer) -> dict:
     }
 
     # Vaciar en orden inverso de dependencias (hijos primero).
-    clear_order = ["audit_logs", "loans", "used_license_keys", "products", "users", "settings", "licenses"]
+    clear_order = [
+        "audit_logs",
+        "loans",
+        "product_stock_locations",
+        "used_license_keys",
+        "products",
+        "users",
+        "settings",
+        "licenses",
+    ]
     for name in clear_order:
         if name in workbook:
             db.query(known[name]).delete()
     db.commit()
 
     counts: dict[str, int] = {}
-    insert_order = ["settings", "licenses", "users", "used_license_keys", "products", "loans", "audit_logs"]
+    insert_order = [
+        "settings",
+        "licenses",
+        "users",
+        "used_license_keys",
+        "products",
+        "product_stock_locations",
+        "loans",
+        "audit_logs",
+    ]
+    # Coerción de tipos: las columnas DateTime pueden venir como string
+    # (p. ej. al leer el Excel devuelto por SQLite) y SQLAlchemy las rechaza.
+    def _coerce(model, col, val):
+        if val is None:
+            return None
+        try:
+            ctype = model.__table__.c[col].type
+            if isinstance(ctype, DateTime):
+                if isinstance(val, (pd.Timestamp, datetime)):
+                    return val.to_pydatetime() if isinstance(val, pd.Timestamp) else val
+                return datetime.fromisoformat(str(val))
+        except (KeyError, AttributeError, ValueError):
+            pass
+        return val
+
     for name in insert_order:
         if name not in workbook:
             continue
@@ -212,7 +246,7 @@ def restore_from_excel(db, buffer) -> dict:
                     val = val.to_pydatetime()
                 elif hasattr(val, "item"):
                     val = val.item()
-                kwargs[col] = val
+                kwargs[col] = _coerce(model, col, val)
             db.add(model(**kwargs))
         counts[name] = len(df)
     db.commit()
@@ -221,7 +255,7 @@ def restore_from_excel(db, buffer) -> dict:
     if db.bind.dialect.name == "postgresql":
         from sqlalchemy import text
 
-        for table in ("products", "loans", "users", "audit_logs"):
+        for table in ("products", "product_stock_locations", "loans", "users", "audit_logs"):
             db.execute(
                 text(
                     f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "

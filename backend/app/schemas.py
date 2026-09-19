@@ -144,6 +144,13 @@ class TenantUserCreate(BaseModel):
 # ===================== PRODUCTS =====================
 
 
+class LocationEntry(BaseModel):
+    """Cantidad disponible de un producto en una ubicación concreta."""
+
+    location: str = Field(min_length=1, max_length=255)
+    quantity: int = Field(ge=0)
+
+
 class ProductBase(BaseModel):
     code: str = Field(min_length=1, max_length=50)
     name: str = Field(min_length=1, max_length=255)
@@ -153,6 +160,9 @@ class ProductBase(BaseModel):
     location1: str | None = None
     location2: str | None = None
     location3: str | None = None
+    # Desglose por ubicación (con cantidades). Si se envía, el stock total se
+    # recalcula como la suma de estas filas.
+    locations: list[LocationEntry] = []
 
 
 class ProductCreate(ProductBase):
@@ -168,6 +178,7 @@ class ProductUpdate(BaseModel):
     location1: str | None = None
     location2: str | None = None
     location3: str | None = None
+    locations: list[LocationEntry] | None = None
 
 
 class ProductOut(ProductBase):
@@ -191,10 +202,15 @@ class LoanCreate(BaseModel):
     quantity: int = Field(ge=1)
     due_date: date
     note: str | None = None
+    # Ubicación de dónde sale la mercancía (stock por ubicación).
+    location_out: str | None = None
 
 
 class LoanReturn(BaseModel):
     returned_qty: int = Field(gt=0)
+    # Ubicación donde se guarda lo devuelto. Si se omite, vuelve a la misma
+    # ubicación de la que salió al prestarse.
+    location_in: str | None = None
 
 
 class LoanUpdate(BaseModel):
@@ -204,6 +220,7 @@ class LoanUpdate(BaseModel):
     quantity: int | None = Field(default=None, ge=1)
     due_date: date | None = None
     note: str | None = None
+    location_out: str | None = None
 
 
 class LoanOut(BaseModel):
@@ -219,6 +236,7 @@ class LoanOut(BaseModel):
     loan_date: datetime
     due_date: date
     note: str | None = None
+    location_out: str | None = None
     pending: int
     completed: bool
     overdue: bool
@@ -241,3 +259,5 @@ class DashboardOut(BaseModel):
     top_products: list[dict] = []
     recent_loans: list[LoanOut] = []
     loans_last_7_days: list[dict] = []
+    # Stock total agrupado por ubicación (feature stock por ubicación).
+    stock_by_location: list[dict] = []

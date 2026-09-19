@@ -28,10 +28,16 @@ export async function deleteProduct(id) {
   return data
 }
 
-export async function getLoans({ q = '', status = '' } = {}) {
+export async function deleteAllProducts() {
+  const { data } = await api.delete('/products/all')
+  return data
+}
+
+export async function getLoans({ q = '', status = '', date = '' } = {}) {
   const params = {}
   if (q) params.q = q
   if (status) params.status = status
+  if (date) params.date = date
   const { data } = await api.get('/loans', { params })
   return data
 }
@@ -46,8 +52,10 @@ export async function updateLoan(id, payload) {
   return data
 }
 
-export async function returnLoan(id, returnedQty) {
-  const { data } = await api.post(`/loans/${id}/return`, { returned_qty: returnedQty })
+export async function returnLoan(id, returnedQty, locationIn = '') {
+  const payload = { returned_qty: returnedQty }
+  if (locationIn) payload.location_in = locationIn
+  const { data } = await api.post(`/loans/${id}/return`, payload)
   return data
 }
 

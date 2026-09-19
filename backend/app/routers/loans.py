@@ -8,6 +8,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models import Loan, Product, User
 from app.schemas import LoanCreate, LoanOut, LoanReturn, LoanUpdate
+from app.utils import locations as loc_utils
 from app.utils.audit import record_audit
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
@@ -65,6 +66,7 @@ def _get_product(db: Session, product_id: int, tenant_id: int) -> Product | None
 def list_loans(
     q: str | None = Query(default=None, description="Filtro por vendedor o producto"),
     status_filter: str | None = Query(default=None, alias="status"),
+    date_filter: date | None = Query(default=None, alias="date", description="Filtro por fecha del préstamo (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -72,6 +74,8 @@ def list_loans(
     if q:
         like = f"%{q}%"
         query = query.filter(Loan.seller.ilike(like) | Loan.product_name.ilike(like))
+    if date_filter:
+        query = query.filter(Loan.loan_date >= date_filter, Loan.loan_date < date_filter + timedelta(days=1))
 
     loans = query.order_by(Loan.id.desc()).all()
 
@@ -102,6 +106,19 @@ def create_loan(
             detail=f"Stock insuficiente. Solo hay {product.stock} unidades de '{product.name}'.",
         )
 
+    # Ubicación de salida: si el producto tiene ubicaciones y se indicó una,
+    # se descuenta de esa fila concreta.
+    location_out = (data.location_out or "").strip() or None
+    if location_out:
+        rows = loc_utils.rows_for(db, product)
+        if rows:
+            try:
+                loc_utils.subtract_from(db, product, location_out, data.quantity)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+        # Sin filas registradas: se acepta la ubicación indicada para historial,
+        # pero no hay stock por ubicación que descontar.
+
     if _seller_blocked(db, data.seller, user.tenant_id):
         raise HTTPException(
             status_code=400,
@@ -120,6 +137,7 @@ def create_loan(
         quantity=data.quantity,
         due_date=data.due_date,
         note=data.note,
+        location_out=location_out,
         created_by=user.id,
     )
     db.add(loan)
@@ -184,9 +202,14 @@ def update_loan(
                 detail=f"Stock insuficiente de '{old_product.name}'. Solo hay {old_product.stock} unidades.",
             )
         old_product.stock -= delta
+        # Ajustar también la ubicación de salida del préstamo si existe.
+        if loan.location_out and loc_utils.rows_for(db, old_product):
+            loc_utils.adjust_quantity(db, old_product, loan.location_out, -delta)
     elif new_product_id != loan.product_id:
         if old_product:
             old_product.stock += loan.quantity
+            if loan.location_out:
+                loc_utils.adjust_quantity(db, old_product, loan.location_out, +loan.quantity)
         if new_product is not None:
             if new_product.stock < new_quantity:
                 raise HTTPException(
@@ -194,8 +217,15 @@ def update_loan(
                     detail=f"Stock insuficiente de '{new_product.name}'. Solo hay {new_product.stock} unidades.",
                 )
             new_product.stock -= new_quantity
+            # Descontar del nuevo producto: usar la ubicación nueva (si viene)
+            # o replicar la ubicación de salida original si existe en el nuevo.
+            new_rows = loc_utils.rows_for(db, new_product)
+            if new_rows:
+                target = (updates.get("location_out") or loan.location_out or "").strip() or None
+                target = target if target else new_rows[0].location
+                loc_utils.adjust_quantity(db, new_product, target, -new_quantity)
 
-    for field in ("seller", "phone", "due_date", "note"):
+    for field in ("seller", "phone", "due_date", "note", "location_out"):
         if field in updates:
             setattr(loan, field, updates[field])
     if new_product is not None:
@@ -239,17 +269,25 @@ def return_loan(
 
     loan.returned_qty = new_total
 
-    # Devolver mercancía al stock
+    # Devolver mercancía al stock: a la ubicación elegida (o la de salida).
     product = _get_product(db, loan.product_id, user.tenant_id)
     if product:
         product.stock += data.returned_qty
+        dest = (data.location_in or "").strip() or loan.location_out or None
+        if dest and loc_utils.rows_for(db, product):
+            loc_utils.adjust_quantity(db, product, dest, data.returned_qty)
+        elif dest and not loc_utils.rows_for(db, product):
+            # Producto sin desglose: conservar la ubicación en el préstamo
+            # para referencia (el stock total ya se actualizó arriba).
+            pass
 
     record_audit(
         db,
         action="DEVOLUCION",
         user_id=user.id,
         tenant_id=user.tenant_id,
-        detail=f"Devolución de {data.returned_qty} unidades de {loan.product_name}",
+        detail=f"Devolución de {data.returned_qty} unidades de {loan.product_name}"
+               + (f" a '{dest}'" if dest else ""),
         product_name=loan.product_name,
         quantity=data.returned_qty,
     )

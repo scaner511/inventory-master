@@ -175,6 +175,29 @@ def _migrate_license_machine_code(db: Session) -> None:
     db.commit()
 
 
+def _migrate_loan_location_out(db: Session) -> None:
+    """Agrega la columna location_out a la tabla loans (stock por ubicación)."""
+    if "location_out" not in _table_columns("loans"):
+        db.execute(text("ALTER TABLE loans ADD COLUMN location_out VARCHAR(255)"))
+        db.commit()
+
+
+def _migrate_product_stock_locations(db: Session) -> None:
+    """Siembra/valida el stock por ubicación de los productos.
+
+    - Productos sin filas de ubicación (creados antes del cambio): se crea una
+      fila ("Principal" o su location1) con su stock total.
+    - Productos con filas: se reconcilia products.stock = suma(filas).
+    """
+    from app.utils import locations as loc_utils
+
+    products = db.query(models.Product).all()
+    for p in products:
+        loc_utils.ensure_seed(db, p)
+        loc_utils.reconcile_stock(db, p)
+    db.commit()
+
+
 def _get_or_create_first_tenant(db: Session) -> models.Tenant:
     tenant = db.query(models.Tenant).order_by(models.Tenant.id).first()
     if tenant is None:
@@ -319,6 +342,8 @@ def init_db() -> None:
         _migrate_accept_terms(db)
         _migrate_tenant_max_users(db)
         _migrate_drive_per_tenant(db)
+        _migrate_loan_location_out(db)
+        _migrate_product_stock_locations(db)
 
         # Cliente principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)

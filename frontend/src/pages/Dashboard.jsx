@@ -223,6 +223,31 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Stock por ubicación */}
+      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-200">📋 Stock por ubicación</h3>
+          <Link to="/products" className="text-xs font-semibold text-blue-400 transition hover:text-blue-300">
+            Ir al inventario →
+          </Link>
+        </div>
+        {(data.stock_by_location || []).length === 0 ? (
+          <p className="py-10 text-center text-sm text-slate-500">Sin ubicaciones registradas</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {data.stock_by_location.map((l) => (
+              <div key={l.location} className="flex items-center justify-between rounded-lg bg-slate-800/50 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-200">{l.location}</p>
+                  <p className="text-xs text-slate-500">unidades totales</p>
+                </div>
+                <span className="text-xl font-bold text-blue-300">{l.quantity}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Lista stock bajo */}
       {data.low_stock_list.length > 0 && (
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">

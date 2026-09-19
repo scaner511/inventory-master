@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user, get_or_create_settings
-from app.models import Loan, Product, User
+from app.models import Loan, Product, ProductStockLocation, User
 from app.schemas import DashboardOut
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -114,6 +114,19 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_us
         )
         loans_last_7_days.append({"day": day.strftime("%d/%m"), "prestamos": count})
 
+    # Stock total por ubicación (feature stock por ubicación)
+    stock_rows = (
+        db.query(
+            ProductStockLocation.location,
+            func.coalesce(func.sum(ProductStockLocation.quantity), 0),
+        )
+        .filter(ProductStockLocation.tenant_id == tenant_id)
+        .group_by(ProductStockLocation.location)
+        .order_by(func.coalesce(func.sum(ProductStockLocation.quantity), 0).desc())
+        .all()
+    )
+    stock_by_location = [{"location": r[0], "quantity": int(r[1])} for r in stock_rows]
+
     return DashboardOut(
         total_products=total_products,
         total_units=total_units or 0,
@@ -127,4 +140,5 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_us
         top_products=[{"name": r[0], "stock": r[1], "value": float(r[2])} for r in top_products],
         recent_loans=recent_loans,
         loans_last_7_days=loans_last_7_days,
+        stock_by_location=stock_by_location,
     )

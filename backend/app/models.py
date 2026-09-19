@@ -83,6 +83,30 @@ class Product(Base):
     tenant: Mapped["Tenant"] = relationship(back_populates="products")
 
 
+class ProductStockLocation(Base):
+    """Cantidad de unidades de un producto en una ubicación concreta.
+
+    El stock total del producto (products.stock) es SIEMPRE la suma de las
+    cantidades de sus filas de ubicación. Un producto puede tener una o varias
+    filas; si no tiene ninguna (datos antiguos), se asume "Principal".
+    """
+
+    __tablename__ = "product_stock_locations"
+    __table_args__ = (
+        UniqueConstraint("product_id", "location", name="uq_psl_product_location"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tenants.id"), nullable=True, index=True
+    )
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), index=True
+    )
+    location: Mapped[str] = mapped_column(String(255))
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Loan(Base):
     __tablename__ = "loans"
 
@@ -99,6 +123,8 @@ class Loan(Base):
     photo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Ubicación de dónde salió el producto (feature stock por ubicación).
+    location_out: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     tenant: Mapped["Tenant"] = relationship(back_populates="loans")
     creator: Mapped["User"] = relationship(back_populates="loans_created")

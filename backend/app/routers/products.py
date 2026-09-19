@@ -7,14 +7,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user
-from app.models import Product, User
+from app.deps import get_current_user, require_admin
+from app.models import Product, ProductStockLocation, User
 from app.schemas import ProductCreate, ProductOut, ProductUpdate
+from app.utils import locations as loc_utils
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
 
-def _to_out(p: Product, threshold: int) -> ProductOut:
+def _to_out(db: Session, p: Product, threshold: int) -> ProductOut:
     out = ProductOut.model_validate(p)
     if p.stock <= 0:
         out.status = "NO_DISPONIBLE"
@@ -22,8 +23,13 @@ def _to_out(p: Product, threshold: int) -> ProductOut:
         out.status = "STOCK_BAJO"
     else:
         out.status = "DISPONIBLE"
-    locations = [l for l in (p.location1, p.location2, p.location3) if l and l.strip()]
-    out.location = " | ".join(locations) if locations else "Sin asignar"
+    rows = loc_utils.rows_for(db, p)
+    if rows:
+        out.locations = [{"location": r.location, "quantity": r.quantity} for r in rows]
+        out.location = " | ".join(f"{r.location} = {r.quantity}" for r in rows)
+    else:
+        # Datos antiguos sin desglose: se muestran las columnas legacy
+        out.location = " | ".join(l for l in (p.location1, p.location2, p.location3) if l and l.strip()) or "Sin asignar"
     return out
 
 
@@ -49,7 +55,7 @@ def list_products(
         query = query.filter(Product.stock <= threshold)
 
     products = query.order_by(Product.name).all()
-    return [_to_out(p, threshold) for p in products]
+    return [_to_out(db, p, threshold) for p in products]
 
 
 def _normalize_header(h) -> str:
@@ -234,9 +240,13 @@ def import_products(
         if product:
             for field, value in payload.items():
                 setattr(product, field, value)
+            # Mantener el invariante stock = suma(filas). Si ya hay filas de
+            # ubicación, la diferencia del import se absorbe en la primera.
+            loc_utils.reconcile_stock(db, product)
             updated += 1
         else:
-            db.add(Product(tenant_id=user.tenant_id, **payload))
+            product = Product(tenant_id=user.tenant_id, **payload)
+            db.add(product)
             created += 1
 
     try:
@@ -248,6 +258,12 @@ def import_products(
             detail="No se pudieron guardar los productos: hay códigos repetidos o datos inválidos. "
                    "Revisa que cada fila tenga un código único y un nombre.",
         ) from exc
+
+    # Sembrar filas de ubicación para los productos recién creados (una fila
+    # con el stock total asignado a su ubicación principal).
+    for product in db.query(Product).filter(Product.tenant_id == user.tenant_id).all():
+        loc_utils.ensure_seed(db, product)
+    db.commit()
 
     message = f"Carga completada: {created} nuevos, {updated} actualizados"
     if auto:
@@ -268,7 +284,7 @@ def get_product(product_id: int, db: Session = Depends(get_db), user: User = Dep
     from app.deps import get_or_create_settings
 
     threshold = get_or_create_settings(db).low_stock_threshold or 5
-    return _to_out(product, threshold)
+    return _to_out(db, product, threshold)
 
 
 @router.post("", response_model=ProductOut, status_code=201)
@@ -280,11 +296,20 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user: Use
     ):
         raise HTTPException(status_code=400, detail=f"Ya existe un producto con el código '{data.code}'")
 
-    product = Product(tenant_id=user.tenant_id, **data.model_dump())
+    payload = data.model_dump(exclude={"locations"})
+    product = Product(tenant_id=user.tenant_id, **payload)
     db.add(product)
+    db.flush()
+
+    if data.locations:
+        loc_utils.set_locations(db, product, [l.model_dump() for l in data.locations])
+    else:
+        # Falla hacia el comportamiento antiguo: todo el stock en una sola fila
+        loc_utils.ensure_seed(db, product)
+
     db.commit()
     db.refresh(product)
-    return _to_out(product, 5)
+    return _to_out(db, product, 5)
 
 
 @router.put("/{product_id}", response_model=ProductOut)
@@ -313,9 +338,64 @@ def update_product(
 
     for field, value in updates.items():
         setattr(product, field, value)
+    db.flush()
+
+    if data.locations is not None:
+        loc_utils.set_locations(db, product, [l.model_dump() for l in data.locations])
+    else:
+        loc_utils.ensure_seed(db, product)
+
     db.commit()
     db.refresh(product)
-    return _to_out(product, 5)
+    return _to_out(db, product, 5)
+
+
+@router.delete("/all", status_code=200)
+def delete_all_products(db: Session = Depends(get_db), user: User = Depends(require_admin)):
+    """Elimina TODOS los productos del cliente (solo administrador).
+
+    Exige confirmación implícita: no hay copia de seguridad, así que primero
+    se verifica que no haya préstamos activos con mercancía pendiente.
+    """
+    from app.models import Loan
+    from app.utils.audit import record_audit
+
+    active = (
+        db.query(Loan)
+        .filter(
+            Loan.tenant_id == user.tenant_id,
+            Loan.quantity > Loan.returned_qty,
+        )
+        .count()
+    )
+    if active:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Hay {active} préstamo(s) con mercancía pendiente por devolver. "
+                "Primero cierra esos préstamos o cambia los productos antes de borrar el inventario."
+            ),
+        )
+
+    deleted = (
+        db.query(ProductStockLocation)
+        .filter(ProductStockLocation.tenant_id == user.tenant_id)
+        .delete(synchronize_session=False)
+    )
+    count = (
+        db.query(Product)
+        .filter(Product.tenant_id == user.tenant_id)
+        .delete(synchronize_session=False)
+    )
+    record_audit(
+        db,
+        action="ELIMINACION_MASIVA",
+        user_id=user.id,
+        tenant_id=user.tenant_id,
+        detail=f"Inventario vaciado: {count} producto(s) eliminados",
+    )
+    db.commit()
+    return {"message": f"Se eliminaron {count} producto(s).", "deleted": count, "stock_rows": deleted}
 
 
 @router.delete("/{product_id}", status_code=200)
@@ -345,6 +425,10 @@ def delete_product(product_id: int, db: Session = Depends(get_db), user: User = 
             detail=f"El producto '{product.name}' tiene {active} préstamo(s) activo(s). Devuelva la mercancía antes de eliminarlo.",
         )
 
+    db.query(ProductStockLocation).filter(
+        ProductStockLocation.product_id == product_id,
+        ProductStockLocation.tenant_id == user.tenant_id,
+    ).delete(synchronize_session=False)
     db.delete(product)
     db.commit()
     return {"message": "Producto eliminado correctamente."}
