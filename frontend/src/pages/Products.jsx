@@ -4,6 +4,7 @@ import { createProduct, deleteAllProducts, deleteProduct, getProducts, updatePro
 import { api, formatMoney, openAuthenticatedUrl } from '../api/client.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import Modal from '../components/ui/Modal.jsx'
+import BarcodeScanner from '../components/BarcodeScanner.jsx'
 import Table, { EmptyState } from '../components/ui/Table.jsx'
 import Badge from '../components/ui/Badge.jsx'
 import { Button, Field, Input } from '../components/ui/Form.jsx'
@@ -27,6 +28,7 @@ export default function Products() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
+  const [scannerOpen, setScannerOpen] = useState(false)
   const fileRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -45,9 +47,9 @@ export default function Products() {
     return () => clearTimeout(timer)
   }, [load])
 
-  function openCreate() {
+  function openCreate(initialCode = '') {
     setEditing(null)
-    setForm(EMPTY_FORM)
+    setForm({ ...EMPTY_FORM, code: initialCode })
     setModalOpen(true)
   }
 
@@ -113,6 +115,20 @@ export default function Products() {
       /* interceptor */
     } finally {
       setSaving(false)
+    }
+  }
+
+  function handleScanCode(rawCode) {
+    const code = String(rawCode || '').trim()
+    setScannerOpen(false)
+    if (!code) return
+    const found = products.find((p) => p.code.toLowerCase() === code.toLowerCase())
+    if (found) {
+      openEdit(found)
+      toast.success(`Producto encontrado: ${found.name}`)
+    } else {
+      openCreate(code)
+      toast(`El código "${code}" no existe. Se abrió para crearlo.`, { icon: '🆕' })
     }
   }
 
@@ -197,6 +213,9 @@ export default function Products() {
               {deletingAll ? 'Borrando...' : '🗑️ Eliminar todos'}
             </Button>
           )}
+          <Button variant="ghost" onClick={() => setScannerOpen(true)}>
+            📷 Escanear código
+          </Button>
           <Button onClick={openCreate}>➕ Nuevo producto</Button>
         </div>
       </div>
@@ -339,6 +358,8 @@ export default function Products() {
           </div>
         </form>
       </Modal>
+
+      <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onCode={handleScanCode} />
     </div>
   )
 }
