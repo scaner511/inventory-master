@@ -4,16 +4,39 @@ import Modal from './ui/Modal.jsx'
 import { Button, Input } from './ui/Form.jsx'
 
 /* Escáner de códigos de barra.
+
    - "Lector USB" (PC): el lector actúa como teclado; se captura el código
      en un input enfocado y se resuelve con Enter.
-   - "Cámara" (celular): usa la cámara trasera (requiere HTTPS).
+   - "Cámara" (celular):
+     * Si el navegador tiene BarcodeDetector (Android/Chrome, Edge), se lee a
+       la RESOLUCIÓN COMPLETA de la cámara frame a frame (muy preciso).
+     * Si no (Safari/iOS), se usa html5-qrcode como respaldo.
+     Antes de aceptar un código, debe aparecer el MISMO valor en 3 lecturas
+     consecutivas, para evitar datos erróneos.
+
    Al decodificar un código llama a onCode(code). */
 export default function BarcodeScanner({ open, onClose, onCode }) {
   const [mode, setMode] = useState('usb')
   const [code, setCode] = useState('')
   const [cameraStatus, setCameraStatus] = useState('idle') // idle | starting | scanning | error
-  const scannerRef = useRef(null)
+  const [engine, setEngine] = useState(
+    typeof window !== 'undefined' && 'BarcodeDetector' in window ? 'native' : 'zxing',
+  )
+  const [cameraFacing, setCameraFacing] = useState('environment')
+
+  const scannerRef = useRef(null) // instancia html5-qrcode (respaldo)
+  const nativeStreamRef = useRef(null) // MediaStream (motor nativo)
+  const nativeRafRef = useRef(0)
+  const videoRef = useRef(null)
+  const canvasRef = useRef(null)
+  const probeRef = useRef({ code: '', count: 0 }) // estabilización anti lecturas erróneas
   const activeCodeRef = useRef('')
+
+  const NATIVE_AVAILABLE = typeof window !== 'undefined' && 'BarcodeDetector' in window
+
+  function resetProbe() {
+    probeRef.current = { code: '', count: 0 }
+  }
 
   async function stopScanner() {
     if (scannerRef.current) {
@@ -29,69 +52,193 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
       }
       scannerRef.current = null
     }
+    if (nativeRafRef.current) {
+      cancelAnimationFrame(nativeRafRef.current)
+      nativeRafRef.current = 0
+    }
+    if (nativeStreamRef.current) {
+      nativeStreamRef.current.getTracks().forEach((t) => t.stop())
+      nativeStreamRef.current = null
+    }
+    if (videoRef.current) videoRef.current.srcObject = null
+    resetProbe()
     setCameraStatus('idle')
   }
 
   useEffect(() => {
     if (!open) {
-      if (scannerRef.current) stopScanner()
-      activeCodeRef.current = false
+      stopScanner()
       setMode('usb')
       setCode('')
       setCameraStatus('idle')
+      activeCodeRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  useEffect(() => () => {
-    if (scannerRef.current) stopScanner()
-  }, [])
+  useEffect(
+    () => () => {
+      stopScanner()
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
 
-  async function startCamera(preferred = 'environment') {
+  function submit(value) {
+    const clean = String(value || '').trim()
+    if (!clean || activeCodeRef.current) return
+    activeCodeRef.current = true
+    stopScanner()
+    onCode(clean)
+  }
+
+  /* -------- Motor nativo (BarcodeDetector): resolucion completa -------- */
+  async function startNativeCamera(facing) {
+    const formatWhitelist = undefined // todos los formatos soportados por el navegador
+    const detector = new BarcodeDetector({ formats: formatWhitelist })
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: facing,
+        width: { ideal: 4096 },
+        height: { ideal: 2160 },
+      },
+    })
+    nativeStreamRef.current = stream
+    const video = videoRef.current
+    if (!video) throw new Error('Video de escaneo no disponible')
+    video.srcObject = stream
+    video.playsInline = true
+    video.muted = true
+    await video.play()
+
+    const canvas = canvasRef.current
+    if (!canvas) throw new Error('Lienzo de escaneo no disponible')
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+
+    resetProbe()
+    let lastCode = ''
+
+    async function tick() {
+      if (!nativeStreamRef.current) return
+      const w = video.videoWidth
+      const h = video.videoHeight
+      if (w && h) {
+        // Dibujar el frame a resolución NATIVA completa (sin recortar).
+        canvas.width = w
+        canvas.height = h
+        ctx.drawImage(video, 0, 0, w, h)
+        try {
+          const codes = await detector.detect(canvas)
+          if (codes && codes.length) {
+            const value = String(codes[0].rawValue || '').trim()
+            if (value && value !== lastCode) {
+              lastCode = value
+              resetProbe()
+            }
+            if (value) {
+              const p = probeRef.current
+              p.code = value
+              p.count += 1
+              // Solo aceptar tras 3 lecturas idénticas consecutivas.
+              if (p.count >= 3) {
+                submit(value)
+                return
+              }
+            }
+          } else {
+            lastCode = ''
+            resetProbe()
+          }
+        } catch {
+          /* frame no analizable, se sigue en el siguiente */
+        }
+      }
+      nativeRafRef.current = requestAnimationFrame(tick)
+    }
+    nativeRafRef.current = requestAnimationFrame(tick)
+    setCameraStatus('scanning')
+  }
+
+  /* -------- Motor de respaldo (html5-qrcode) -------- */
+  async function startZxingCamera(facing) {
+    const element = document.getElementById('barcode-reader')
+    if (!element) throw new Error('Contenedor de escaneo no disponible')
+    scannerRef.current = new Html5Qrcode('barcode-reader', { verbose: false })
+    resetProbe()
+    let lastCode = ''
+    await scannerRef.current.start(
+      { facingMode: facing, width: { ideal: 4096 }, height: { ideal: 2160 } },
+      {
+        fps: 30,
+        qrbox: (w, h) => {
+          // Recuadro amplio centrado para no cortar el código.
+          const size = Math.max(180, Math.min(w, h) * 0.8)
+          return { width: size, height: size }
+        },
+      },
+      (decodedText) => {
+        const value = String(decodedText || '').trim()
+        if (value && value !== lastCode) {
+          lastCode = value
+          resetProbe()
+        }
+        if (value) {
+          const p = probeRef.current
+          p.code = value
+          p.count += 1
+          if (p.count >= 3) {
+            submit(value)
+          }
+        }
+      },
+      () => {
+        /* frames sin código: se ignoran */
+      },
+    )
+    setCameraStatus('scanning')
+  }
+
+  async function startCamera(facing = 'environment') {
     if (window.isSecureContext === false) {
       setCameraStatus('error')
       return
     }
-    setCameraStatus('starting')
     try {
-      if (scannerRef.current) await stopScanner()
-      const element = document.getElementById('barcode-reader')
-      if (!element) throw new Error('Contenedor de escaneo no disponible')
-      scannerRef.current = new Html5Qrcode('barcode-reader')
-      const facing = preferred === 'environment' ? { facingMode: 'environment' } : { facingMode: 'user' }
-      await scannerRef.current.start(
-        facing,
-        { fps: 10, qrbox: { width: 220, height: 220 } },
-        (decodedText) => {
-          if (!activeCodeRef.current) {
-            submit(decodedText)
-          }
-        },
-        () => {
-          /* frames sin código: se ignoran */
-        },
-      )
-      setCameraStatus('scanning')
+      await stopScanner()
+      setCameraStatus('starting')
+      resetProbe()
+      setEngine(NATIVE_AVAILABLE ? 'native' : 'zxing')
+      setCameraFacing(facing)
+      if (NATIVE_AVAILABLE) {
+        try {
+          await startNativeCamera(facing)
+        } catch (err) {
+          console.error('Motor nativo:', err)
+          // Respaldo: si el nativo falla, intenta con html5-qrcode.
+          await startZxingCamera(facing)
+        }
+      } else {
+        await startZxingCamera(facing)
+      }
     } catch (err) {
       console.error('Cámara:', err)
-      if (preferred === 'environment') {
+      if (facing === 'environment') {
         try {
           await startCamera('user')
           return
         } catch {
-          /* intentar de frente no ayudó */
+          /* la frontal tampoco sirvió */
         }
       }
       setCameraStatus('error')
     }
   }
 
-  function submit(value) {
-    const clean = String(value || '').trim()
-    if (!clean || activeCodeRef.current) return
-    activeCodeRef.current = true
-    if (scannerRef.current) stopScanner()
-    onCode(clean)
+  async function switchCamera() {
+    const next = cameraFacing === 'environment' ? 'user' : 'environment'
+    setCameraFacing(next)
+    await startCamera(next)
   }
 
   function handleUsbSubmit(e) {
@@ -100,10 +247,12 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
   }
 
   function switchMode(next) {
-    if (scannerRef.current) stopScanner()
+    if (next !== 'camera') {
+      stopScanner()
+    }
     setMode(next)
-    setCameraStatus('idle')
     setCode('')
+    setCameraStatus('idle')
   }
 
   return (
@@ -144,12 +293,28 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
         ) : (
           <div className="space-y-3">
             <p className="text-xs text-slate-400">
-              Enciende la cámara y enfoca el código. Funciona mejor con la cámara trasera.
+              Mantén el código quieto y bien iluminado, alineado al centro. Se confirma tras 3 lecturas
+              idénticas para evitar errores. Motor: {engine === 'native' ? 'nativo (alta precisión)' : 'compatibilidad'}.
             </p>
-            <div id="barcode-reader" className="w-full overflow-hidden rounded-xl border border-slate-700" />
+            <div
+              id="barcode-reader"
+              className="relative h-72 w-full overflow-hidden rounded-xl border border-slate-700"
+            >
+              {engine === 'native' && (
+                <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
+              )}
+              <canvas ref={canvasRef} className="absolute inset-0 h-0 w-0" />
+            </div>
             <div className="text-center">
               {cameraStatus === 'starting' && <p className="text-sm text-slate-400">Iniciando cámara...</p>}
-              {cameraStatus === 'scanning' && <p className="text-sm text-emerald-400">🔍 Escaneando... enfoca el código</p>}
+              {cameraStatus === 'scanning' && (
+                <div className="space-y-2">
+                  <p className="text-sm text-emerald-400">🔍 Escaneando... enfoca el código</p>
+                  <Button type="button" variant="ghost" onClick={switchCamera} disabled={cameraStatus !== 'scanning'}>
+                    🔄 Cambiar cámara
+                  </Button>
+                </div>
+              )}
               {cameraStatus === 'error' && (
                 <div className="space-y-2">
                   <p className="text-sm text-red-400">No se pudo acceder a la cámara</p>
