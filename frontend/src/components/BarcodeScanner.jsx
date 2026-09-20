@@ -23,9 +23,11 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
     typeof window !== 'undefined' && 'BarcodeDetector' in window ? 'native' : 'zxing',
   )
   const [cameraFacing, setCameraFacing] = useState('environment')
+  const [torchOn, setTorchOn] = useState(false)
 
   const scannerRef = useRef(null) // instancia html5-qrcode (respaldo)
   const nativeStreamRef = useRef(null) // MediaStream (motor nativo)
+  const videoTrackRef = useRef(null) // pista para controlar la linterna
   const nativeRafRef = useRef(0)
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -60,6 +62,8 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
       nativeStreamRef.current.getTracks().forEach((t) => t.stop())
       nativeStreamRef.current = null
     }
+    videoTrackRef.current = null
+    setTorchOn(false)
     if (videoRef.current) videoRef.current.srcObject = null
     resetProbe()
     setCameraStatus('idle')
@@ -105,6 +109,7 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
       },
     })
     nativeStreamRef.current = stream
+    videoTrackRef.current = stream.getVideoTracks()[0] || null
     const video = videoRef.current
     if (!video) throw new Error('Video de escaneo no disponible')
     video.srcObject = stream
@@ -241,6 +246,18 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
     await startCamera(next)
   }
 
+  async function toggleTorch() {
+    const track = videoTrackRef.current
+    if (!track || typeof track.applyConstraints !== 'function') return
+    const next = !torchOn
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next }] })
+      setTorchOn(next)
+    } catch {
+      /* el dispositivo no soporta linterna */
+    }
+  }
+
   function handleUsbSubmit(e) {
     e.preventDefault()
     submit(code)
@@ -310,9 +327,16 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
               {cameraStatus === 'scanning' && (
                 <div className="space-y-2">
                   <p className="text-sm text-emerald-400">🔍 Escaneando... enfoca el código</p>
-                  <Button type="button" variant="ghost" onClick={switchCamera} disabled={cameraStatus !== 'scanning'}>
-                    🔄 Cambiar cámara
-                  </Button>
+                  <div className="flex justify-center gap-2">
+                    {engine === 'native' && (
+                      <Button type="button" variant="ghost" onClick={toggleTorch}>
+                        {torchOn ? '🔦 Apagar linterna' : '🔦 Encender linterna'}
+                      </Button>
+                    )}
+                    <Button type="button" variant="ghost" onClick={switchCamera} disabled={cameraStatus !== 'scanning'}>
+                      🔄 Cambiar cámara
+                    </Button>
+                  </div>
                 </div>
               )}
               {cameraStatus === 'error' && (
