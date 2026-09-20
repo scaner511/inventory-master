@@ -35,6 +35,7 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
   useEffect(() => {
     if (!open) {
       if (scannerRef.current) stopScanner()
+      activeCodeRef.current = false
       setMode('usb')
       setCode('')
       setCameraStatus('idle')
@@ -46,13 +47,20 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
     if (scannerRef.current) stopScanner()
   }, [])
 
-  async function startCamera() {
+  async function startCamera(preferred = 'environment') {
+    if (window.isSecureContext === false) {
+      setCameraStatus('error')
+      return
+    }
     setCameraStatus('starting')
     try {
       if (scannerRef.current) await stopScanner()
+      const element = document.getElementById('barcode-reader')
+      if (!element) throw new Error('Contenedor de escaneo no disponible')
       scannerRef.current = new Html5Qrcode('barcode-reader')
+      const facing = preferred === 'environment' ? { facingMode: 'environment' } : { facingMode: 'user' }
       await scannerRef.current.start(
-        { facingMode: 'environment' },
+        facing,
         { fps: 10, qrbox: { width: 220, height: 220 } },
         (decodedText) => {
           if (!activeCodeRef.current) {
@@ -65,14 +73,23 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
       )
       setCameraStatus('scanning')
     } catch (err) {
+      console.error('Cámara:', err)
+      if (preferred === 'environment') {
+        try {
+          await startCamera('user')
+          return
+        } catch {
+          /* intentar de frente no ayudó */
+        }
+      }
       setCameraStatus('error')
-      console.error(err)
     }
   }
 
   function submit(value) {
     const clean = String(value || '').trim()
-    if (!clean) return
+    if (!clean || activeCodeRef.current) return
+    activeCodeRef.current = true
     if (scannerRef.current) stopScanner()
     onCode(clean)
   }
@@ -129,26 +146,28 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
             <p className="text-xs text-slate-400">
               Enciende la cámara y enfoca el código. Funciona mejor con la cámara trasera.
             </p>
-            {cameraStatus === 'scanning' ? (
-              <div id="barcode-reader" className="w-full overflow-hidden rounded-xl border border-slate-700" />
-            ) : (
-              <div className="flex h-52 items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-800/40 text-center">
-                {cameraStatus === 'starting' && <p className="text-sm text-slate-400">Iniciando cámara...</p>}
-                {cameraStatus === 'error' && (
-                  <div className="space-y-2 px-4">
-                    <p className="text-sm text-red-400">No se pudo acceder a la cámara</p>
-                    <p className="text-xs text-slate-500">
-                      Verifica los permisos de cámara y que el sitio use HTTPS.
-                    </p>
-                  </div>
-                )}
-                {cameraStatus === 'idle' && (
-                  <Button type="button" onClick={startCamera}>
-                    📷 Activar cámara
+            <div id="barcode-reader" className="w-full overflow-hidden rounded-xl border border-slate-700" />
+            <div className="text-center">
+              {cameraStatus === 'starting' && <p className="text-sm text-slate-400">Iniciando cámara...</p>}
+              {cameraStatus === 'scanning' && <p className="text-sm text-emerald-400">🔍 Escaneando... enfoca el código</p>}
+              {cameraStatus === 'error' && (
+                <div className="space-y-2">
+                  <p className="text-sm text-red-400">No se pudo acceder a la cámara</p>
+                  <p className="text-xs text-slate-500">
+                    Verifica que el sitio use HTTPS (no http ni IP) y concede el permiso de cámara al navegador.
+                    En Android, abre con Chrome. En los ajustes del navegador, revisa que la cámara no esté bloqueada.
+                  </p>
+                  <Button type="button" onClick={() => startCamera('environment')}>
+                    🔄 Reintentar
                   </Button>
-                )}
-              </div>
-            )}
+                </div>
+              )}
+              {cameraStatus === 'idle' && (
+                <Button type="button" onClick={() => startCamera('environment')}>
+                  📷 Activar cámara
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </div>
