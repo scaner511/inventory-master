@@ -16,6 +16,7 @@ export default function Loans() {
 
   const [registerOpen, setRegisterOpen] = useState(false)
   const [products, setProducts] = useState([])
+  const [productSearch, setProductSearch] = useState('')
   const [form, setForm] = useState({ product_id: '', quantity: 1, seller: '', phone: '', due_date: '', note: '', location_out: '' })
   const [saving, setSaving] = useState(false)
 
@@ -48,6 +49,7 @@ export default function Loans() {
 
   function openRegister() {
     setForm({ product_id: '', quantity: 1, seller: '', phone: '', due_date: '', note: '', location_out: '' })
+    setProductSearch('')
     getProducts()
       .then((p) => setProducts(p))
       .catch(() => {})
@@ -55,6 +57,12 @@ export default function Loans() {
   }
 
   const selectedProduct = products.find((p) => String(p.id) === String(form.product_id))
+
+  const filteredProducts = products.filter((p) => {
+    const s = productSearch.trim().toLowerCase()
+    if (!s) return true
+    return p.code.toLowerCase().includes(s) || p.name.toLowerCase().includes(s)
+  })
 
   async function handleCreate(e) {
     e.preventDefault()
@@ -319,14 +327,24 @@ export default function Loans() {
       <Modal open={registerOpen} onClose={() => setRegisterOpen(false)} title="Registrar préstamo" wide>
         <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Producto">
+            <Input
+              type="text"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              placeholder="🔍 Buscar producto..."
+              className="mb-2"
+            />
             <Select value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })} required>
               <option value="">Selecciona un producto...</option>
-              {products.map((p) => (
+              {filteredProducts.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.code} — {p.name} (stock: {p.stock})
                 </option>
               ))}
             </Select>
+            {productSearch.trim() && filteredProducts.length === 0 && (
+              <p className="mt-1 text-xs text-red-400">No se encontró ningún producto</p>
+            )}
           </Field>
           {(selectedProduct?.locations || []).length > 0 && (
             <Field label="Ubicación de salida">
