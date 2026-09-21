@@ -26,12 +26,29 @@ def to_dict_list(session: Session, product: Product) -> list[dict]:
     ]
 
 
+def _pending_rows(session: Session, product: Product) -> list[ProductStockLocation]:
+    """Filas de ubicación del producto pendientes de flush en esta sesión.
+
+    Con ``autoflush=False`` (configurado en database.py) los elementos
+    ``session.add`` todavía no visibles para ``session.query``, por lo que
+    ``ensure_seed`` y ``reconcile_stock`` deben deduplicarlos también aquí.
+    """
+    return [
+        obj
+        for obj in session.new
+        if isinstance(obj, ProductStockLocation)
+        and obj.product_id == product.id
+        and obj.tenant_id == product.tenant_id
+    ]
+
+
 def ensure_seed(session: Session, product: Product) -> None:
     """Si el producto no tiene filas de ubicación, crea una con su stock total.
 
     Aplica a productos creados ANTES de la función o importados sin ubicaciones.
+    Idempotente también dentro de una misma sesión sin autoflush.
     """
-    if rows_for(session, product):
+    if rows_for(session, product) or _pending_rows(session, product):
         return
     name = (product.location1 or "").strip() or "Principal"
     session.add(
@@ -48,6 +65,8 @@ def reconcile_stock(session: Session, product: Product) -> None:
     """Ajusta la primera fila para que la suma coincida con products.stock."""
     rows = rows_for(session, product)
     if not rows:
+        if _pending_rows(session, product):
+            return  # la fila se está sembrando en esta sesión; su qty ya = stock
         ensure_seed(session, product)
         return
     total = sum(r.quantity for r in rows)
