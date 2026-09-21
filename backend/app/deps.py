@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import License, Setting, Tenant, User
+from app.models import License, Setting, Tenant, TenantLicense, User
 from app.utils.security import decode_access_token
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -82,14 +82,27 @@ def get_or_create_settings(db: Session) -> Setting:
     return setting
 
 
-def license_status(db: Session, user: User | None = None) -> dict:
-    """Devuelve el estado de la licencia: {required, active, expires_at, days_left}.
-
-    El Super Admin es el operador del sistema y NO está sujeto a licencia
-    ni a vencimiento.
-    """
-    if user is not None and user.role == "superadmin":
-        return {"required": False, "active": True, "expires_at": None, "days_left": None}
+def _license_status_row(db: Session, user: User | None) -> dict:
+    """Estado de la licencia a partir de la fila activa (tenant o global)."""
+    if user is not None and user.tenant_id is not None:
+        lic = (
+            db.query(TenantLicense)
+            .filter(TenantLicense.tenant_id == user.tenant_id)
+            .first()
+        )
+        if lic is not None:
+            days_left = (
+                (lic.expires_at - datetime.now().date()).days
+                if lic.expires_at
+                else 0
+            )
+            return {
+                "required": True,
+                "active": bool(lic.is_active and days_left >= 0),
+                "expires_at": lic.expires_at.isoformat() if lic.expires_at else None,
+                "days_left": days_left,
+            }
+        return {"required": True, "active": False, "expires_at": None, "days_left": 0}
 
     lic = db.get(License, 1)
     if lic is None or not lic.is_active or lic.expires_at is None:
@@ -104,14 +117,27 @@ def license_status(db: Session, user: User | None = None) -> dict:
     }
 
 
+def license_status(db: Session, user: User | None = None) -> dict:
+    """Devuelve el estado de la licencia: {required, active, expires_at, days_left}.
+
+    La licencia es POR CLIENTE: cada tenant tiene su propia expiración
+    (tabla tenant_licenses) y el pago solo extiende la suya. El Super Admin
+    es el operador del sistema y NO está sujeto a licencia ni a vencimiento.
+    """
+    if user is not None and user.role == "superadmin":
+        return {"required": False, "active": True, "expires_at": None, "days_left": None}
+
+    return _license_status_row(db, user)
+
+
 def require_valid_license(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Bloquea la app si la licencia está vencida o no activa.
+    """Bloquea la app si la licencia del cliente está vencida o no activa.
 
     El Super Admin (operador del sistema) queda EXENTO: solo los clientes
-    (admins y operadores de cada tenant) están sujetos a la licencia.
+    (admins y operadores de cada tenant) están sujetos a su propia licencia.
     """
     status_info = license_status(db, user)
     if not status_info["active"]:

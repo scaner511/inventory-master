@@ -101,6 +101,9 @@ class TenantCreate(BaseModel):
     # NULL, se usa MAX_USERS_PER_TENANT (global). Debe ser >= 1 porque el
     # administrador siempre ocupa uno.
     max_users: int | None = Field(default=None, ge=1)
+    # Precio mensual USD de la licencia de este proveedor (opcional). Si es
+    # NULL, se usa PAYPAL_PRICE_USD (global).
+    price_usd: float | None = Field(default=None, ge=0)
 
     @field_validator("admin_email", mode="before")
     @classmethod
@@ -114,6 +117,9 @@ class TenantUpdate(BaseModel):
     max_users: int | None = Field(default=None, ge=1)
     # Para poder "limpiar" el límite de un proveedor (volver al global).
     clear_max_users: bool | None = None
+    price_usd: float | None = Field(default=None, ge=0)
+    # Vuelve el precio al global (PAYPAL_PRICE_USD).
+    clear_price_usd: bool | None = None
 
 
 class TenantOut(BaseModel):
@@ -122,6 +128,7 @@ class TenantOut(BaseModel):
     id: int
     name: str
     max_users: int | None = None
+    price_usd: float | None = None
     is_active: bool
     created_at: datetime
     users_count: int = 0

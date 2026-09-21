@@ -1,6 +1,15 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { activateLicense, activateOfflineLicense, getLicenseStatus, getMachineCode } from '../api/index.js'
+import {
+  activateLicense,
+  activateOfflineLicense,
+  capturePaypalOrder,
+  createPaypalOrder,
+  getLicenseStatus,
+  getMachineCode,
+  getPaypalConfig,
+} from '../api/index.js'
+import { formatMoney } from '../api/client.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { Button, Field, Input } from '../components/ui/Form.jsx'
 
@@ -151,7 +160,93 @@ export default function License() {
           {offlineLoading ? 'Activando...' : 'Activar licencia'}
         </Button>
       </div>
+
+      <PayWithPayPal onPaid={load} />
         </>
+      )}
+    </div>
+  )
+}
+
+function PayWithPayPal({ onPaid }) {
+  const containerRef = useRef(null)
+  const [config, setConfig] = useState(null)
+  const [sdkReady, setSdkReady] = useState(false)
+
+  useEffect(() => {
+    getPaypalConfig().then(setConfig).catch(() => setConfig({ enabled: false }))
+  }, [])
+
+  useEffect(() => {
+    if (!config?.enabled) return
+    if (window.paypal) {
+      setSdkReady(true)
+      return
+    }
+    const base = config.mode === 'live' ? 'https://www.paypal.com' : 'https://www.sandbox.paypal.com'
+    const script = document.createElement('script')
+    script.src = `${base}/sdk/js?client-id=${config.client_id}&currency=${config.currency}`
+    script.async = true
+    script.onload = () => setSdkReady(true)
+    document.body.appendChild(script)
+  }, [config])
+
+  useEffect(() => {
+    if (!config?.enabled || !sdkReady || !window.paypal) return
+    let mounted = true
+    let buttons
+    const container = containerRef.current
+    if (!container) return
+
+    container.innerHTML = ''
+    window.paypal
+      .Buttons({
+        style: { color: 'gold', shape: 'rect', label: 'paypal', height: 46 },
+        createOrder: () => createPaypalOrder().then((r) => r.id),
+        onApprove: async (data) => {
+          try {
+            const res = await capturePaypalOrder(data.orderID)
+            toast.success(res.message || 'Pago confirmado')
+            onPaid(res)
+          } catch {
+            /* interceptor */
+          }
+        },
+        onCancel: () => toast('Pago cancelado. Puedes volver a intentar cuando quieras.'),
+      })
+      .render(container)
+      .then((btn) => {
+        if (mounted) buttons = btn
+      })
+
+    return () => {
+      mounted = false
+      try {
+        buttons?.close?.()
+      } catch {
+        /* noop */
+      }
+    }
+  }, [config, onPaid, sdkReady])
+
+  if (!config) return null
+
+  return (
+    <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-6">
+      <h3 className="font-bold text-slate-100">Pagar y activar con PayPal</h3>
+      {config.enabled ? (
+        <>
+          <p className="text-sm text-slate-400">
+            Paga <span className="font-semibold text-slate-200">{formatMoney(config.amount)} ({config.currency})</span> y tu
+            licencia se extiende <span className="font-semibold text-emerald-400">{config.days} días automáticamente</span> —
+            sin esperar a que alguien te envíe una clave.
+          </p>
+          <div ref={containerRef} className="w-full max-w-[320px]" />
+        </>
+      ) : (
+        <p className="text-sm text-slate-400">
+          El pago con PayPal aún no está habilitado por el proveedor. Usa una de las opciones de arriba.
+        </p>
       )}
     </div>
   )

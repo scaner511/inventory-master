@@ -42,7 +42,7 @@ function TenantsTab() {
   const [tenants, setTenants] = useState([])
   const [editOpen, setEditOpen] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '' })
+  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', price_usd: '' })
   const [saving, setSaving] = useState(false)
   const [usersOpen, setUsersOpen] = useState(null)
   const [tenantUsers, setTenantUsers] = useState([])
@@ -71,6 +71,8 @@ function TenantsTab() {
         await updateTenant(editing.id, {
           name: form.name,
           max_users: form.max_users === '' ? null : Number(form.max_users),
+          price_usd: form.price_usd === '' ? null : Number(form.price_usd),
+          clear_price_usd: form.price_usd === '' && editing.price_usd ? true : undefined,
         })
         toast.success('Cliente actualizado')
       } else {
@@ -80,6 +82,7 @@ function TenantsTab() {
           admin_password: form.admin_password,
           admin_email: form.admin_email,
           max_users: form.max_users === '' ? null : Number(form.max_users),
+          price_usd: form.price_usd === '' ? null : Number(form.price_usd),
         })
         toast.success('Cliente creado')
       }
@@ -100,13 +103,14 @@ function TenantsTab() {
       admin_password: '',
       admin_email: '',
       max_users: t.max_users ? String(t.max_users) : '',
+      price_usd: t.price_usd ? String(t.price_usd) : '',
     })
     setEditOpen(true)
   }
 
   function openCreate() {
     setEditing(null)
-    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '' })
+    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', price_usd: '' })
     setEditOpen(true)
   }
 
@@ -199,6 +203,7 @@ function TenantsTab() {
             { key: 'name', label: 'Cliente' },
             { key: 'users', label: 'Usuarios', align: 'center' },
             { key: 'limit', label: 'Límite', align: 'center' },
+            { key: 'price', label: 'Precio', align: 'center' },
             { key: 'active', label: 'Activo', align: 'center' },
             { key: 'created', label: 'Creado' },
             { key: 'actions', label: 'Acciones', align: 'center' },
@@ -212,6 +217,9 @@ function TenantsTab() {
                 <span className="rounded-full bg-slate-700/40 px-2.5 py-0.5 text-xs font-bold text-slate-300">
                   {t.max_users ?? 'Sin límite'}
                 </span>
+              </td>
+              <td className="px-4 py-3 text-center text-xs font-semibold text-slate-300">
+                {t.price_usd ? `$${t.price_usd}` : 'Global'}
               </td>
               <td className="px-4 py-3 text-xs text-slate-400">{new Date(t.created_at).toLocaleDateString()}</td>
               <td className="px-4 py-3 text-center">
@@ -266,6 +274,16 @@ function TenantsTab() {
               value={form.max_users}
               onChange={(e) => setForm({ ...form, max_users: e.target.value })}
               placeholder="Ej: 5"
+            />
+          </Field>
+          <Field label="Precio mensual en USD" hint="Déjalo vacío para usar el precio global ($75). Ej: 55 para Varmoore">
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.price_usd}
+              onChange={(e) => setForm({ ...form, price_usd: e.target.value })}
+              placeholder="Ej: 75"
             />
           </Field>
           {!editing && (

@@ -1,13 +1,13 @@
-"""Rutas de licencia del sistema."""
+"""Rutas de licencia del sistema (por cliente/tenant)."""
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user, license_status
-from app.models import License
+from app.models import TenantLicense, User
 from app.utils import licenses as license_service
 from app.utils import offline_license
 
@@ -22,22 +22,21 @@ class OfflineActivateRequest(BaseModel):
     key: str
 
 
-def _get_or_create_machine_code(db: Session) -> str:
-    """Devuelve el código de activación almacenado en la BD.
+def _target_row(db: Session, user: User) -> TenantLicense:
+    """Licencia objetivo del usuario: la de SU cliente (tenant).
 
-    Si la columna ``machine_code`` está vacía (base antigua o primera vez),
-    lo calcula una vez a partir del hardware y lo guarda para siempre.
-    Esto evita que el código cambie si el servidor (p. ej. Render) cambia
-    de instancia entre reinicios.
+    El Super Admin (sin tenant) no necesita licencia; estas rutas solo se
+    usan por clientes, pero por robustez si no hay tenant se devuelve None
+    y las rutas no hacen nada.
     """
-    lic = db.get(License, 1)
-    if lic is None:
-        lic = License(id=1)
-        db.add(lic)
-    if not lic.machine_code:
-        lic.machine_code = offline_license.get_activation_code()
-        db.commit()
-    return lic.machine_code
+    if user.tenant_id is None:
+        return None  # superadmin / operador global: sin licencia por tenant
+    return license_service.get_or_create_tenant_license(db, user.tenant_id)
+
+
+def _machine_code(db: Session, user: User) -> str:
+    """Código de activación del equipo/grupo del cliente (semilla global)."""
+    return license_service.global_machine_code(db)
 
 
 @router.get("/status")
@@ -48,7 +47,7 @@ def status(db: Session = Depends(get_db), _user=Depends(get_current_user)):
 @router.get("/machine-code")
 def machine_code(db: Session = Depends(get_db), _user=Depends(get_current_user)):
     """Código de activación de este equipo para la licencia offline."""
-    return {"code": _get_or_create_machine_code(db)}
+    return {"code": _machine_code(db, _user)}
 
 
 @router.post("/offline/activate")
@@ -57,10 +56,10 @@ def activate_offline(
     db: Session = Depends(get_db),
     _user=Depends(get_current_user),
 ):
-    """Valida y activa una licencia offline ligada a este equipo (HMAC-SHA256)."""
+    """Valida y activa la licencia offline del cliente (HMAC-SHA256)."""
     result = offline_license.validate_license(
         data.key,
-        activation_code=_get_or_create_machine_code(db),
+        activation_code=_machine_code(db, _user),
     )
     if not result["valid"]:
         reason = {
@@ -71,15 +70,13 @@ def activate_offline(
         }.get(result["reason"], "Clave inválida.")
         raise HTTPException(status_code=400, detail=reason)
 
-    lic = db.get(License, 1)
+    lic = _target_row(db, _user)
     if lic is None:
-        lic = License(id=1)
-        db.add(lic)
+        raise HTTPException(status_code=400, detail="Este usuario no tiene licencia de cliente")
     lic.is_active = True
     lic.activated_at = datetime.now()
     lic.expires_at = date.fromisoformat(result["expires_at"])
     lic.last_key = data.key.strip()
-
     db.commit()
 
     return {
@@ -95,7 +92,7 @@ def activate(
     db: Session = Depends(get_db),
     _user=Depends(get_current_user),
 ):
-    result = license_service.activate_license(db, data.key)
+    result = license_service.activate_license(db, data.key, tenant_id=_user.tenant_id)
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return {"message": "Licencia activada correctamente", "expires_at": result["expires_at"]}

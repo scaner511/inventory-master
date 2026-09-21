@@ -92,6 +92,21 @@ export async function activateOfflineLicense(key) {
   return data
 }
 
+export async function getPaypalConfig() {
+  const { data } = await api.get('/payments/paypal/config')
+  return data
+}
+
+export async function createPaypalOrder() {
+  const { data } = await api.post('/payments/paypal/create')
+  return data
+}
+
+export async function capturePaypalOrder(orderId) {
+  const { data } = await api.post('/payments/paypal/capture', { order_id: orderId })
+  return data
+}
+
 export async function getSettings() {
   const { data } = await api.get('/settings')
   return data

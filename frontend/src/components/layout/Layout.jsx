@@ -1,7 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { logout } from '../../api/auth.js'
-import { useState } from 'react'
+import { getLicenseStatus } from '../../api/index.js'
+import { useEffect, useState } from 'react'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: 'M3 13l9-9 9 9M5 10v10h14V10' },
@@ -20,6 +21,16 @@ export function roleLabel(role) {
 export default function Layout() {
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
+  const [licenseAlert, setLicenseAlert] = useState(null)
+
+  useEffect(() => {
+    if (user?.role === 'superadmin') return
+    getLicenseStatus()
+      .then((st) => {
+        if (st.required && st.days_left > 0 && st.days_left <= 7) setLicenseAlert(st)
+      })
+      .catch(() => {})
+  }, [user])
 
   return (
     <div className="flex min-h-screen bg-[#0b1220]">
@@ -69,6 +80,29 @@ export default function Layout() {
             </button>
           </div>
         </header>
+
+        {licenseAlert && (
+          <div className="flex items-start gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-3 md:px-8">
+            <span className="text-xl">⚠️</span>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-amber-300">
+                Tu licencia vence en {licenseAlert.days_left} día(s) · {licenseAlert.expires_at}
+              </p>
+              <p className="text-xs text-amber-200/80">
+                Renueva tu licencia antes de que venza; cuando expire el sistema bloqueará el acceso.
+              </p>
+            </div>
+            <button
+              onClick={() => setLicenseAlert(null)}
+              className="rounded-lg p-1 text-amber-300/70 transition hover:bg-amber-500/20 hover:text-amber-200"
+              aria-label="Cerrar aviso"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         <main className="flex-1 p-4 md:p-8">
           <Outlet />

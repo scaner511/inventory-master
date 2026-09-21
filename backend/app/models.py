@@ -28,6 +28,10 @@ class Tenant(Base):
     # Límite de usuarios permitidos para este cliente. Si es NULL, se usa el
     # valor global MAX_USERS_PER_TENANT. Lo define el Super Admin al crearlo.
     max_users: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Precio mensual en USD de la licencia de ESTE cliente. Si es NULL, se usa
+    # el valor global PAYPAL_PRICE_USD. Permite cobrar distinto por proveedor
+    # (p. ej. Varmoore a $55 fijos y el resto a $75 mensuales).
+    price_usd: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -35,6 +39,9 @@ class Tenant(Base):
     products: Mapped[list["Product"]] = relationship(back_populates="tenant")
     loans: Mapped[list["Loan"]] = relationship(back_populates="tenant")
     audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="tenant")
+    license: Mapped["TenantLicense | None"] = relationship(
+        back_populates="tenant", uselist=False
+    )
 
 
 class User(Base):
@@ -189,6 +196,50 @@ class UsedLicenseKey(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     key_value: Mapped[str] = mapped_column(String(20), unique=True)
     used_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TenantLicense(Base):
+    """Licencia por cliente (tenant).
+
+    Cada proveedor tiene su propia expiración: cuando un cliente paga, solo
+    se extiende SU licencia. Antes existía una sola licencia global (tabla
+    `licenses`); esa fila se conserva como origen del backfill y para el
+    operador sin tenant.
+    """
+
+    __tablename__ = "tenant_licenses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), unique=True, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    machine_code: Mapped[str | None] = mapped_column(String(19), nullable=True)
+
+    tenant: Mapped["Tenant"] = relationship(back_populates="license")
+
+
+class Payment(Base):
+    """Pago registrado (p. ej. PayPal) para auto-activar la licencia.
+
+    `order_id` es único: garantiza idempotencia (un mismo pago nunca otorga
+    días dos veces, aunque el cliente recargue o PayPal reintente el webhook).
+    """
+
+    __tablename__ = "payments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(20), default="paypal")
+    amount: Mapped[float] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    status: Mapped[str] = mapped_column(String(30))  # completed
+    days_granted: Mapped[int] = mapped_column(Integer, default=0)
+    expires_before: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expires_after: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class DriveConnection(Base):

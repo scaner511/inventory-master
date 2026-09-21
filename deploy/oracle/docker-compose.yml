@@ -82,6 +82,14 @@ services:
       # generador, pon la misma aquí.
       LICENSE_SECRET_KEY: ${LICENSE_SECRET_KEY:-6c5ab6f076be4a57a76a81c1dfc19000a6dd493b054f91b3520dc8206919fcf8}
 
+      # PayPal: auto-activación de licencia al pagar (opcional)
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_MODE: ${PAYPAL_MODE:-sandbox}
+      PAYPAL_LICENSE_DAYS: ${PAYPAL_LICENSE_DAYS:-30}
+      PAYPAL_PRICE_USD: ${PAYPAL_PRICE_USD:-75.0}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
+
       # Comportamiento general
       LOW_STOCK_THRESHOLD: ${LOW_STOCK_THRESHOLD:-5}
       DEFAULT_GENERIC_PASSWORD: ${DEFAULT_GENERIC_PASSWORD:-Cambiar123!}

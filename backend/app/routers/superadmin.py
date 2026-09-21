@@ -9,7 +9,16 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.deps import require_superadmin
-from app.models import AuditLog, Loan, Product, Tenant, User
+from app.models import (
+    AuditLog,
+    DriveConnection,
+    Loan,
+    Payment,
+    Product,
+    Tenant,
+    TenantLicense,
+    User,
+)
 from app.schemas import (
     AdminResetPassword,
     TenantCreate,
@@ -20,6 +29,7 @@ from app.schemas import (
     UserUpdate,
     user_out,
 )
+from app.utils.licenses import global_machine_code
 from app.utils.security import hash_password
 
 router = APIRouter(
@@ -108,10 +118,15 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.username == data.admin_username).first():
         raise HTTPException(status_code=400, detail="El nombre de usuario del administrador ya existe")
 
-    tenant = Tenant(name=data.name, max_users=data.max_users)
+    tenant = Tenant(name=data.name, max_users=data.max_users, price_usd=data.price_usd)
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
+
+    db.add(
+        TenantLicense(tenant_id=tenant.id, machine_code=global_machine_code(db))
+    )
+    db.commit()
 
     password = data.admin_password or settings.default_generic_password
     db.add(
@@ -155,6 +170,11 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
                 detail=f"No se puede fijar {data.max_users} usuarios: el cliente ya tiene {_tenant_users_count(db, tenant_id)}",
             )
         tenant.max_users = data.max_users
+    if data.clear_price_usd:
+        # Volver al precio global (PAYPAL_PRICE_USD).
+        tenant.price_usd = None
+    elif data.price_usd is not None:
+        tenant.price_usd = data.price_usd
     db.commit()
     db.refresh(tenant)
 
@@ -166,6 +186,9 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
 @router.delete("/tenants/{tenant_id}", status_code=200)
 def delete_tenant(tenant_id: int, db: Session = Depends(get_db)):
     tenant = _get_tenant(db, tenant_id)
+    db.query(Payment).filter(Payment.tenant_id == tenant_id).delete()
+    db.query(TenantLicense).filter(TenantLicense.tenant_id == tenant_id).delete()
+    db.query(DriveConnection).filter(DriveConnection.tenant_id == tenant_id).delete()
     db.query(Loan).filter(Loan.tenant_id == tenant_id).delete()
     db.query(AuditLog).filter(AuditLog.tenant_id == tenant_id).delete()
     db.query(Product).filter(Product.tenant_id == tenant_id).delete()

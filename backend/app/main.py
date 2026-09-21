@@ -21,6 +21,7 @@ from app.routers import (
     dashboard,
     license as license_router,
     loans,
+    payments,
     products,
     reports,
     settings as settings_router,
@@ -49,6 +50,17 @@ def _migrate_tenant_max_users(db: Session) -> None:
     """Agrega la columna max_users a la tabla tenants (limite por proveedor)."""
     if "max_users" not in _table_columns("tenants"):
         db.execute(text("ALTER TABLE tenants ADD COLUMN max_users INTEGER"))
+    db.commit()
+
+
+def _migrate_tenant_price(db: Session) -> None:
+    """Agrega la columna price_usd a tenants (precio de licencia por cliente).
+
+    NULL = usar el precio global PAYPAL_PRICE_USD (p. ej. 75 USD); con valor,
+    ese cliente paga su propio monto (p. ej. Varmoore a 55 USD).
+    """
+    if "price_usd" not in _table_columns("tenants"):
+        db.execute(text("ALTER TABLE tenants ADD COLUMN price_usd NUMERIC(12, 2)"))
     db.commit()
 
 
@@ -305,6 +317,34 @@ def _ensure_tenant_indexes(db: Session) -> None:
     db.commit()
 
 
+def _migrate_tenant_licenses(db: Session) -> None:
+    """Crea una licencia POR CLIENTE (tenant_licenses) para los existentes.
+
+    Los clientes actuales heredan el estado de la licencia global histórica
+    (tabla licenses, fila 1) para que nada cambie para ellos: solo se extiende
+    la de quien paga. Los nuevos clientes crean su fila al registrarse.
+    """
+    lic = db.get(models.License, 1)
+    for tenant in db.query(models.Tenant).all():
+        exists = (
+            db.query(models.TenantLicense)
+            .filter(models.TenantLicense.tenant_id == tenant.id)
+            .first()
+        )
+        if exists is None:
+            db.add(
+                models.TenantLicense(
+                    tenant_id=tenant.id,
+                    is_active=bool(lic and lic.is_active),
+                    activated_at=lic.activated_at if lic else None,
+                    expires_at=lic.expires_at if lic else None,
+                    last_key=lic.last_key if lic else None,
+                    machine_code=lic.machine_code if lic else None,
+                )
+            )
+    db.commit()
+
+
 def _ensure_superadmin(db: Session) -> None:
     if settings.superadmin_username == settings.admin_username:
         return  # mismo usuario: el admin principal ya es el superadmin global
@@ -341,6 +381,7 @@ def init_db() -> None:
         _migrate_license_machine_code(db)
         _migrate_accept_terms(db)
         _migrate_tenant_max_users(db)
+        _migrate_tenant_price(db)
         _migrate_drive_per_tenant(db)
         _migrate_loan_location_out(db)
         _migrate_product_stock_locations(db)
@@ -389,6 +430,9 @@ def init_db() -> None:
             lic.machine_code = offline_license.get_activation_code()
 
         db.commit()
+
+        _migrate_tenant_licenses(db)
+
     finally:
         db.close()
 
@@ -536,6 +580,10 @@ app.include_router(users.router)
 app.include_router(license_router.router)
 app.include_router(settings_router.router)
 app.include_router(superadmin.router)
+
+# Pagos (auto-activación de licencia): accesibles AUNQUE la licencia esté
+# vencida, porque el cliente debe poder pagar para reactivarse.
+app.include_router(payments.router)
 
 # Rutas de negocio bloqueadas si la licencia no está activa
 business_deps = [Depends(require_valid_license)]

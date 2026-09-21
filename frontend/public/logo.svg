@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 64" width="200" height="64">
+  <defs>
+    <linearGradient id="big" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#0ea5e9"/>
+    </linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Símbolo: estantería de inventario + control aprobado -->
+  <g transform="translate(4,4)">
+    <rect width="56" height="56" rx="14" fill="url(#big)"/>
+    <g stroke="#ffffff" stroke-width="4" stroke-linecap="round">
+      <path d="M12 20h15"/>
+      <path d="M12 29h23"/>
+      <path d="M12 38h10" opacity="0.85"/>
+    </g>
+    <path d="M37 40h11" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.9"/>
+    <path d="M37 36h7" stroke="#38bdf8" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="41" cy="15" r="8.5" fill="url(#acc)" stroke="#ffffff" stroke-width="2.5"/>
+    <path d="M37.4 15.5l2.6 2.8 4.6-5" stroke="#0f172a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+
+  <!-- Texto -->
+  <text x="72" y="38" font-family="'Segoe UI', Arial, Helvetica, sans-serif" font-size="25" font-weight="800" fill="#ffffff">Inventory</text>
+  <text x="72" y="57" font-family="'Segoe UI', Arial, Helvetica, sans-serif" font-size="16" font-weight="600" fill="#7dd3fc" letter-spacing="0.5">MASTER OS</text>
+</svg>

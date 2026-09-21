@@ -32,7 +32,7 @@ function LicenseGate({ children }) {
   const [status, setStatus] = useState(null)
 
   useEffect(() => {
-    if (user?.role === 'admin' || user?.role === 'superadmin') {
+    if (user?.role === 'superadmin') {
       setStatus({ active: true })
       return
     }
