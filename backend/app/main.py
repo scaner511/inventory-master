@@ -188,8 +188,31 @@ def _migrate_product_stock_locations(db: Session) -> None:
     - Productos sin filas de ubicación (creados antes del cambio): se crea una
       fila ("Principal" o su location1) con su stock total.
     - Productos con filas: se reconcilia products.stock = suma(filas).
+
+    Debe correrse DESPUÉS de _backfill_tenant: hereda el tenant de las filas de
+    stock que quedaron sin asignar y evita recrear filas ya existentes cuando el
+    producto cambió de tenant (el UNIQUE de la tabla es (product_id, location)).
     """
     from app.utils import locations as loc_utils
+
+    # Las filas sin tenant heredan el de su producto (productos recién asignados).
+    db.execute(
+        text(
+            "UPDATE product_stock_locations SET tenant_id = products.tenant_id "
+            "FROM products "
+            "WHERE product_stock_locations.product_id = products.id "
+            "AND product_stock_locations.tenant_id IS NULL "
+            "AND products.tenant_id IS NOT NULL"
+        )
+    )
+    # Filas de productos que ya no existen (borrados por fusión de duplicados).
+    db.execute(
+        text(
+            "DELETE FROM product_stock_locations psl "
+            "WHERE NOT EXISTS (SELECT 1 FROM products p WHERE p.id = psl.product_id)"
+        )
+    )
+    db.commit()
 
     products = db.query(models.Product).all()
     for p in products:
@@ -214,7 +237,32 @@ def _backfill_tenant(db: Session, tenant_id: int) -> None:
     IMPORTANTE: debe correrse ANTES de _ensure_superadmin. Si se corre después,
     el superadmin (tenant_id=NULL) quedaría asignado al tenant principal y ya no
     sería un usuario global.
+
+    Los productos sin tenant que ya tienen un gemelo con el mismo código en el
+    tenant destino se FUSIONAN en lugar de romper la unicidad: se suma su stock
+    al gemelo y se eliminan (junto con sus stock locations).
     """
+    orphans = db.execute(
+        text(
+            "SELECT p.id, p.code, p.stock FROM products p "
+            "WHERE p.tenant_id IS NULL "
+            "AND EXISTS (SELECT 1 FROM products g "
+            "            WHERE g.tenant_id = :tid AND g.code = p.code)"
+        ),
+        {"tid": tenant_id},
+    ).fetchall()
+    for pid, _code, stock in orphans:
+        db.execute(
+            text(
+                "UPDATE products SET stock = stock + :s "
+                "WHERE tenant_id = :tid AND code = :c"
+            ),
+            {"s": stock or 0, "tid": tenant_id, "c": _code},
+        )
+        db.execute(text("DELETE FROM product_stock_locations WHERE product_id = :pid"), {"pid": pid})
+        db.execute(text("DELETE FROM products WHERE id = :pid"), {"pid": pid})
+    db.commit()
+
     for table in TENANT_TABLES:
         db.execute(
             text(f"UPDATE {table} SET tenant_id = :tid WHERE tenant_id IS NULL"),
@@ -405,11 +453,11 @@ def init_db() -> None:
         _migrate_tenant_max_users(db)
         _migrate_drive_per_tenant(db)
         _migrate_loan_location_out(db)
-        _migrate_product_stock_locations(db)
 
         # Cliente principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)
         _backfill_tenant(db, first_tenant.id)
+        _migrate_product_stock_locations(db)
         _migrate_products_unique(db)
         _ensure_tenant_indexes(db)
         _migrate_settings_per_tenant(db)
