@@ -97,7 +97,7 @@ def loan_ticket(loan_id: int, db: Session = Depends(get_db), user: User = Depend
     if not loan:
         raise HTTPException(status_code=404, detail="Préstamo no encontrado")
 
-    setting = get_or_create_settings(db)
+    setting = get_or_create_settings(db, user.tenant_id)
     pdf_buffer = generate_loan_pdf(
         seller=loan.seller,
         phone=loan.phone,

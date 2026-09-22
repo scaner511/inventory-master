@@ -72,10 +72,23 @@ def require_privileged(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-def get_or_create_settings(db: Session) -> Setting:
-    setting = db.get(Setting, 1)
+def get_or_create_settings(db: Session, tenant_id: int | None = None) -> Setting:
+    """Devuelve (y crea si falta) la configuración de un cliente (tenant).
+
+    ``tenant_id=None`` corresponde al Super Admin global (fila id=1 y valores
+    de ejemplo copiados a los tenants nuevos).
+    """
+    setting = (
+        db.query(Setting).filter(Setting.tenant_id == tenant_id).order_by(Setting.id).first()
+    )
     if setting is None:
-        setting = Setting(id=1, company_name="Mi Empresa", low_stock_threshold=settings.low_stock_threshold)
+        base = db.query(Setting).filter(Setting.tenant_id.is_(None)).order_by(Setting.id).first()
+        setting = Setting(
+            tenant_id=tenant_id,
+            company_name=base.company_name if base else "Mi Empresa",
+            logo_path=base.logo_path if base else None,
+            low_stock_threshold=base.low_stock_threshold if base else settings.low_stock_threshold,
+        )
         db.add(setting)
         db.commit()
         db.refresh(setting)

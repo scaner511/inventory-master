@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings as app_settings
 from app.database import get_db
-from app.deps import get_current_user, get_or_create_settings, require_superadmin
+from app.deps import get_current_user, get_or_create_settings, require_privileged
 from app.models import User
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -36,8 +36,8 @@ class SettingsOut(BaseModel):
 
 
 @router.get("", response_model=SettingsOut)
-def get_settings(db: Session = Depends(get_db), _user=Depends(get_current_user)):
-    setting = get_or_create_settings(db)
+def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    setting = get_or_create_settings(db, user.tenant_id)
     return SettingsOut(
         company_name=setting.company_name,
         low_stock_threshold=setting.low_stock_threshold,
@@ -50,9 +50,9 @@ def get_settings(db: Session = Depends(get_db), _user=Depends(get_current_user))
 def update_settings(
     data: SettingsUpdate,
     db: Session = Depends(get_db),
-    _user=Depends(require_superadmin),
+    user: User = Depends(require_privileged),
 ):
-    setting = get_or_create_settings(db)
+    setting = get_or_create_settings(db, user.tenant_id)
     if data.company_name is not None:
         setting.company_name = data.company_name
     if data.low_stock_threshold is not None:
@@ -72,7 +72,7 @@ def update_settings(
 def upload_logo(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _user=Depends(require_superadmin),
+    user: User = Depends(require_privileged),
 ):
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_LOGO_EXT:
@@ -83,15 +83,18 @@ def upload_logo(
     with dest.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    setting = get_or_create_settings(db)
+    setting = get_or_create_settings(db, user.tenant_id)
     setting.logo_path = str(dest)
     db.commit()
     return {"message": "Logo configurado correctamente", "logo_url": "/api/settings/logo"}
 
 
 @router.get("/logo")
-def get_logo(db: Session = Depends(get_db)):
-    setting = get_or_create_settings(db)
+def get_logo(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    setting = get_or_create_settings(db, user.tenant_id)
     if not setting.logo_path or not Path(setting.logo_path).exists():
         raise HTTPException(status_code=404, detail="No hay logo configurado")
     return FileResponse(setting.logo_path)

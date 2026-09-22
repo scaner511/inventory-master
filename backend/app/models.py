@@ -159,9 +159,9 @@ class AuditLog(Base):
 
 class Setting(Base):
     __tablename__ = "settings"
-    __table_args__ = (CheckConstraint("id = 1", name="ck_settings_single_row"),)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     company_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     logo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     low_stock_threshold: Mapped[int] = mapped_column(Integer, default=5)

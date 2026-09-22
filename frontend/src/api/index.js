@@ -102,6 +102,13 @@ export async function updateSettings(payload) {
   return data
 }
 
+export async function getLogoUrl() {
+  /* El logo está protegido por autenticación; se descarga como blob y se
+     convierte a URL local para poder mostrarlo en <img>. */
+  const { data } = await api.get('/settings/logo', { responseType: 'blob' })
+  return URL.createObjectURL(data)
+}
+
 export async function getUsers() {
   const { data } = await api.get('/users')
   return data

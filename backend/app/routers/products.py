@@ -1,5 +1,6 @@
 """Rutas CRUD de productos (inventario)."""
 import io
+import unicodedata
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -13,6 +14,31 @@ from app.schemas import ProductCreate, ProductOut, ProductUpdate
 from app.utils import locations as loc_utils
 
 router = APIRouter(prefix="/api/products", tags=["products"])
+
+
+def _fold(text: str | None) -> str:
+    """Minúsculas y sin acentos para búsquedas tolerantes."""
+    if not text:
+        return ""
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text.lower()) if unicodedata.category(c) != "Mn"
+    )
+
+
+def _matches_terms(values: list[str], terms: list[str]) -> bool:
+    """True si cada término está presente en al menos uno de los valores.
+
+    Permite buscar por nombre sin importar el orden de las palabras:
+    "tapa presion" encuentra "TAPA OLLA DE PRESION" aunque falte "olla".
+    """
+    folded = [_fold(v) for v in values]
+    return all(any(t in f for f in folded) for t in terms)
+
+
+def _get_threshold(db: Session, tenant_id: int | None = None) -> int:
+    from app.deps import get_or_create_settings
+
+    return get_or_create_settings(db, tenant_id).low_stock_threshold or 5
 
 
 def _to_out(db: Session, p: Product, threshold: int) -> ProductOut:
@@ -40,21 +66,18 @@ def list_products(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    threshold = _get_threshold(db, user.tenant_id)
     query = db.query(Product).filter(Product.tenant_id == user.tenant_id)
+
+    terms: list[str] = []
     if q:
-        like = f"%{q}%"
-        query = query.filter(Product.code.ilike(like) | Product.name.ilike(like))
-
-    threshold = 5
-    from app.deps import get_or_create_settings
-
-    setting = get_or_create_settings(db)
-    threshold = setting.low_stock_threshold or 5
-
-    if low_stock_only:
-        query = query.filter(Product.stock <= threshold)
+        terms = [t for t in _fold(q).split() if t]
 
     products = query.order_by(Product.name).all()
+    if terms:
+        products = [p for p in products if _matches_terms([p.name, p.code], terms)]
+    if low_stock_only:
+        products = [p for p in products if p.stock <= threshold]
     return [_to_out(db, p, threshold) for p in products]
 
 
@@ -281,9 +304,7 @@ def get_product(product_id: int, db: Session = Depends(get_db), user: User = Dep
     )
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
-    from app.deps import get_or_create_settings
-
-    threshold = get_or_create_settings(db).low_stock_threshold or 5
+    threshold = _get_threshold(db, user.tenant_id)
     return _to_out(db, product, threshold)
 
 

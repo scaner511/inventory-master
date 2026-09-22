@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 @router.get("", response_model=DashboardOut)
 def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     tenant_id = user.tenant_id
-    threshold = get_or_create_settings(db).low_stock_threshold or 5
+    threshold = get_or_create_settings(db, user.tenant_id).low_stock_threshold or 5
 
     total_products = (
         db.query(func.count(Product.id)).filter(Product.tenant_id == tenant_id).scalar() or 0

@@ -299,6 +299,68 @@ def _migrate_products_unique(db: Session) -> None:
         db.commit()
 
 
+def _migrate_ensure_tenant_indexes(db: Session) -> None:
+    for table in TENANT_TABLES:
+        db.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_tenant_id ON {table} (tenant_id)"))
+    db.commit()
+
+
+def _migrate_settings_per_tenant(db: Session) -> None:
+    """Convierte 'settings' (1 fila global) a configuración por cliente (tenant).
+
+    Mantiene la fila global (tenant_id NULL, Super Admin) como plantilla y crea
+    una fila por tenant copiando nombre/logo/umbral existentes.
+    """
+    cols = _table_columns("settings")
+    if "tenant_id" not in cols:
+        db.execute(text("ALTER TABLE settings ADD COLUMN tenant_id INTEGER"))
+        db.commit()
+    if engine.dialect.name == "postgresql":
+        db.execute(
+            text("ALTER TABLE settings DROP CONSTRAINT IF EXISTS ck_settings_single_row")
+        )
+        db.commit()
+    elif engine.dialect.name == "sqlite":
+        row = db.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='settings'")
+        ).fetchone()
+        if row and row[0] and "ck_settings_single_row" in row[0]:
+            db.execute(text("CREATE TABLE settings_new ("
+                            "id INTEGER NOT NULL PRIMARY KEY, "
+                            "tenant_id INTEGER, "
+                            "company_name VARCHAR(120), "
+                            "logo_path TEXT, "
+                            "low_stock_threshold INTEGER)"))
+            db.execute(text("INSERT INTO settings_new (id, tenant_id, company_name, logo_path, "
+                            "low_stock_threshold) "
+                            "SELECT id, tenant_id, company_name, logo_path, low_stock_threshold FROM settings"))
+            db.execute(text("DROP TABLE settings"))
+            db.execute(text("ALTER TABLE settings_new RENAME TO settings"))
+            db.commit()
+    # Fila global (plantilla del Super Admin) y una fila por tenant.
+    global_setting = db.query(models.Setting).filter(models.Setting.tenant_id.is_(None)).order_by(models.Setting.id).first()
+    if global_setting is None:
+        global_setting = models.Setting(
+            company_name="Mi Empresa",
+            low_stock_threshold=settings.low_stock_threshold,
+        )
+        db.add(global_setting)
+        db.commit()
+        db.refresh(global_setting)
+    tenant_ids = [r[0] for r in db.execute(text("SELECT id FROM tenants")).all()]
+    for tid in tenant_ids:
+        if not db.query(models.Setting).filter(models.Setting.tenant_id == tid).first():
+            db.add(
+                models.Setting(
+                    tenant_id=tid,
+                    company_name=global_setting.company_name,
+                    logo_path=global_setting.logo_path,
+                    low_stock_threshold=global_setting.low_stock_threshold,
+                )
+            )
+    db.commit()
+
+
 def _ensure_tenant_indexes(db: Session) -> None:
     for table in TENANT_TABLES:
         db.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_tenant_id ON {table} (tenant_id)"))
@@ -350,6 +412,7 @@ def init_db() -> None:
         _backfill_tenant(db, first_tenant.id)
         _migrate_products_unique(db)
         _ensure_tenant_indexes(db)
+        _migrate_settings_per_tenant(db)
 
         _ensure_superadmin(db)
 
@@ -363,16 +426,6 @@ def init_db() -> None:
                     role="admin",
                     tenant_id=first_tenant.id,
                     must_change_password=False,
-                )
-            )
-
-        # Fila de configuración
-        if not db.get(models.Setting, 1):
-            db.add(
-                models.Setting(
-                    id=1,
-                    company_name="Mi Empresa",
-                    low_stock_threshold=settings.low_stock_threshold,
                 )
             )
 
