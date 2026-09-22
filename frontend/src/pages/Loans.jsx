@@ -64,6 +64,43 @@ export default function Loans() {
     return p.code.toLowerCase().includes(s) || p.name.toLowerCase().includes(s)
   })
 
+  function formatLoanDate(value) {
+    if (!value) return '—'
+    const d = new Date(value)
+    if (Number.isNaN(d.getTime())) return value
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    return `${dd}/${mm}/${d.getFullYear()}`
+  }
+
+  function buildTicketMessage(loan) {
+    const lines = [
+      `TICKET DE PRESTAMO No. ${loan.id}`,
+      '=====================================',
+      '',
+      `Vendedor: ${loan.seller}`,
+      `Producto: ${loan.product_name}`,
+      `Cantidad: ${loan.quantity}`,
+    ]
+    if (loan.location_out) lines.push(`Ubicación de salida: ${loan.location_out}`)
+    lines.push('')
+    lines.push(`Fecha del préstamo: ${formatLoanDate(loan.loan_date)}`)
+    lines.push(`Fecha de devolución: ${formatLoanDate(loan.due_date)}`)
+    if (loan.note) lines.push('', `Nota: ${loan.note}`)
+    lines.push('', 'Por favor conserva este ticket y entrega el producto en buen estado dentro de la fecha indicada. Gracias.')
+    return lines.join('\n')
+  }
+
+  function buildReminderMessage(loan) {
+    return (
+      `RECORDATORIO DE DEVOLUCION\n` +
+      `=====================================\n\n` +
+      `Hola ${loan.seller},\n\n` +
+      `Este mensaje es para recordarte que el préstamo de "${loan.product_name}" (${loan.quantity} unidad(es)) vence el ${formatLoanDate(loan.due_date)}.\n\n` +
+      `Te pedimos devolver el producto en buen estado dentro de esta fecha. Si necesitas una prórroga, contáctanos.\n\nGracias.`
+    )
+  }
+
   async function handleCreate(e) {
     e.preventDefault()
     if (!form.product_id || !form.seller.trim() || !form.due_date) {
@@ -90,9 +127,7 @@ export default function Loans() {
 
       const whatsapp = window.confirm('¿Abrir WhatsApp para notificar al vendedor?')
       if (whatsapp && form.phone.trim()) {
-        const msg = encodeURIComponent(
-          `✅ *Ticket de Préstamo*\n\n👤 *Vendedor:* ${loan.seller}\n📦 *Producto:* ${loan.product_name}\n🔢 *Cantidad:* ${loan.quantity}\n📅 *Devolución:* ${loan.due_date}`,
-        )
+        const msg = encodeURIComponent(buildTicketMessage(loan))
         window.open(`https://wa.me/${form.phone.trim()}?text=${msg}`, '_blank')
       }
 
@@ -306,7 +341,7 @@ export default function Loans() {
                     <button
                       onClick={() =>
                         window.open(
-                          `https://wa.me/${loan.phone}?text=${encodeURIComponent('Recordatorio: tu préstamo de ' + loan.product_name + ' vence el ' + loan.due_date)}`,
+                          `https://wa.me/${loan.phone}?text=${encodeURIComponent(buildReminderMessage(loan))}`,
                           '_blank',
                         )
                       }
