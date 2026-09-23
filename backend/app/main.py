@@ -198,18 +198,17 @@ def _migrate_product_stock_locations(db: Session) -> None:
     # Las filas sin tenant heredan el de su producto (productos recién asignados).
     db.execute(
         text(
-            "UPDATE product_stock_locations SET tenant_id = products.tenant_id "
-            "FROM products "
-            "WHERE product_stock_locations.product_id = products.id "
-            "AND product_stock_locations.tenant_id IS NULL "
-            "AND products.tenant_id IS NOT NULL"
+            "UPDATE product_stock_locations SET tenant_id = "
+            "(SELECT products.tenant_id FROM products "
+            " WHERE products.id = product_stock_locations.product_id) "
+            "WHERE tenant_id IS NULL"
         )
     )
     # Filas de productos que ya no existen (borrados por fusión de duplicados).
     db.execute(
         text(
-            "DELETE FROM product_stock_locations psl "
-            "WHERE NOT EXISTS (SELECT 1 FROM products p WHERE p.id = psl.product_id)"
+            "DELETE FROM product_stock_locations "
+            "WHERE product_id NOT IN (SELECT id FROM products)"
         )
     )
     db.commit()
@@ -271,6 +270,15 @@ def _backfill_tenant(db: Session, tenant_id: int) -> None:
     db.commit()
 
 
+def _migrate_product_condition(db: Session) -> None:
+    """Agrega la columna condition a la tabla products (buen_estado | incompleto | usado)."""
+    if "condition" not in _table_columns("products"):
+        db.execute(
+            text("ALTER TABLE products ADD COLUMN condition VARCHAR(30) DEFAULT 'buen_estado'")
+        )
+        db.commit()
+
+
 def _migrate_products_unique(db: Session) -> None:
     """Reemplaza el UNIQUE global de code por un UNIQUE compuesto (tenant_id, code).
 
@@ -321,6 +329,7 @@ def _migrate_products_unique(db: Session) -> None:
                     location1 VARCHAR(255),
                     location2 VARCHAR(255),
                     location3 VARCHAR(255),
+                    condition VARCHAR(30) DEFAULT 'buen_estado',
                     created_at DATETIME,
                     updated_at DATETIME,
                     UNIQUE (tenant_id, code)
@@ -333,9 +342,9 @@ def _migrate_products_unique(db: Session) -> None:
                 """
                 INSERT INTO products_new
                     (id, tenant_id, code, name, stock, purchase_price, sale_price,
-                     location1, location2, location3, created_at, updated_at)
+                     location1, location2, location3, condition, created_at, updated_at)
                 SELECT id, tenant_id, code, name, stock, purchase_price, sale_price,
-                       location1, location2, location3, created_at, updated_at
+                       location1, location2, location3, condition, created_at, updated_at
                 FROM products
                 """
             )
@@ -458,6 +467,7 @@ def init_db() -> None:
         first_tenant = _get_or_create_first_tenant(db)
         _backfill_tenant(db, first_tenant.id)
         _migrate_product_stock_locations(db)
+        _migrate_product_condition(db)
         _migrate_products_unique(db)
         _ensure_tenant_indexes(db)
         _migrate_settings_per_tenant(db)

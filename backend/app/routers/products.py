@@ -110,9 +110,12 @@ HEADER_ALIASES = {
     "ubicacion1": "ubicacion1", "ubicacion": "ubicacion1",
     "ubicacionprincipal": "ubicacion1", "ubicacion2": "ubicacion2",
     "ubicacion3": "ubicacion3",
+    # condición
+    "condicion": "condition", "estado": "condition", "estadofisico": "condition",
+    "condicionfisica": "condition",
 }
 
-POSITIONAL_FIELDS = ["code", "name", "stock", "compra", "venta", "ubicacion1", "ubicacion2", "ubicacion3"]
+POSITIONAL_FIELDS = ["code", "name", "stock", "compra", "venta", "ubicacion1", "ubicacion2", "ubicacion3", "condition"]
 
 
 def _map_columns(df):
@@ -149,6 +152,18 @@ def _val(row, mapping, field, default=""):
         return default
     value = row.iloc[idx]
     return default if pd.isna(value) else value
+
+
+def _normalize_condition(value) -> str:
+    """Convierte un valor libre a condition normalizada (buen_estado | incompleto | usado)."""
+    s = str(value).strip().lower()
+    s_fold = "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+    s_norm = s_fold.replace(" ", "_").replace("-", "_")
+    if "incomplet" in s_norm:
+        return "incompleto"
+    if "usado" in s_norm or "segunda" in s_norm:
+        return "usado"
+    return "buen_estado"
 
 
 @router.post("/import", status_code=201)
@@ -222,6 +237,7 @@ def import_products(
     ubi1 = [str(u).strip() for u in col("ubicacion1")]
     ubi2 = [str(u).strip() for u in col("ubicacion2")]
     ubi3 = [str(u).strip() for u in col("ubicacion3")]
+    conditions = [_normalize_condition(c) for c in col("condition", "buen_estado")]
 
     # --- Procesamiento robusto ---
     # La sesión usa autoflush=False, por lo que las consultas NO ven los
@@ -250,6 +266,7 @@ def import_products(
             "location1": ubi1[i] or None,
             "location2": ubi2[i] or None,
             "location3": ubi3[i] or None,
+            "condition": conditions[i],
         }
         seen[code] = payload
 

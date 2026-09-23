@@ -77,6 +77,8 @@ class Product(Base):
     location1: Mapped[str | None] = mapped_column(String(255), nullable=True)
     location2: Mapped[str | None] = mapped_column(String(255), nullable=True)
     location3: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Estado físico: "buen_estado" | "incompleto" | "usado"
+    condition: Mapped[str] = mapped_column(String(30), default="buen_estado")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

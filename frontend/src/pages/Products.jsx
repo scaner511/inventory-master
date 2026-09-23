@@ -7,14 +7,21 @@ import Modal from '../components/ui/Modal.jsx'
 import BarcodeScanner from '../components/BarcodeScanner.jsx'
 import Table, { EmptyState } from '../components/ui/Table.jsx'
 import Badge from '../components/ui/Badge.jsx'
-import { Button, Field, Input } from '../components/ui/Form.jsx'
+import { Button, Field, Input, Select } from '../components/ui/Form.jsx'
 
 const EMPTY_FORM = {
   code: '',
   name: '',
   purchase_price: '',
   sale_price: '',
+  condition: 'buen_estado',
   locations: [{ location: '', quantity: 0 }],
+}
+
+const CONDITION_LABELS = {
+  buen_estado: 'Buen estado',
+  incompleto: 'Incompleto',
+  usado: 'Usado',
 }
 
 export default function Products() {
@@ -60,6 +67,7 @@ export default function Products() {
       name: p.name,
       purchase_price: p.purchase_price,
       sale_price: p.sale_price,
+      condition: p.condition || 'buen_estado',
       locations: (Array.isArray(p.locations) && p.locations.length
         ? p.locations.map((l) => ({ location: l.location, quantity: l.quantity }))
         : [{ location: p.location1 || '', quantity: p.stock }]),
@@ -97,6 +105,7 @@ export default function Products() {
       name: form.name.trim(),
       purchase_price: Number(form.purchase_price) || 0,
       sale_price: Number(form.sale_price) || 0,
+      condition: form.condition || 'buen_estado',
       locations: form.locations
         .map((l) => ({ location: l.location.trim(), quantity: Number(l.quantity) || 0 }))
         .filter((l) => l.location),
@@ -248,6 +257,7 @@ export default function Products() {
             { key: 'loc', label: 'Ubicación (cantidad)' },
             { key: 'buy', label: 'Compra', align: 'center' },
             { key: 'sell', label: 'Venta', align: 'center' },
+            { key: 'condition', label: 'Condición', align: 'center' },
             { key: 'status', label: 'Estado', align: 'center' },
             { key: 'actions', label: 'Acciones', align: 'center' },
           ]}
@@ -262,6 +272,21 @@ export default function Products() {
               <td className="px-4 py-3">{renderLocations(p)}</td>
               <td className="px-4 py-3 text-center text-slate-300">{formatMoney(p.purchase_price)}</td>
               <td className="px-4 py-3 text-center text-slate-300">{formatMoney(p.sale_price)}</td>
+              <td className="px-4 py-3 text-center">
+                {(p.condition || 'buen_estado') === 'incompleto' ? (
+                  <span className="rounded-md bg-amber-500/10 px-2 py-1 text-xs font-semibold text-amber-400">
+                    Incompleto
+                  </span>
+                ) : (p.condition || 'buen_estado') === 'usado' ? (
+                  <span className="rounded-md bg-orange-500/10 px-2 py-1 text-xs font-semibold text-orange-400">
+                    Usado
+                  </span>
+                ) : (
+                  <span className="rounded-md bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-400">
+                    Buen estado
+                  </span>
+                )}
+              </td>
               <td className="px-4 py-3 text-center">
                 <Badge status={p.status} />
               </td>
@@ -301,6 +326,15 @@ export default function Products() {
           </Field>
           <Field label="Precio de venta">
             <Input type="number" step="0.01" min="0" value={form.sale_price} onChange={(e) => setForm({ ...form, sale_price: e.target.value })} placeholder="0.00" />
+          </Field>
+          <Field label="Condición">
+            <Select value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}>
+              {Object.entries(CONDITION_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
           </Field>
 
           <div className="sm:col-span-2">

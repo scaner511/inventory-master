@@ -160,6 +160,8 @@ class ProductBase(BaseModel):
     location1: str | None = None
     location2: str | None = None
     location3: str | None = None
+    # Estado físico: "buen_estado" | "incompleto" | "usado"
+    condition: str = Field(default="buen_estado", max_length=30)
     # Desglose por ubicación (con cantidades). Si se envía, el stock total se
     # recalcula como la suma de estas filas.
     locations: list[LocationEntry] = []
@@ -178,6 +180,7 @@ class ProductUpdate(BaseModel):
     location1: str | None = None
     location2: str | None = None
     location3: str | None = None
+    condition: str | None = Field(default=None, max_length=30)
     locations: list[LocationEntry] | None = None
 
 
