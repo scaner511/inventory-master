@@ -46,10 +46,18 @@ def ensure_seed(session: Session, product: Product) -> None:
 
 def reconcile_stock(session: Session, product: Product) -> None:
     """Ajusta la primera fila para que la suma coincida con products.stock."""
+    # La sesión usa autoflush=False: un ensure_seed previo (o una creación con
+    # flush pendiente) puede tener filas sin vaciar. Si no las materializamos en
+    # cascada, una consulta posterior no las vería y se intentaría crear otra
+    # fila idéntica (violaría la unicidad product+location).
+    session.flush()
     rows = rows_for(session, product)
     if not rows:
         ensure_seed(session, product)
-        return
+        session.flush()
+        rows = rows_for(session, product)
+        if not rows:
+            return
     total = sum(r.quantity for r in rows)
     if total != product.stock:
         rows[0].quantity = max(rows[0].quantity + (product.stock - total), 0)

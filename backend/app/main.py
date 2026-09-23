@@ -466,8 +466,8 @@ def init_db() -> None:
         # Cliente principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)
         _backfill_tenant(db, first_tenant.id)
-        _migrate_product_stock_locations(db)
         _migrate_product_condition(db)
+        _migrate_product_stock_locations(db)
         _migrate_products_unique(db)
         _ensure_tenant_indexes(db)
         _migrate_settings_per_tenant(db)
