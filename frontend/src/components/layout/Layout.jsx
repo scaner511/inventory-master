@@ -110,11 +110,11 @@ function SidebarContent({ user, logoUrl, onNavigate }) {
     <>
       <div className="mb-8 mt-2 flex flex-col items-center gap-1">
         {logoUrl ? (
-          <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-slate-700 bg-white">
-            <img src={logoUrl} alt="Logo" className="h-full w-full object-contain p-1" />
+          <div className="flex h-[168px] w-[168px] items-center justify-center overflow-hidden rounded-3xl border border-slate-700 bg-white">
+            <img src={logoUrl} alt="Logo" className="h-full w-full object-contain p-2" />
           </div>
         ) : (
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-2xl">
+          <div className="flex h-[168px] w-[168px] items-center justify-center rounded-3xl bg-gradient-to-br from-blue-500 to-indigo-600 text-6xl">
             📦
           </div>
         )}
