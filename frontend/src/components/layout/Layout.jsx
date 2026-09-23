@@ -1,7 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { logout } from '../../api/auth.js'
-import { useState } from 'react'
+import { getLogoUrl, getSettings } from '../../api/index.js'
+import { useEffect, useState } from 'react'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: 'M3 13l9-9 9 9M5 10v10h14V10' },
@@ -20,12 +21,38 @@ export function roleLabel(role) {
 export default function Layout() {
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
+  const [logoUrl, setLogoUrl] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchLogo() {
+      try {
+        const s = await getSettings()
+        if (cancelled) return
+        if (s?.has_logo) {
+          const url = await getLogoUrl()
+          if (!cancelled) setLogoUrl(url)
+        } else {
+          setLogoUrl(null)
+        }
+      } catch {
+        if (!cancelled) setLogoUrl(null)
+      }
+    }
+    fetchLogo()
+    const onLogo = () => fetchLogo()
+    window.addEventListener('company-logo-updated', onLogo)
+    return () => {
+      cancelled = true
+      window.removeEventListener('company-logo-updated', onLogo)
+    }
+  }, [user?.tenant_id])
 
   return (
     <div className="flex min-h-screen bg-[#0b1220]">
       {/* Sidebar escritorio */}
       <aside className="sticky top-0 hidden h-screen w-64 flex-col border-r border-slate-800 bg-[#050a18] p-4 md:flex">
-        <SidebarContent user={user} />
+        <SidebarContent user={user} logoUrl={logoUrl} />
       </aside>
 
       {/* Sidebar móvil */}
@@ -33,7 +60,7 @@ export default function Layout() {
         <div className="fixed inset-0 z-40 md:hidden">
           <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
           <aside className="absolute left-0 top-0 h-full w-64 bg-[#050a18] p-4 shadow-xl">
-            <SidebarContent user={user} onNavigate={() => setOpen(false)} />
+            <SidebarContent user={user} logoUrl={logoUrl} onNavigate={() => setOpen(false)} />
           </aside>
         </div>
       )}
@@ -78,13 +105,19 @@ export default function Layout() {
   )
 }
 
-function SidebarContent({ user, onNavigate }) {
+function SidebarContent({ user, logoUrl, onNavigate }) {
   return (
     <>
       <div className="mb-8 mt-2 flex flex-col items-center gap-1">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-2xl">
-          📦
-        </div>
+        {logoUrl ? (
+          <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-slate-700 bg-white">
+            <img src={logoUrl} alt="Logo" className="h-full w-full object-contain p-1" />
+          </div>
+        ) : (
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-2xl">
+            📦
+          </div>
+        )}
         <p className="mt-2 font-bold text-slate-100">{user?.username}</p>
         <span className="rounded-full bg-blue-500/10 px-3 py-0.5 text-xs font-semibold text-blue-400">
           {roleLabel(user?.role)}

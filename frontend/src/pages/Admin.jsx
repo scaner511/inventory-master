@@ -333,6 +333,7 @@ export function CompanyTab() {
       toast.success(data.message)
       setSettings({ ...settings, has_logo: true })
       setLogoBlobUrl(await getLogoUrl())
+      window.dispatchEvent(new Event('company-logo-updated'))
     } catch {
       /* interceptor */
     } finally {
