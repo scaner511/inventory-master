@@ -16,7 +16,12 @@ export async function acceptTerms() {
   return data
 }
 
-export function logout() {
+export async function logout() {
+  try {
+    await api.post('/auth/logout')
+  } catch {
+    /* aunque falle, se limpia el token local */
+  }
   clearToken()
   window.location.href = '/login'
 }

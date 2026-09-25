@@ -9,7 +9,16 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.deps import require_superadmin
-from app.models import AuditLog, Loan, Product, Tenant, User
+from app.models import (
+    AuditLog,
+    DriveConnection,
+    Loan,
+    Product,
+    ProductStockLocation,
+    Setting,
+    Tenant,
+    User,
+)
 from app.schemas import (
     AdminResetPassword,
     TenantCreate,
@@ -166,10 +175,13 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
 @router.delete("/tenants/{tenant_id}", status_code=200)
 def delete_tenant(tenant_id: int, db: Session = Depends(get_db)):
     tenant = _get_tenant(db, tenant_id)
-    db.query(Loan).filter(Loan.tenant_id == tenant_id).delete()
-    db.query(AuditLog).filter(AuditLog.tenant_id == tenant_id).delete()
-    db.query(Product).filter(Product.tenant_id == tenant_id).delete()
-    db.query(User).filter(User.tenant_id == tenant_id).delete()
+    db.query(ProductStockLocation).filter(ProductStockLocation.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(Loan).filter(Loan.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(AuditLog).filter(AuditLog.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(Product).filter(Product.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(User).filter(User.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(DriveConnection).filter(DriveConnection.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(Setting).filter(Setting.tenant_id == tenant_id).delete(synchronize_session=False)
     db.delete(tenant)
     db.commit()
     return {"message": f"Cliente '{tenant.name}' eliminado correctamente."}
@@ -253,6 +265,8 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     if user.role == "superadmin":
         raise HTTPException(status_code=400, detail="No se puede eliminar a un Super Admin")
     _ensure_admin_remains(db, user)
+    db.query(AuditLog).filter(AuditLog.user_id == user_id).update({"user_id": None}, synchronize_session=False)
+    db.query(Loan).filter(Loan.created_by == user_id).update({"created_by": None}, synchronize_session=False)
     db.delete(user)
     db.commit()
     return {"message": f"Usuario '{user.username}' eliminado."}

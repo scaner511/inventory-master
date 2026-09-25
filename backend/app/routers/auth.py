@@ -1,9 +1,11 @@
 """Rutas de autenticación: login, recuperación de contraseña y sesión."""
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import User
@@ -22,16 +24,21 @@ from app.utils.security import create_access_token, hash_password, verify_passwo
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-def _token_for(user: User) -> TokenResponse:
+def _token_for(user: User, session_id: str) -> TokenResponse:
     token = create_access_token(
         {
             "sub": str(user.id),
             "username": user.username,
             "role": user.role,
             "tenant_id": user.tenant_id,
+            "session_id": session_id,
         }
     )
     return TokenResponse(access_token=token, user=user_out(user))
+
+
+def _session_expires() -> datetime:
+    return datetime.now() + timedelta(minutes=settings.access_token_expire_minutes)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -40,9 +47,21 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     if not user or not user.is_active or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 
-    user.last_login = datetime.now()
+    # Sesión única: si ya hay una sesión activa (sin expirar), se bloquea el acceso
+    # desde otro equipo hasta que se cierre la sesión anterior.
+    now = datetime.now()
+    if user.active_session and user.session_expires_at and user.session_expires_at > now:
+        raise HTTPException(
+            status_code=409,
+            detail="Ya hay una sesión activa en otro equipo. Cierra sesión ahí para poder entrar aquí.",
+        )
+
+    session_id = secrets.token_urlsafe(32)
+    user.active_session = session_id
+    user.session_expires_at = _session_expires()
+    user.last_login = now
     db.commit()
-    return _token_for(user)
+    return _token_for(user, session_id)
 
 
 @router.post("/forgot-password", status_code=200)
@@ -77,6 +96,9 @@ def reset_password(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     user.password_hash = hash_password(data.new_password)
+    # Al restablecer la contraseña se cierra cualquier sesión activa.
+    user.active_session = None
+    user.session_expires_at = None
     db.commit()
     return {"message": "Contraseña restablecida correctamente."}
 
@@ -84,6 +106,15 @@ def reset_password(
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user_out(user)
+
+
+@router.post("/logout", status_code=200)
+def logout(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Cierra la sesión activa del usuario: libera el equipo para nuevos inicios."""
+    user.active_session = None
+    user.session_expires_at = None
+    db.commit()
+    return {"message": "Sesión cerrada correctamente."}
 
 
 @router.post("/accept-terms", response_model=UserOut)

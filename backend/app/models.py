@@ -56,6 +56,9 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Sesión única: sólo un equipo puede tener la sesión activa a la vez.
+    active_session: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    session_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     tenant: Mapped["Tenant | None"] = relationship(back_populates="users")
     loans_created: Mapped[list["Loan"]] = relationship(back_populates="creator")

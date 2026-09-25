@@ -38,6 +38,13 @@ def get_current_user(
     if user is None or not user.is_active:
         raise unauthorized
 
+    # Sesión única: el token debe pertenecer a la sesión activa actual del
+    # usuario. Si la sesión fue cerrada (logout) o reemplazada por otro equipo,
+    # el token deja de ser válido de inmediato.
+    session_id = payload.get("session_id")
+    if user.active_session and session_id != user.active_session:
+        raise unauthorized
+
     # Si el usuario pertenece a un cliente desactivado, se bloquea el acceso.
     if user.tenant_id is not None:
         tenant = db.get(Tenant, user.tenant_id)

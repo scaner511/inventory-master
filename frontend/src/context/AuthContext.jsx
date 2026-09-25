@@ -32,9 +32,10 @@ export function AuthProvider({ children }) {
     return u
   }
 
-  const logout = () => {
+  const logout = async (e) => {
+    if (e) e.preventDefault()
     setUser(null)
-    doLogout()
+    await doLogout()
   }
 
   return (

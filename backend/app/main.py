@@ -182,6 +182,16 @@ def _migrate_loan_location_out(db: Session) -> None:
         db.commit()
 
 
+def _migrate_user_active_session(db: Session) -> None:
+    """Agrega las columnas de sesión única a la tabla users."""
+    cols = _table_columns("users")
+    if "active_session" not in cols:
+        db.execute(text("ALTER TABLE users ADD COLUMN active_session VARCHAR(64)"))
+    if "session_expires_at" not in cols:
+        db.execute(text("ALTER TABLE users ADD COLUMN session_expires_at TIMESTAMP"))
+    db.commit()
+
+
 def _migrate_product_stock_locations(db: Session) -> None:
     """Siembra/valida el stock por ubicación de los productos.
 
@@ -462,6 +472,7 @@ def init_db() -> None:
         _migrate_tenant_max_users(db)
         _migrate_drive_per_tenant(db)
         _migrate_loan_location_out(db)
+        _migrate_user_active_session(db)
 
         # Cliente principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)
@@ -564,6 +575,7 @@ class TermsAcceptanceMiddleware:
     EXEMPT_PATHS = (
         "/api/health",
         "/api/auth/login",
+        "/api/auth/logout",
         "/api/auth/me",
         "/api/auth/forgot-password",
         "/api/auth/reset-password",
