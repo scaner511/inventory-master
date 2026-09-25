@@ -23,6 +23,7 @@ from app.schemas import (
     AdminResetPassword,
     TenantCreate,
     TenantOut,
+    TenantReset,
     TenantUpdate,
     TenantUserCreate,
     UserOut,
@@ -185,6 +186,66 @@ def delete_tenant(tenant_id: int, db: Session = Depends(get_db)):
     db.delete(tenant)
     db.commit()
     return {"message": f"Cliente '{tenant.name}' eliminado correctamente."}
+
+
+@router.post("/tenants/{tenant_id}/reset", status_code=200)
+def reset_tenant(tenant_id: int, data: TenantReset, db: Session = Depends(get_db)):
+    """Restablece un cliente a 'estado de fábrica': borra productos, préstamos
+    e historial, deja un único administrador con la contraseña genérica y
+    obliga a cambiarla en el primer inicio de sesión (como al crear el cliente).
+    """
+    tenant = _get_tenant(db, tenant_id)
+
+    # Administrador que se conserva: el indicado o el de menor ID (primero creado).
+    preserve = None
+    if data.preserve_user_id:
+        preserve = _get_user(db, data.preserve_user_id)
+        if preserve.tenant_id != tenant_id or preserve.role != "admin":
+            raise HTTPException(
+                status_code=400,
+                detail="El usuario indicado debe ser un administrador de este cliente",
+            )
+    else:
+        preserve = (
+            db.query(User)
+            .filter(User.tenant_id == tenant_id, User.role == "admin")
+            .order_by(User.id)
+            .first()
+        )
+        if preserve is None:
+            raise HTTPException(
+                status_code=400,
+                detail="El cliente no tiene un administrador para conservar",
+            )
+
+    # Limpiar todos los datos operativos del cliente.
+    db.query(ProductStockLocation).filter(ProductStockLocation.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(Loan).filter(Loan.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(AuditLog).filter(AuditLog.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(Product).filter(Product.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(DriveConnection).filter(DriveConnection.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(Setting).filter(Setting.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(User).filter(User.tenant_id == tenant_id, User.id != preserve.id).delete(synchronize_session=False)
+
+    # Dejar el administrador como recién creado.
+    preserve.password_hash = hash_password(settings.default_generic_password)
+    preserve.must_change_password = True
+    preserve.accepted_terms = False
+    preserve.accepted_terms_date = None
+    preserve.is_active = True
+    preserve.active_session = None
+    preserve.session_expires_at = None
+
+    tenant.is_active = True
+    db.commit()
+    return {
+        "message": (
+            f"Cliente '{tenant.name}' restablecido a estado de fábrica. "
+            f"Solo queda el administrador '{preserve.username}' con la contraseña genérica."
+        ),
+        "admin_username": preserve.username,
+        "password": settings.default_generic_password,
+    }
 
 
 @router.get("/tenants/{tenant_id}/users", response_model=list[UserOut])

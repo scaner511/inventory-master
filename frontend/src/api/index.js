@@ -220,6 +220,11 @@ export async function deleteTenant(id) {
   return data
 }
 
+export async function resetTenant(id, payload) {
+  const { data } = await api.post(`/superadmin/tenants/${id}/reset`, payload)
+  return data
+}
+
 export async function getTenantUsers(tenantId) {
   const { data } = await api.get(`/superadmin/tenants/${tenantId}/users`)
   return data

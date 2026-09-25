@@ -178,6 +178,10 @@ def import_products(
     Stock, Cantidad, Precio de Compra, Venta, Ubicación 1...). Si no se
     reconocen los encabezados, se mapean por posición:
     codigo, nombre, stock, compra, venta, ubicacion1, ubicacion2, ubicacion3.
+
+    Las columnas ADICIONALES con valores numéricos se asimilan como
+    ubicaciones: el encabezado es el nombre de la ubicación y cada celda, la
+    cantidad (inventario por ubicación, tal cual).
     """
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
     if ext not in ("csv", "xlsx", "xls"):
@@ -239,6 +243,34 @@ def import_products(
     ubi3 = [str(u).strip() for u in col("ubicacion3")]
     conditions = [_normalize_condition(c) for c in col("condition", "buen_estado")]
 
+    # Columnas adicionales (fuera del mapeo estándar) con valores numéricos se
+    # asimilan como ubicaciones: el encabezado es el nombre de la ubicación y
+    # cada celda, la cantidad. Así "OFICINA | VEHICULO | CASA" se migran tal cual.
+    used_indices = set(mapping.values())
+    location_cols = []
+    for i, h in enumerate(df.columns):
+        nombre = str(h).strip()
+        # Encabezados generados en el modo posicional (col0, col1...) o
+        # columnas vacías de pandas (Unnamed: N) no se usan.
+        if i in used_indices or not nombre:
+            continue
+        if nombre.lower().startswith("col") and nombre[3:].isdigit():
+            continue
+        if nombre.lower().startswith("unnamed"):
+            continue
+        location_cols.append((i, nombre))
+    location_series = {
+        nombre: pd.to_numeric(df.iloc[:, i], errors="coerce")
+        for i, nombre in location_cols
+    }
+    # Solo las columnas que realmente aportan al menos una cantidad > 0 se
+    # consideran ubicaciones (una columna de texto como CATEGORIA no aplica).
+    location_series = {
+        nombre: s
+        for nombre, s in location_series.items()
+        if (s.fillna(0) > 0).any()
+    }
+
     # --- Procesamiento robusto ---
     # La sesión usa autoflush=False, por lo que las consultas NO ven los
     # productos pendientes de la misma carga. Para evitar que dos filas con el
@@ -268,10 +300,16 @@ def import_products(
             "location3": ubi3[i] or None,
             "condition": conditions[i],
         }
-        seen[code] = payload
+        # Cantidades por ubicación desde las columnas extra numéricas.
+        locs = []
+        for nombre, serie in location_series.items():
+            qty = serie.iloc[i]
+            if pd.notna(qty) and qty > 0:
+                locs.append({"location": nombre, "quantity": int(qty)})
+        seen[code] = (payload, locs)
 
     created, updated = 0, 0
-    for code, payload in seen.items():
+    for code, (payload, locs) in seen.items():
         product = (
             db.query(Product)
             .filter(Product.code == code, Product.tenant_id == user.tenant_id)
@@ -280,13 +318,21 @@ def import_products(
         if product:
             for field, value in payload.items():
                 setattr(product, field, value)
-            # Mantener el invariante stock = suma(filas). Si ya hay filas de
-            # ubicación, la diferencia del import se absorbe en la primera.
-            loc_utils.reconcile_stock(db, product)
+            if locs:
+                # La distribución por ubicaciones del Excel reemplaza las filas
+                # y el stock total queda como la suma (invariante del sistema).
+                loc_utils.set_locations(db, product, locs)
+            else:
+                # Mantener el invariante stock = suma(filas). Si ya hay filas de
+                # ubicación, la diferencia del import se absorbe en la primera.
+                loc_utils.reconcile_stock(db, product)
             updated += 1
         else:
             product = Product(tenant_id=user.tenant_id, **payload)
             db.add(product)
+            db.flush()
+            if locs:
+                loc_utils.set_locations(db, product, locs)
             created += 1
 
     try:
@@ -299,13 +345,15 @@ def import_products(
                    "Revisa que cada fila tenga un código único y un nombre.",
         ) from exc
 
-    # Sembrar filas de ubicación para los productos recién creados (una fila
-    # con el stock total asignado a su ubicación principal).
+    # Sembrar filas de ubicación para los productos creados sin ubicaciones
+    # explícitas (una fila con el stock total asignado a su ubicación principal).
     for product in db.query(Product).filter(Product.tenant_id == user.tenant_id).all():
         loc_utils.ensure_seed(db, product)
     db.commit()
 
     message = f"Carga completada: {created} nuevos, {updated} actualizados"
+    if location_series:
+        message += f", con {len(location_series)} ubicación(es) migrada(s) del archivo"
     if auto:
         message += f", {auto} con código asignado automáticamente"
     if skipped:

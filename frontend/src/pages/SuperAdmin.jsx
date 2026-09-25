@@ -7,6 +7,7 @@ import {
   getGlobalUsers,
   getTenantUsers,
   getTenants,
+  resetTenant,
   superadminDeleteUser,
   superadminResetPassword,
   superadminUpdateUser,
@@ -50,6 +51,10 @@ function TenantsTab() {
   const [userForm, setUserForm] = useState({ username: '', email: '', role: 'user' })
   const [resetTarget, setResetTarget] = useState(null)
   const [resetPass, setResetPass] = useState('')
+  const [resetOpen, setResetOpen] = useState(false)
+  const [resetTenantInfo, setResetTenantInfo] = useState(null)
+  const [resetAdmins, setResetAdmins] = useState([])
+  const [resetKeepId, setResetKeepId] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -125,6 +130,31 @@ function TenantsTab() {
     try {
       await deleteTenant(t.id)
       toast.success('Cliente eliminado')
+      load()
+    } catch {
+      /* interceptor */
+    }
+  }
+
+  async function openReset(t) {
+    setResetTenantInfo(t)
+    try {
+      const users = await getTenantUsers(t.id)
+      const admins = users.filter((u) => u.role === 'admin')
+      setResetAdmins(admins)
+      setResetKeepId(admins.length ? String(admins[0].id) : '')
+    } catch {
+      /* interceptor */
+    }
+    setResetOpen(true)
+  }
+
+  async function handleConfirmReset() {
+    if (!resetTenantInfo || !resetKeepId) return
+    try {
+      const res = await resetTenant(resetTenantInfo.id, { preserve_user_id: Number(resetKeepId) })
+      toast.success(res.message, { duration: 6000 })
+      setResetOpen(false)
       load()
     } catch {
       /* interceptor */
@@ -239,6 +269,13 @@ function TenantsTab() {
                     title={t.is_active ? 'Desactivar' : 'Activar'}
                   >
                     {t.is_active ? '⏸️' : '▶️'}
+                  </button>
+                  <button
+                    onClick={() => openReset(t)}
+                    className="rounded-lg bg-purple-500/10 p-2 text-purple-400 transition hover:bg-purple-500/20"
+                    title="Restablecer a estado de fábrica"
+                  >
+                    🔄
                   </button>
                   <button
                     onClick={() => handleDelete(t)}
@@ -368,6 +405,33 @@ function TenantsTab() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={resetOpen} onClose={() => setResetOpen(false)} title="Restablecer a estado de fábrica">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-300">
+            Se borrarán <span className="font-bold text-red-400">TODOS</span> los productos, préstamos e historial de{' '}
+            <span className="font-bold">{resetTenantInfo?.name}</span>, y sus demás usuarios. Solo quedará el
+            administrador seleccionado con la contraseña genérica, que deberá cambiarla en su primer inicio de sesión.
+          </p>
+          <Field label="Administrador a conservar">
+            <Select value={resetKeepId} onChange={(e) => setResetKeepId(e.target.value)}>
+              {resetAdmins.map((a) => (
+                <option key={a.id} value={String(a.id)}>
+                  {a.username} ({a.email || 'sin email'})
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setResetOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="danger" onClick={handleConfirmReset} disabled={!resetKeepId}>
+              🔄 Restablecer
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       <Modal open={Boolean(resetTarget)} onClose={() => setResetTarget(null)} title="Restablecer contraseña">

@@ -116,6 +116,14 @@ class TenantUpdate(BaseModel):
     clear_max_users: bool | None = None
 
 
+class TenantReset(BaseModel):
+    """Petición para restablecer un cliente a estado de fábrica.
+
+    Si preserve_user_id es None, se conserva el administrador de menor ID
+    (el primero creado)."""
+    preserve_user_id: int | None = None
+
+
 class TenantOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
