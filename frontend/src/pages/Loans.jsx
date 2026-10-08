@@ -285,7 +285,37 @@ export default function Loans() {
     if (editForm.due_date && editForm.due_date !== editTarget.due_date) payload.due_date = editForm.due_date
     if (editForm.note.trim() !== (editTarget.note || '')) payload.note = editForm.note.trim() || null
 
-    if (!editLocked) {
+    if (editLocked) {
+      // Con devoluciones solo se permite cambiar la ubicación de salida.
+      for (const it of editForm.items) {
+        const old = editTarget.items.find((o) => o.id === it.id)
+        if (old && (Number(it.product_id) !== old.product_id || Number(it.quantity) !== old.quantity)) {
+          return toast.error('No puedes cambiar el producto ni la cantidad porque el préstamo ya tiene devoluciones')
+        }
+      }
+      const newLocked = JSON.stringify(
+        editForm.items.map((it) => ({
+          product_id: Number(it.product_id),
+          quantity: Number(it.quantity),
+          location_out: it.location_out || null,
+        })),
+      )
+      const oldLocked = JSON.stringify(
+        editTarget.items.map((it) => ({
+          product_id: Number(it.product_id),
+          quantity: Number(it.quantity),
+          location_out: it.location_out || null,
+        })),
+      )
+      if (newLocked !== oldLocked) {
+        payload.items = editForm.items.map((it) => ({
+          id: it.id,
+          product_id: Number(it.product_id),
+          quantity: Number(it.quantity),
+          location_out: it.location_out || null,
+        }))
+      }
+    } else {
       const validItems = editForm.items.filter((it) => it.product_id && Number(it.quantity) >= 1)
       if (validItems.length === 0) {
         return toast.error('El préstamo debe tener al menos un producto con cantidad válida')
@@ -296,23 +326,22 @@ export default function Loans() {
           return toast.error(`Elige la ubicación de dónde sale "${p.name}"`)
         }
       }
-      const normalized = (items) =>
-        JSON.stringify(
-          items.map((it) => ({
-            product_id: Number(it.product_id),
-            quantity: Number(it.quantity),
-            location_out: it.location_out || null,
-          })),
-        )
-      const oldItems = normalized(editTarget.items)
-      const newItems = normalized(validItems)
-      if (oldItems !== newItems) {
-        payload.items = validItems.map((it) => ({
-          id: it.id,
+      const payloadItems = validItems.map((it) => ({
+        id: it.id,
+        product_id: Number(it.product_id),
+        quantity: Number(it.quantity),
+        location_out: it.location_out || null,
+      }))
+      const newItems = JSON.stringify(payloadItems)
+      const oldItems = JSON.stringify(
+        editTarget.items.map((it) => ({
           product_id: Number(it.product_id),
           quantity: Number(it.quantity),
           location_out: it.location_out || null,
-        }))
+        })),
+      )
+      if (newItems !== oldItems) {
+        payload.items = payloadItems
       }
     }
 
@@ -649,7 +678,8 @@ export default function Loans() {
           <form onSubmit={handleEdit} className="space-y-4">
             {editLocked && (
               <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-                ⚠️ Este préstamo ya tiene devoluciones; no se pueden cambiar los productos ni las cantidades.
+                ⚠️ Este préstamo ya tiene devoluciones: no se pueden cambiar los productos ni las cantidades, pero sí la
+                ubicación de salida.
               </p>
             )}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -710,7 +740,6 @@ export default function Loans() {
                           <Select
                             value={it.location_out}
                             onChange={(e) => updateEditItem(it.key, { location_out: e.target.value })}
-                            disabled={editLocked}
                             required
                             aria-label="Ubicación de salida"
                             className="flex-1"
@@ -727,7 +756,6 @@ export default function Loans() {
                             type="text"
                             value={it.location_out}
                             onChange={(e) => updateEditItem(it.key, { location_out: e.target.value })}
-                            disabled={editLocked}
                             placeholder="Ubicación de salida (opcional)"
                             aria-label="Ubicación de salida"
                             className="flex-1"

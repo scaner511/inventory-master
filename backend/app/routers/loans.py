@@ -205,54 +205,71 @@ def update_loan(
 
     if items_update is not None:
         if any(item.returned_qty > 0 for item in loan.items):
-            raise HTTPException(
-                status_code=400,
-                detail="No se puede cambiar el producto o la cantidad porque el préstamo ya tiene devoluciones",
-            )
-        if not items_update:
-            raise HTTPException(status_code=400, detail="El préstamo debe tener al menos un producto")
+            # Con devoluciones ya registradas NO se toca stock ni productos:
+            # solo se admite cambiar la ubicación de salida de los ítems actuales.
+            current = {item.id: item for item in loan.items}
+            for spec in items_update:
+                item_id = spec.get("id")
+                item = current.get(item_id)
+                if item is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="No se puede agregar ni quitar productos porque el préstamo ya tiene devoluciones",
+                    )
+                if spec["product_id"] != item.product_id or spec["quantity"] != item.quantity:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="No se puede cambiar el producto o la cantidad porque el préstamo ya tiene devoluciones",
+                    )
+            for spec in items_update:
+                item = current[spec["id"]]
+                item.location_out = (spec.get("location_out") or "").strip() or None
+            db.flush()
+        else:
+            if not items_update:
+                raise HTTPException(status_code=400, detail="El préstamo debe tener al menos un producto")
 
-        # Devolver al stock lo que estaba prestado (equivalente a anular)...
-        for item in list(loan.items):
-            product = _get_product(db, item.product_id, user.tenant_id)
-            if product:
-                product.stock += item.quantity
-                if item.location_out and loc_utils.rows_for(db, product):
-                    loc_utils.adjust_quantity(db, product, item.location_out, item.quantity)
-        loan.items.clear()
-        db.flush()
+            # Devolver al stock lo que estaba prestado (equivalente a anular)...
+            for item in list(loan.items):
+                product = _get_product(db, item.product_id, user.tenant_id)
+                if product:
+                    product.stock += item.quantity
+                    if item.location_out and loc_utils.rows_for(db, product):
+                        loc_utils.adjust_quantity(db, product, item.location_out, item.quantity)
+            loan.items.clear()
+            db.flush()
 
-        # ...y prestar de nuevo la lista corregida.
-        for spec in items_update:
-            product = _get_product(db, spec["product_id"], user.tenant_id)
-            if not product:
-                raise HTTPException(status_code=404, detail=f"El producto con id {spec['product_id']} no existe")
+            # ...y prestar de nuevo la lista corregida.
+            for spec in items_update:
+                product = _get_product(db, spec["product_id"], user.tenant_id)
+                if not product:
+                    raise HTTPException(status_code=404, detail=f"El producto con id {spec['product_id']} no existe")
 
-            qty = spec["quantity"]
-            if product.stock < qty:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Stock insuficiente. Solo hay {product.stock} unidades de '{product.name}'.",
+                qty = spec["quantity"]
+                if product.stock < qty:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Stock insuficiente. Solo hay {product.stock} unidades de '{product.name}'.",
+                    )
+
+                location_out = (spec.get("location_out") or "").strip() or None
+                if location_out:
+                    rows = loc_utils.rows_for(db, product)
+                    if rows:
+                        try:
+                            loc_utils.subtract_from(db, product, location_out, qty)
+                        except ValueError as exc:
+                            raise HTTPException(status_code=400, detail=str(exc))
+
+                product.stock -= qty
+                loan.items.append(
+                    LoanItem(
+                        product_id=product.id,
+                        product_name=product.name,
+                        quantity=qty,
+                        location_out=location_out,
+                    )
                 )
-
-            location_out = (spec.get("location_out") or "").strip() or None
-            if location_out:
-                rows = loc_utils.rows_for(db, product)
-                if rows:
-                    try:
-                        loc_utils.subtract_from(db, product, location_out, qty)
-                    except ValueError as exc:
-                        raise HTTPException(status_code=400, detail=str(exc))
-
-            product.stock -= qty
-            loan.items.append(
-                LoanItem(
-                    product_id=product.id,
-                    product_name=product.name,
-                    quantity=qty,
-                    location_out=location_out,
-                )
-            )
 
     old_seller = loan.seller
     for field in ("seller", "phone", "due_date", "note"):
