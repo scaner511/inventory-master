@@ -605,31 +605,31 @@ export default function Loans() {
                         aria-label={`Cantidad de ${p?.name || 'producto'}`}
                       />
                       <div className="flex items-center gap-2">
-                        {hasLocations ? (
-                          <Select
-                            value={it.location_out}
-                            onChange={(e) => updateCartItem(it.key, { location_out: e.target.value })}
-                            required
-                            aria-label="Ubicación de salida"
-                            className="flex-1"
-                          >
-                            <option value="">¿Ubicación de salida?</option>
-                            {p.locations.map((l) => (
-                              <option key={l.location} value={l.location}>
-                                {l.location} (disponible: {l.quantity})
-                              </option>
-                            ))}
-                          </Select>
-                        ) : (
-                          <Input
-                            type="text"
-                            value={it.location_out}
-                            onChange={(e) => updateCartItem(it.key, { location_out: e.target.value })}
-                            placeholder="Ubicación de salida (opcional)"
-                            aria-label="Ubicación de salida"
-                            className="flex-1"
-                          />
-                        )}
+                        <div className="min-w-0 flex-1">
+                          {hasLocations ? (
+                            <Select
+                              value={it.location_out}
+                              onChange={(e) => updateCartItem(it.key, { location_out: e.target.value })}
+                              required
+                              aria-label="Ubicación de salida"
+                            >
+                              <option value="">¿Ubicación de salida?</option>
+                              {p.locations.map((l) => (
+                                <option key={l.location} value={l.location}>
+                                  {l.location} (disponible: {l.quantity})
+                                </option>
+                              ))}
+                            </Select>
+                          ) : (
+                            <Input
+                              type="text"
+                              value={it.location_out}
+                              onChange={(e) => updateCartItem(it.key, { location_out: e.target.value })}
+                              placeholder="Ubicación de salida (opcional)"
+                              aria-label="Ubicación de salida"
+                            />
+                          )}
+                        </div>
                         <button
                           type="button"
                           onClick={() => removeCartItem(it.key)}
@@ -736,31 +736,31 @@ export default function Loans() {
                         aria-label="Cantidad"
                       />
                       <div className="flex items-center gap-2">
-                        {hasLocations ? (
-                          <Select
-                            value={it.location_out}
-                            onChange={(e) => updateEditItem(it.key, { location_out: e.target.value })}
-                            required
-                            aria-label="Ubicación de salida"
-                            className="flex-1"
-                          >
-                            <option value="">¿Ubicación de salida?</option>
-                            {p.locations.map((l) => (
-                              <option key={l.location} value={l.location}>
-                                {l.location} (disponible: {l.quantity})
-                              </option>
-                            ))}
-                          </Select>
-                        ) : (
-                          <Input
-                            type="text"
-                            value={it.location_out}
-                            onChange={(e) => updateEditItem(it.key, { location_out: e.target.value })}
-                            placeholder="Ubicación de salida (opcional)"
-                            aria-label="Ubicación de salida"
-                            className="flex-1"
-                          />
-                        )}
+                        <div className="min-w-0 flex-1">
+                          {hasLocations ? (
+                            <Select
+                              value={it.location_out}
+                              onChange={(e) => updateEditItem(it.key, { location_out: e.target.value })}
+                              required
+                              aria-label="Ubicación de salida"
+                            >
+                              <option value="">¿Ubicación de salida?</option>
+                              {p.locations.map((l) => (
+                                <option key={l.location} value={l.location}>
+                                  {l.location} (disponible: {l.quantity})
+                                </option>
+                              ))}
+                            </Select>
+                          ) : (
+                            <Input
+                              type="text"
+                              value={it.location_out}
+                              onChange={(e) => updateEditItem(it.key, { location_out: e.target.value })}
+                              placeholder="Ubicación de salida (opcional)"
+                              aria-label="Ubicación de salida"
+                            />
+                          )}
+                        </div>
                         {!editLocked && (
                           <button
                             type="button"

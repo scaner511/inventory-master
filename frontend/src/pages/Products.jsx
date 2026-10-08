@@ -350,19 +350,21 @@ export default function Products() {
             <div className="space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-3">
               {form.locations.map((l, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  <Input
-                    value={l.location}
-                    onChange={(e) => setLocation(i, 'location', e.target.value)}
-                    placeholder="Ubicación (ej: Estante A, Bodega...)"
-                    className="flex-1"
-                  />
+                  <div className="min-w-0 flex-1">
+                    <Input
+                      value={l.location}
+                      onChange={(e) => setLocation(i, 'location', e.target.value)}
+                      placeholder="Ubicación (ej: Estante A, Bodega...)"
+                    />
+                  </div>
                   <Input
                     type="number"
                     min="0"
                     value={l.quantity}
                     onChange={(e) => setLocation(i, 'quantity', e.target.value)}
                     placeholder="Cantidad"
-                    className="w-28"
+                    className="shrink-0"
+                    style={{ width: '6.5rem' }}
                   />
                   <button
                     type="button"
