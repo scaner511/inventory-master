@@ -131,7 +131,10 @@ def _map_columns(df):
         if field and field not in mapping:
             mapping[field] = i
 
-    if {"code", "name", "stock"}.issubset(mapping):
+    # Basta con que exista código y nombre. Si falta una columna "stock", las
+    # cantidades se asumen repartidas en columnas adicionales y el stock total
+    # se deriva como la suma de las ubicaciones (invariante del sistema).
+    if {"code", "name"}.issubset(mapping):
         return mapping
 
     if df.shape[1] >= 3:
@@ -174,10 +177,13 @@ def import_products(
 ):
     """Carga masiva de productos desde CSV o Excel.
 
-    Acepta columnas con cualquier nombre reconocible (Código, Codigo, Nombre,
-    Stock, Cantidad, Precio de Compra, Venta, Ubicación 1...). Si no se
-    reconocen los encabezados, se mapean por posición:
-    codigo, nombre, stock, compra, venta, ubicacion1, ubicacion2, ubicacion3.
+Acepta columnas con cualquier nombre reconocible (Código, Codigo, Nombre,
+     Stock, Cantidad, Precio de Compra, Venta, Ubicación 1...). Si no se
+     reconocen los encabezados, se mapean por posición:
+     codigo, nombre, stock, compra, venta, ubicacion1, ubicacion2, ubicacion3.
+
+    La columna stock es opcional: si no viene, las cantidades se asumen
+    repartidas en las columnas adicionales y el stock total es la suma.
 
     Las columnas ADICIONALES con valores numéricos se asimilan como
     ubicaciones: el encabezado es el nombre de la ubicación y cada celda, la

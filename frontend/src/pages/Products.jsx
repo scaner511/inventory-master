@@ -230,10 +230,11 @@ export default function Products() {
       </div>
       <p className="text-xs text-slate-500">
         El <span className="text-slate-300">stock total</span> es la suma de las cantidades de cada ubicación. En la
-        carga masiva: columnas <span className="text-slate-300">codigo, nombre, stock</span> y opcionalmente{' '}
-        <span className="text-slate-300">compra, venta</span>. Cualquier{' '}
+        carga masiva: columnas <span className="text-slate-300">codigo, nombre</span> y opcionalmente{' '}
+        <span className="text-slate-300">stock, compra, venta</span>. Cualquier{' '}
         <span className="text-slate-300">columna adicional con cantidades</span> (ej: OFICINA, VEHICULO, CASA) se
-        convierte en ubicación con su cantidad, tal cual. Acepta nombres similares y archivos sin encabezados.
+        convierte en ubicación con su cantidad, tal cual. Si no traes <span className="text-slate-300">stock</span>, el
+        stock total se calcula como la suma de las ubicaciones. Acepta nombres similares y archivos sin encabezados.
       </p>
 
       <Input
