@@ -52,8 +52,8 @@ export async function updateLoan(id, payload) {
   return data
 }
 
-export async function returnLoan(id, returnedQty, locationIn = '') {
-  const payload = { returned_qty: returnedQty }
+export async function returnLoan(id, itemId, returnedQty, locationIn = '') {
+  const payload = { item_id: itemId, returned_qty: returnedQty }
   if (locationIn) payload.location_in = locationIn
   const { data } = await api.post(`/loans/${id}/return`, payload)
   return data

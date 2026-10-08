@@ -182,7 +182,7 @@ export default function Dashboard() {
                   <div>
                     <p className="text-sm font-semibold text-slate-200">{loan.seller}</p>
                     <p className="text-xs text-slate-400">
-                      {loan.product_name} · {loan.pending} pendiente(s)
+                      {loan.items.length} producto(s) · {loan.pending} pendiente(s)
                     </p>
                   </div>
                   <span className="text-xs font-bold text-red-400">Venció {loan.due_date}</span>
@@ -209,7 +209,9 @@ export default function Dashboard() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-200">{loan.seller}</p>
                     <p className="truncate text-xs text-slate-400">
-                      {loan.product_name} · {loan.pending}/{loan.quantity}
+                      {loan.items.length} producto(s) ·{' '}
+                      {loan.items.reduce((s, i) => s + i.returned_qty, 0)}/
+                      {loan.items.reduce((s, i) => s + i.quantity, 0)}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

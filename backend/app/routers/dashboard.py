@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user, get_or_create_settings
-from app.models import Loan, Product, ProductStockLocation, User
+from app.models import Loan, LoanItem, Product, ProductStockLocation, User
 from app.schemas import DashboardOut
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -36,16 +36,21 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_us
     )
 
     active_loans = (
-        db.query(func.count(Loan.id))
-        .filter(Loan.tenant_id == tenant_id, Loan.quantity > Loan.returned_qty)
+        db.query(func.count(func.distinct(Loan.id)))
+        .join(LoanItem)
+        .filter(
+            Loan.tenant_id == tenant_id,
+            LoanItem.quantity > LoanItem.returned_qty,
+        )
         .scalar()
         or 0
     )
     overdue_loans = (
-        db.query(func.count(Loan.id))
+        db.query(func.count(func.distinct(Loan.id)))
+        .join(LoanItem)
         .filter(
             Loan.tenant_id == tenant_id,
-            Loan.quantity > Loan.returned_qty,
+            LoanItem.quantity > LoanItem.returned_qty,
             Loan.due_date < date.today(),
         )
         .scalar()
@@ -68,11 +73,13 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_us
 
     overdue_loans_list = (
         db.query(Loan)
+        .join(LoanItem)
         .filter(
             Loan.tenant_id == tenant_id,
-            Loan.quantity > Loan.returned_qty,
+            LoanItem.quantity > LoanItem.returned_qty,
             Loan.due_date < date.today(),
         )
+        .distinct()
         .order_by(Loan.due_date)
         .limit(10)
         .all()

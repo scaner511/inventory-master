@@ -182,6 +182,34 @@ def _migrate_loan_location_out(db: Session) -> None:
         db.commit()
 
 
+def _migrate_loan_items(db: Session) -> None:
+    """Migra los préstamos de 1 producto a un préstamo con N ítems.
+
+    La tabla loan_items ya fue creada por Base.metadata.create_all. Para los
+    préstamos existentes (y los restaurados desde respaldos antiguos) se crea
+    un ítem por fila a partir de las columnas legacy de la tabla loans. Es
+    idempotente: solo procesa préstamos que aún no tienen ítems.
+    """
+    cols = _table_columns("loan_items")
+    if not cols or "loan_id" not in cols:
+        return
+    loan_cols = _table_columns("loans")
+    if "product_id" not in loan_cols or "product_name" not in loan_cols:
+        return
+    db.execute(
+        text(
+            """
+            INSERT INTO loan_items (loan_id, product_id, product_name, quantity, returned_qty, location_out)
+            SELECT l.id, l.product_id, l.product_name, l.quantity, l.returned_qty, l.location_out
+            FROM loans l
+            WHERE l.product_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM loan_items li WHERE li.loan_id = l.id)
+            """
+        )
+    )
+    db.commit()
+
+
 def _migrate_user_active_session(db: Session) -> None:
     """Agrega las columnas de sesión única a la tabla users."""
     cols = _table_columns("users")
@@ -472,6 +500,7 @@ def init_db() -> None:
         _migrate_tenant_max_users(db)
         _migrate_drive_per_tenant(db)
         _migrate_loan_location_out(db)
+        _migrate_loan_items(db)
         _migrate_user_active_session(db)
 
         # Cliente principal + datos existentes

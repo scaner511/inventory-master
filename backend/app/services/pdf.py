@@ -10,8 +10,7 @@ from reportlab.pdfgen import canvas
 def generate_loan_pdf(
     seller: str,
     phone: str | None,
-    product_name: str,
-    quantity: int,
+    items: list[tuple[str, int]],
     loan_date: str,
     due_date: str,
     logo_path: str | None = None,
@@ -31,22 +30,51 @@ def generate_loan_pdf(
     c.setFont("Helvetica-Bold", 18)
     c.drawString(200, 750, "COMPROBANTE DE PRESTAMO")
 
-    c.setFont("Helvetica", 12)
     y = 680
-    datos = [
-        ("Vendedor:", seller),
-        ("Telefono:", phone or "-"),
-        ("Producto:", product_name),
-        ("Cantidad:", str(quantity)),
-        ("Fecha de Entrega:", loan_date),
-        ("Fecha de Devolucion:", str(due_date)),
-    ]
-    for label, value in datos:
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Vendedor:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, seller)
+    y -= 28
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Telefono:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, phone or "-")
+    y -= 40
+
+    # Producto(s) prestado(s): uno o varios por préstamo.
+    if len(items) == 1:
+        product_name, quantity = items[0]
         c.setFont("Helvetica-Bold", 11)
-        c.drawString(50, y, label)
+        c.drawString(50, y, "Producto:")
         c.setFont("Helvetica", 11)
-        c.drawString(180, y, value)
+        c.drawString(180, y, product_name)
         y -= 28
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50, y, "Cantidad:")
+        c.setFont("Helvetica", 11)
+        c.drawString(180, y, str(quantity))
+        y -= 40
+    else:
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50, y, f"Productos ({len(items)}):")
+        y -= 26
+        c.setFont("Helvetica", 10.5)
+        for idx, (product_name, quantity) in enumerate(items, 1):
+            c.drawString(70, y, f"{idx}. {product_name}")
+            c.drawString(500, y, f"x{quantity}")
+            y -= 22
+        y -= 18
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Fecha de Entrega:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, loan_date)
+    y -= 28
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Fecha de Devolucion:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, str(due_date))
 
     y -= 20
     c.line(50, y, 550, y)

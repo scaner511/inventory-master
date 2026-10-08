@@ -11,13 +11,13 @@ export function Field({ label, children, hint }) {
   )
 }
 
-export function Input(props) {
-  return <input {...props} className={inputBase} />
+export function Input({ className = '', ...props }) {
+  return <input {...props} className={`${inputBase} ${className}`} />
 }
 
-export function Select({ children, ...props }) {
+export function Select({ children, className = '', ...props }) {
   return (
-    <select {...props} className={inputBase}>
+    <select {...props} className={`${inputBase} ${className}`}>
       {children}
     </select>
   )

@@ -48,6 +48,16 @@ CREATE TABLE IF NOT EXISTS loans (
     note          TEXT
 );
 
+CREATE TABLE IF NOT EXISTS loan_items (
+    id            SERIAL PRIMARY KEY,
+    loan_id       INTEGER      REFERENCES loans(id) ON DELETE CASCADE,
+    product_id    INTEGER      REFERENCES products(id) ON DELETE SET NULL,
+    product_name  VARCHAR(255) NOT NULL,
+    quantity      INTEGER      NOT NULL,
+    returned_qty  INTEGER      NOT NULL DEFAULT 0,
+    location_out  VARCHAR(255)
+);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
     id            SERIAL PRIMARY KEY,
     timestamp     TIMESTAMP    NOT NULL DEFAULT NOW(),

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Loan, Product, User
+from app.models import Loan, LoanItem, Product, User
 from app.schemas import LoanCreate, LoanOut, LoanReturn, LoanUpdate
 from app.utils import locations as loc_utils
 from app.utils.audit import record_audit
@@ -28,18 +28,19 @@ def _to_out(loan: Loan) -> LoanOut:
 
 
 def _seller_blocked(db: Session, seller: str, tenant_id: int) -> bool:
-    """True si el vendedor tiene mercancía vencida y sin devolver."""
+    """True si el vendedor tiene mercancía vencida y sin devolver (cualquier ítem)."""
     today = date.today()
     return (
-        db.query(Loan)
+        db.query(Loan.id)
+        .join(LoanItem)
         .filter(
             Loan.seller == seller,
             Loan.tenant_id == tenant_id,
-            Loan.quantity > Loan.returned_qty,
+            LoanItem.quantity > LoanItem.returned_qty,
             Loan.due_date < today,
         )
-        .count()
-        > 0
+        .first()
+        is not None
     )
 
 
@@ -73,7 +74,9 @@ def list_loans(
     query = db.query(Loan).filter(Loan.tenant_id == user.tenant_id)
     if q:
         like = f"%{q}%"
-        query = query.filter(Loan.seller.ilike(like) | Loan.product_name.ilike(like))
+        query = query.filter(
+            Loan.seller.ilike(like) | Loan.items.any(LoanItem.product_name.ilike(like))
+        )
     if date_filter:
         query = query.filter(Loan.loan_date >= date_filter, Loan.loan_date < date_filter + timedelta(days=1))
 
@@ -96,59 +99,87 @@ def create_loan(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    product = _get_product(db, data.product_id, user.tenant_id)
-    if not product:
-        raise HTTPException(status_code=404, detail="El código de producto no existe")
-
-    if product.stock < data.quantity:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Stock insuficiente. Solo hay {product.stock} unidades de '{product.name}'.",
-        )
-
-    # Ubicación de salida: si el producto tiene ubicaciones y se indicó una,
-    # se descuenta de esa fila concreta.
-    location_out = (data.location_out or "").strip() or None
-    if location_out:
-        rows = loc_utils.rows_for(db, product)
-        if rows:
-            try:
-                loc_utils.subtract_from(db, product, location_out, data.quantity)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
-        # Sin filas registradas: se acepta la ubicación indicada para historial,
-        # pero no hay stock por ubicación que descontar.
-
     if _seller_blocked(db, data.seller, user.tenant_id):
         raise HTTPException(
             status_code=400,
             detail=f"El vendedor {data.seller} tiene mercancía VENCIDA sin devolver. No se pueden realizar préstamos.",
         )
 
-    # Descontar stock
-    product.stock -= data.quantity
+    if not data.items:
+        raise HTTPException(status_code=400, detail="Indica al menos un producto")
 
+    # Validar TODO antes de tocar stock: si algo falla, no se descuenta nada.
+    validated = []
+    for item in data.items:
+        product = _get_product(db, item.product_id, user.tenant_id)
+        if not product:
+            raise HTTPException(status_code=404, detail=f"El producto con id {item.product_id} no existe")
+
+        if product.stock < item.quantity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Stock insuficiente. Solo hay {product.stock} unidades de '{product.name}'.",
+            )
+
+        # Ubicación de salida: si el producto tiene ubicaciones y se indicó una,
+        # se descuenta de esa fila concreta.
+        location_out = (item.location_out or "").strip() or None
+        if location_out:
+            rows = loc_utils.rows_for(db, product)
+            if rows:
+                try:
+                    loc_utils.subtract_from(db, product, location_out, item.quantity)
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc))
+            # Sin filas registradas: se acepta la ubicación indicada para historial,
+            # pero no hay stock por ubicación que descontar.
+
+        product.stock -= item.quantity
+        validated.append((product, item.quantity, location_out))
+
+    total_qty = sum(v[1] for v in validated)
     loan = Loan(
         seller=data.seller,
         phone=data.phone,
         tenant_id=user.tenant_id,
-        product_id=product.id,
-        product_name=product.name,
-        quantity=data.quantity,
         due_date=data.due_date,
         note=data.note,
-        location_out=location_out,
         created_by=user.id,
     )
     db.add(loan)
+
+    for product, qty, location_out in validated:
+        loan.items.append(
+            LoanItem(
+                product_id=product.id,
+                product_name=product.name,
+                quantity=qty,
+                location_out=location_out,
+            )
+        )
+
+    # Instantánea legacy (primer ítem + total) por compatibilidad.
+    first = validated[0]
+    loan.product_id = first[0].id
+    loan.product_name = first[0].name
+    loan.quantity = total_qty
+    loan.location_out = first[2]
+
+    def _plural(items, qty):
+        return (
+            f"{len(items)} productos ({qty} unidades)"
+            if len(items) > 1
+            else f"1 producto ({qty} unidades)"
+        )
+
     record_audit(
         db,
         action="PRESTAMO",
         user_id=user.id,
         tenant_id=user.tenant_id,
-        detail=f"Préstamo de {data.quantity} unidades a {data.seller}",
-        product_name=product.name,
-        quantity=data.quantity,
+        detail=f"Préstamo de {_plural(data.items, total_qty)} a {data.seller}",
+        product_name=first[0].name,
+        quantity=total_qty,
     )
     db.commit()
     db.refresh(loan)
@@ -162,78 +193,87 @@ def update_loan(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Edita los datos de un préstamo (vendedor, teléfono, producto, cantidad, fecha o nota).
+    """Edita un préstamo (cabecera y/o lista de ítems).
 
-    Si cambia el producto o la cantidad, el stock se ajusta automáticamente.
-    Solo se permite cambiar producto/cantidad cuando aún no hay devoluciones.
+    Si cambian los ítems, el stock y las ubicaciones se ajustan automáticamente.
+    Solo se permite cambiar productos/cantidades cuando aún no hay devoluciones.
     """
     loan = _get_loan(db, loan_id, user.tenant_id)
 
     updates = data.model_dump(exclude_unset=True)
+    items_update: list[dict] | None = updates.pop("items", None)
 
-    if "product_id" in updates or "quantity" in updates:
-        if loan.returned_qty > 0:
+    if items_update is not None:
+        if any(item.returned_qty > 0 for item in loan.items):
             raise HTTPException(
                 status_code=400,
                 detail="No se puede cambiar el producto o la cantidad porque el préstamo ya tiene devoluciones",
             )
+        if not items_update:
+            raise HTTPException(status_code=400, detail="El préstamo debe tener al menos un producto")
 
-    new_product_id = updates.get("product_id", loan.product_id)
-    new_quantity = updates.get("quantity", loan.quantity)
+        # Devolver al stock lo que estaba prestado (equivalente a anular)...
+        for item in list(loan.items):
+            product = _get_product(db, item.product_id, user.tenant_id)
+            if product:
+                product.stock += item.quantity
+                if item.location_out and loc_utils.rows_for(db, product):
+                    loc_utils.adjust_quantity(db, product, item.location_out, item.quantity)
+        loan.items.clear()
+        db.flush()
 
-    old_product = _get_product(db, loan.product_id, user.tenant_id) if loan.product_id else None
-    new_product = _get_product(db, new_product_id, user.tenant_id) if new_product_id is not None else None
-    if new_product_id is not None and new_product is None:
-        raise HTTPException(status_code=404, detail="El producto seleccionado no existe")
+        # ...y prestar de nuevo la lista corregida.
+        for spec in items_update:
+            product = _get_product(db, spec["product_id"], user.tenant_id)
+            if not product:
+                raise HTTPException(status_code=404, detail=f"El producto con id {spec['product_id']} no existe")
 
-    if "seller" in updates and updates["seller"] != loan.seller:
+            qty = spec["quantity"]
+            if product.stock < qty:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Stock insuficiente. Solo hay {product.stock} unidades de '{product.name}'.",
+                )
+
+            location_out = (spec.get("location_out") or "").strip() or None
+            if location_out:
+                rows = loc_utils.rows_for(db, product)
+                if rows:
+                    try:
+                        loc_utils.subtract_from(db, product, location_out, qty)
+                    except ValueError as exc:
+                        raise HTTPException(status_code=400, detail=str(exc))
+
+            product.stock -= qty
+            loan.items.append(
+                LoanItem(
+                    product_id=product.id,
+                    product_name=product.name,
+                    quantity=qty,
+                    location_out=location_out,
+                )
+            )
+
+    old_seller = loan.seller
+    for field in ("seller", "phone", "due_date", "note"):
+        if field in updates:
+            setattr(loan, field, updates[field])
+
+    if "seller" in updates and updates["seller"] != old_seller:
         if _seller_blocked(db, updates["seller"], user.tenant_id):
             raise HTTPException(
                 status_code=400,
                 detail=f"El vendedor {updates['seller']} tiene mercancía VENCIDA sin devolver.",
             )
 
-    # Ajuste de stock
-    if new_product_id == loan.product_id and old_product:
-        delta = new_quantity - loan.quantity
-        if delta > 0 and old_product.stock < delta:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Stock insuficiente de '{old_product.name}'. Solo hay {old_product.stock} unidades.",
-            )
-        old_product.stock -= delta
-        # Ajustar también la ubicación de salida del préstamo si existe.
-        if loan.location_out and loc_utils.rows_for(db, old_product):
-            loc_utils.adjust_quantity(db, old_product, loan.location_out, -delta)
-    elif new_product_id != loan.product_id:
-        if old_product:
-            old_product.stock += loan.quantity
-            if loan.location_out:
-                loc_utils.adjust_quantity(db, old_product, loan.location_out, +loan.quantity)
-        if new_product is not None:
-            if new_product.stock < new_quantity:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Stock insuficiente de '{new_product.name}'. Solo hay {new_product.stock} unidades.",
-                )
-            new_product.stock -= new_quantity
-            # Descontar del nuevo producto: usar la ubicación nueva (si viene)
-            # o replicar la ubicación de salida original si existe en el nuevo.
-            new_rows = loc_utils.rows_for(db, new_product)
-            if new_rows:
-                target = (updates.get("location_out") or loan.location_out or "").strip() or None
-                target = target if target else new_rows[0].location
-                loc_utils.adjust_quantity(db, new_product, target, -new_quantity)
-
-    for field in ("seller", "phone", "due_date", "note", "location_out"):
-        if field in updates:
-            setattr(loan, field, updates[field])
-    if new_product is not None:
-        loan.product_name = new_product.name
-    if "product_id" in updates:
-        loan.product_id = new_product_id
-    if "quantity" in updates:
-        loan.quantity = new_quantity
+    # Mantener la instantánea legacy consistente con los ítems.
+    db.flush()
+    if loan.items:
+        loan.product_id = loan.items[0].product_id
+        loan.product_name = loan.items[0].product_name
+        loan.quantity = sum(item.quantity for item in loan.items)
+        loan.returned_qty = sum(item.returned_qty for item in loan.items)
+        loan.location_out = loan.items[0].location_out
 
     record_audit(
         db,
@@ -257,23 +297,27 @@ def return_loan(
 ):
     loan = _get_loan(db, loan_id, user.tenant_id)
 
-    if loan.completed:
-        raise HTTPException(status_code=400, detail="Este préstamo ya está completamente devuelto")
+    item = next((i for i in loan.items if i.id == data.item_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Ítem del préstamo no encontrado")
 
-    new_total = loan.returned_qty + data.returned_qty
-    if new_total > loan.quantity:
+    if item.completed:
+        raise HTTPException(status_code=400, detail="Este ítem ya está completamente devuelto")
+
+    new_total = item.returned_qty + data.returned_qty
+    if new_total > item.quantity:
         raise HTTPException(
             status_code=400,
-            detail=f"No se pueden devolver {data.returned_qty} unidades. Pendiente por devolver: {loan.pending}.",
+            detail=f"No se pueden devolver {data.returned_qty} unidades de '{item.product_name}'. Pendiente por devolver: {item.pending}.",
         )
 
-    loan.returned_qty = new_total
+    item.returned_qty = new_total
 
     # Devolver mercancía al stock: a la ubicación elegida (o la de salida).
-    product = _get_product(db, loan.product_id, user.tenant_id)
+    product = _get_product(db, item.product_id, user.tenant_id)
     if product:
         product.stock += data.returned_qty
-        dest = (data.location_in or "").strip() or loan.location_out or None
+        dest = (data.location_in or "").strip() or item.location_out or None
         if dest and loc_utils.rows_for(db, product):
             loc_utils.adjust_quantity(db, product, dest, data.returned_qty)
         elif dest and not loc_utils.rows_for(db, product):
@@ -281,14 +325,17 @@ def return_loan(
             # para referencia (el stock total ya se actualizó arriba).
             pass
 
+    # Sincronizar la instantánea legacy del préstamo.
+    loan.returned_qty = sum(i.returned_qty for i in loan.items)
+
     record_audit(
         db,
         action="DEVOLUCION",
         user_id=user.id,
         tenant_id=user.tenant_id,
-        detail=f"Devolución de {data.returned_qty} unidades de {loan.product_name}"
+        detail=f"Devolución de {data.returned_qty} unidades de {item.product_name}"
                + (f" a '{dest}'" if dest else ""),
-        product_name=loan.product_name,
+        product_name=item.product_name,
         quantity=data.returned_qty,
     )
     db.commit()

@@ -206,18 +206,30 @@ class ProductOut(ProductBase):
 # ===================== LOANS =====================
 
 
+class LoanItemCreate(BaseModel):
+    product_id: int
+    quantity: int = Field(ge=1)
+    # Ubicación de dónde sale este ítem (stock por ubicación).
+    location_out: str | None = None
+
+
 class LoanCreate(BaseModel):
     seller: str = Field(min_length=1, max_length=120)
     phone: str | None = None
-    product_id: int
-    quantity: int = Field(ge=1)
+    items: list[LoanItemCreate] = Field(min_length=1)
     due_date: date
     note: str | None = None
-    # Ubicación de dónde sale la mercancía (stock por ubicación).
+
+
+class LoanItemUpdate(BaseModel):
+    id: int | None = None
+    product_id: int
+    quantity: int = Field(ge=1)
     location_out: str | None = None
 
 
 class LoanReturn(BaseModel):
+    item_id: int
     returned_qty: int = Field(gt=0)
     # Ubicación donde se guarda lo devuelto. Si se omite, vuelve a la misma
     # ubicación de la que salió al prestarse.
@@ -227,11 +239,22 @@ class LoanReturn(BaseModel):
 class LoanUpdate(BaseModel):
     seller: str | None = Field(default=None, min_length=1, max_length=120)
     phone: str | None = None
-    product_id: int | None = None
-    quantity: int | None = Field(default=None, ge=1)
     due_date: date | None = None
     note: str | None = None
+    items: list[LoanItemUpdate] | None = None
+
+
+class LoanItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int | None = None
+    product_name: str
+    quantity: int
+    returned_qty: int
     location_out: str | None = None
+    pending: int
+    completed: bool
 
 
 class LoanOut(BaseModel):
@@ -240,14 +263,10 @@ class LoanOut(BaseModel):
     id: int
     seller: str
     phone: str | None = None
-    product_id: int | None = None
-    product_name: str
-    quantity: int
-    returned_qty: int
+    items: list[LoanItemOut] = []
     loan_date: datetime
     due_date: date
     note: str | None = None
-    location_out: str | None = None
     pending: int
     completed: bool
     overdue: bool

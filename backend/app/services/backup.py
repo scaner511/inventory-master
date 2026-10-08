@@ -181,6 +181,7 @@ def restore_from_excel(db, buffer) -> dict:
         "products": models.Product,
         "product_stock_locations": models.ProductStockLocation,
         "loans": models.Loan,
+        "loan_items": models.LoanItem,
         "users": models.User,
         "settings": models.Setting,
         "licenses": models.License,
@@ -191,6 +192,7 @@ def restore_from_excel(db, buffer) -> dict:
     # Vaciar en orden inverso de dependencias (hijos primero).
     clear_order = [
         "audit_logs",
+        "loan_items",
         "loans",
         "product_stock_locations",
         "used_license_keys",
@@ -213,6 +215,7 @@ def restore_from_excel(db, buffer) -> dict:
         "products",
         "product_stock_locations",
         "loans",
+        "loan_items",
         "audit_logs",
     ]
     # Coerción de tipos: las columnas DateTime pueden venir como string
@@ -255,7 +258,7 @@ def restore_from_excel(db, buffer) -> dict:
     if db.bind.dialect.name == "postgresql":
         from sqlalchemy import text
 
-        for table in ("products", "product_stock_locations", "loans", "users", "audit_logs"):
+        for table in ("products", "product_stock_locations", "loans", "loan_items", "users", "audit_logs"):
             db.execute(
                 text(
                     f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "

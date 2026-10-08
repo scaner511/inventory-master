@@ -443,15 +443,17 @@ def delete_all_products(db: Session = Depends(get_db), user: User = Depends(requ
     Exige confirmación implícita: no hay copia de seguridad, así que primero
     se verifica que no haya préstamos activos con mercancía pendiente.
     """
-    from app.models import Loan
+    from app.models import Loan, LoanItem
     from app.utils.audit import record_audit
 
     active = (
-        db.query(Loan)
+        db.query(Loan.id)
+        .join(LoanItem)
         .filter(
             Loan.tenant_id == user.tenant_id,
-            Loan.quantity > Loan.returned_qty,
+            LoanItem.quantity > LoanItem.returned_qty,
         )
+        .distinct()
         .count()
     )
     if active:
@@ -494,15 +496,17 @@ def delete_product(product_id: int, db: Session = Depends(get_db), user: User = 
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
-    from app.models import Loan
+    from app.models import Loan, LoanItem
 
     active = (
-        db.query(Loan)
+        db.query(Loan.id)
+        .join(LoanItem)
         .filter(
-            Loan.product_id == product_id,
             Loan.tenant_id == user.tenant_id,
-            Loan.quantity > Loan.returned_qty,
+            LoanItem.product_id == product_id,
+            LoanItem.quantity > LoanItem.returned_qty,
         )
+        .distinct()
         .count()
     )
     if active:

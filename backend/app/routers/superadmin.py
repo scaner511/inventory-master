@@ -13,6 +13,7 @@ from app.models import (
     AuditLog,
     DriveConnection,
     Loan,
+    LoanItem,
     Product,
     ProductStockLocation,
     Setting,
@@ -176,6 +177,8 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
 @router.delete("/tenants/{tenant_id}", status_code=200)
 def delete_tenant(tenant_id: int, db: Session = Depends(get_db)):
     tenant = _get_tenant(db, tenant_id)
+    loan_ids = db.query(Loan.id).filter(Loan.tenant_id == tenant_id)
+    db.query(LoanItem).filter(LoanItem.loan_id.in_(loan_ids)).delete(synchronize_session=False)
     db.query(ProductStockLocation).filter(ProductStockLocation.tenant_id == tenant_id).delete(synchronize_session=False)
     db.query(Loan).filter(Loan.tenant_id == tenant_id).delete(synchronize_session=False)
     db.query(AuditLog).filter(AuditLog.tenant_id == tenant_id).delete(synchronize_session=False)
@@ -219,6 +222,8 @@ def reset_tenant(tenant_id: int, data: TenantReset, db: Session = Depends(get_db
             )
 
     # Limpiar todos los datos operativos del cliente.
+    loan_ids = db.query(Loan.id).filter(Loan.tenant_id == tenant_id)
+    db.query(LoanItem).filter(LoanItem.loan_id.in_(loan_ids)).delete(synchronize_session=False)
     db.query(ProductStockLocation).filter(ProductStockLocation.tenant_id == tenant_id).delete(synchronize_session=False)
     db.query(Loan).filter(Loan.tenant_id == tenant_id).delete(synchronize_session=False)
     db.query(AuditLog).filter(AuditLog.tenant_id == tenant_id).delete(synchronize_session=False)

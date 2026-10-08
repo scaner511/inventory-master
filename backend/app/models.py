@@ -113,26 +113,69 @@ class ProductStockLocation(Base):
 
 
 class Loan(Base):
+    """Préstamo: cabecera con datos del vendedor + N ítems (1+ productos).
+
+    Desde la versión multi-producto la fuente de verdad son los ítems
+    (LoanItem). Las columnas legacy product_id/product_name/quantity/
+    returned_qty/location_out se conservan como instantánea del primer ítem
+    por compatibilidad con respaldos antiguos y consultas simples.
+    """
+
     __tablename__ = "loans"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[int | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     seller: Mapped[str] = mapped_column(String(120), index=True)
     phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # --- Columnas legacy (ver docstring del modelo) ---
     product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"), nullable=True)
     product_name: Mapped[str] = mapped_column(String(255))
     quantity: Mapped[int] = mapped_column(Integer)
     returned_qty: Mapped[int] = mapped_column(Integer, default=0)
+    location_out: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # --------------------------------------------------
     loan_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     due_date: Mapped[date] = mapped_column(Date)
     photo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Ubicación de dónde salió el producto (feature stock por ubicación).
-    location_out: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     tenant: Mapped["Tenant"] = relationship(back_populates="loans")
     creator: Mapped["User"] = relationship(back_populates="loans_created")
+    items: Mapped[list["LoanItem"]] = relationship(
+        back_populates="loan",
+        cascade="all, delete-orphan",
+        order_by="LoanItem.id",
+    )
+
+    @property
+    def pending(self) -> int:
+        return sum(item.pending for item in self.items)
+
+    @property
+    def completed(self) -> bool:
+        return bool(self.items) and all(item.completed for item in self.items)
+
+    @property
+    def overdue(self) -> bool:
+        return not self.completed and self.due_date < date.today()
+
+
+class LoanItem(Base):
+    """Ítem de un préstamo: un producto con su cantidad y devoluciones."""
+
+    __tablename__ = "loan_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    loan_id: Mapped[int] = mapped_column(ForeignKey("loans.id", ondelete="CASCADE"), index=True)
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"), nullable=True)
+    product_name: Mapped[str] = mapped_column(String(255))
+    quantity: Mapped[int] = mapped_column(Integer)
+    returned_qty: Mapped[int] = mapped_column(Integer, default=0)
+    # Ubicación de dónde salió este ítem (feature stock por ubicación).
+    location_out: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    loan: Mapped["Loan"] = relationship(back_populates="items")
 
     @property
     def pending(self) -> int:
@@ -141,10 +184,6 @@ class Loan(Base):
     @property
     def completed(self) -> bool:
         return self.returned_qty >= self.quantity
-
-    @property
-    def overdue(self) -> bool:
-        return not self.completed and self.due_date < date.today()
 
 
 class AuditLog(Base):

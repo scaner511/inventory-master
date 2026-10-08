@@ -101,8 +101,7 @@ def loan_ticket(loan_id: int, db: Session = Depends(get_db), user: User = Depend
     pdf_buffer = generate_loan_pdf(
         seller=loan.seller,
         phone=loan.phone,
-        product_name=loan.product_name,
-        quantity=loan.quantity,
+        items=[(item.product_name, item.quantity) for item in loan.items],
         loan_date=loan.loan_date.strftime("%d/%m/%Y %H:%M"),
         due_date=loan.due_date.strftime("%d/%m/%Y"),
         logo_path=setting.logo_path,
