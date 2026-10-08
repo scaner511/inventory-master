@@ -40,6 +40,7 @@ export default function Loans() {
   const [editTarget, setEditTarget] = useState(null)
   const [editForm, setEditForm] = useState(null)
   const [editLocked, setEditLocked] = useState(false)
+  const [completedOpen, setCompletedOpen] = useState(false)
 
   const getProduct = useCallback(
     (id) => products.find((p) => String(p.id) === String(id)),
@@ -332,6 +333,115 @@ export default function Loans() {
     }
   }
 
+  function renderLoanTable(rows) {
+    return (
+      <Table
+        columns={[
+          { key: 'seller', label: 'Vendedor' },
+          { key: 'product', label: 'Productos' },
+          { key: 'qty', label: 'Entregado / Total', align: 'center' },
+          { key: 'from', label: 'Entrega' },
+          { key: 'due', label: 'Límite' },
+          { key: 'status', label: 'Estado', align: 'center' },
+          { key: 'actions', label: 'Acciones', align: 'center' },
+        ]}
+      >
+        {rows.map((loan) => {
+          const totals = loanTotals(loan)
+          return (
+            <tr key={loan.id} className="transition hover:bg-slate-800/40">
+              <td className="px-4 py-3">
+                <p className="font-medium text-slate-100">{loan.seller}</p>
+                {loan.phone && <p className="text-xs text-slate-500">{loan.phone}</p>}
+              </td>
+              <td className="px-4 py-3">
+                <div className="space-y-1">
+                  {loan.items.map((it) => (
+                    <div key={it.id}>
+                      <p className="text-slate-300">
+                        {it.product_name} <span className="text-slate-500">×{it.quantity}</span>
+                        {it.completed && <span className="ml-1 text-[11px] text-emerald-400">devuelto</span>}
+                      </p>
+                      {it.location_out && (
+                        <span className="mt-0.5 inline-block rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[11px] text-violet-300">
+                          Salida: {it.location_out}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </td>
+              <td className="px-4 py-3 text-center">
+                <span className="font-mono text-sm font-bold text-slate-200">
+                  {totals.returned} / {totals.quantity}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-xs text-slate-400">{new Date(loan.loan_date).toLocaleDateString()}</td>
+              <td className={`px-4 py-3 text-xs font-medium ${loan.overdue ? 'text-red-400' : 'text-slate-300'}`}>{loan.due_date}</td>
+              <td className="px-4 py-3 text-center">
+                <Badge status={loan.status} />
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex flex-wrap justify-center gap-1">
+                  <button
+                    onClick={() => openEdit(loan)}
+                    className="rounded-lg bg-slate-500/10 p-2 text-slate-300 transition hover:bg-slate-500/25"
+                    title="Editar préstamo"
+                  >
+                    ✏️
+                  </button>
+                  {!loan.completed && (
+                    <button
+                      onClick={() => openReturn(loan)}
+                      className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400 transition hover:bg-emerald-500/20"
+                      title="Registrar devolución"
+                    >
+                      📥
+                    </button>
+                  )}
+                  {!loan.completed && (
+                    <button
+                      onClick={() => setExtendTarget(loan)}
+                      className="rounded-lg bg-amber-500/10 p-2 text-amber-400 transition hover:bg-amber-500/20"
+                      title="Dar prórroga"
+                    >
+                      ⏳
+                    </button>
+                  )}
+                  <button
+                    onClick={() => openAuthenticatedUrl(`/reports/loan-ticket/${loan.id}`)}
+                    className="rounded-lg bg-blue-500/10 p-2 text-blue-400 transition hover:bg-blue-500/20"
+                    title="Comprobante PDF"
+                  >
+                    📄
+                  </button>
+                  {loan.phone && (
+                    <button
+                      onClick={() =>
+                        window.open(
+                          `https://wa.me/${loan.phone}?text=${encodeURIComponent(buildReminderMessage(loan))}`,
+                          '_blank',
+                        )
+                      }
+                      className="rounded-lg bg-green-500/10 p-2 text-green-400 transition hover:bg-green-500/20"
+                      title="Enviar recordatorio WhatsApp"
+                    >
+                      💬
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          )
+        })}
+      </Table>
+    )
+  }
+
+  const completedOnly = status === 'COMPLETADO'
+  const activeLoans = loans.filter((l) => !l.completed)
+  const completedLoans = loans.filter((l) => l.completed)
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -372,106 +482,35 @@ export default function Loans() {
       ) : loans.length === 0 ? (
         <EmptyState message="No hay préstamos con los filtros actuales" />
       ) : (
-        <Table
-          columns={[
-            { key: 'seller', label: 'Vendedor' },
-            { key: 'product', label: 'Productos' },
-            { key: 'qty', label: 'Entregado / Total', align: 'center' },
-            { key: 'from', label: 'Entrega' },
-            { key: 'due', label: 'Límite' },
-            { key: 'status', label: 'Estado', align: 'center' },
-            { key: 'actions', label: 'Acciones', align: 'center' },
-          ]}
-        >
-          {loans.map((loan) => {
-            const totals = loanTotals(loan)
-            return (
-              <tr key={loan.id} className="transition hover:bg-slate-800/40">
-                <td className="px-4 py-3">
-                  <p className="font-medium text-slate-100">{loan.seller}</p>
-                  {loan.phone && <p className="text-xs text-slate-500">{loan.phone}</p>}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="space-y-1">
-                    {loan.items.map((it) => (
-                      <div key={it.id}>
-                        <p className="text-slate-300">
-                          {it.product_name} <span className="text-slate-500">×{it.quantity}</span>
-                          {it.completed && <span className="ml-1 text-[11px] text-emerald-400">devuelto</span>}
-                        </p>
-                        {it.location_out && (
-                          <span className="mt-0.5 inline-block rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[11px] text-violet-300">
-                            Salida: {it.location_out}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <span className="font-mono text-sm font-bold text-slate-200">
-                    {totals.returned} / {totals.quantity}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-xs text-slate-400">{new Date(loan.loan_date).toLocaleDateString()}</td>
-                <td className={`px-4 py-3 text-xs font-medium ${loan.overdue ? 'text-red-400' : 'text-slate-300'}`}>{loan.due_date}</td>
-                <td className="px-4 py-3 text-center">
-                  <Badge status={loan.status} />
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap justify-center gap-1">
-                    <button
-                      onClick={() => openEdit(loan)}
-                      className="rounded-lg bg-slate-500/10 p-2 text-slate-300 transition hover:bg-slate-500/25"
-                      title="Editar préstamo"
-                    >
-                      ✏️
-                    </button>
-                    {!loan.completed && (
-                      <button
-                        onClick={() => openReturn(loan)}
-                        className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400 transition hover:bg-emerald-500/20"
-                        title="Registrar devolución"
-                      >
-                        📥
-                      </button>
-                    )}
-                    {!loan.completed && (
-                      <button
-                        onClick={() => setExtendTarget(loan)}
-                        className="rounded-lg bg-amber-500/10 p-2 text-amber-400 transition hover:bg-amber-500/20"
-                        title="Dar prórroga"
-                      >
-                        ⏳
-                      </button>
-                    )}
-                    <button
-                      onClick={() => openAuthenticatedUrl(`/reports/loan-ticket/${loan.id}`)}
-                      className="rounded-lg bg-blue-500/10 p-2 text-blue-400 transition hover:bg-blue-500/20"
-                      title="Comprobante PDF"
-                    >
-                      📄
-                    </button>
-                    {loan.phone && (
-                      <button
-                        onClick={() =>
-                          window.open(
-                            `https://wa.me/${loan.phone}?text=${encodeURIComponent(buildReminderMessage(loan))}`,
-                            '_blank',
-                          )
-                        }
-                        className="rounded-lg bg-green-500/10 p-2 text-green-400 transition hover:bg-green-500/20"
-                        title="Enviar recordatorio WhatsApp"
-                      >
-                        💬
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            )
-          })}
-        </Table>
+        <>
+          {completedOnly ? (
+            renderLoanTable(loans)
+          ) : activeLoans.length === 0 ? (
+            <p className="rounded-lg border border-slate-700/60 px-4 py-6 text-center text-sm text-slate-400">
+              No hay préstamos activos; todos han sido devueltos.
+            </p>
+          ) : (
+            renderLoanTable(activeLoans)
+          )}
+
+          {!completedOnly && completedLoans.length > 0 && (
+            <div className="overflow-hidden rounded-lg border border-slate-700/60">
+              <button
+                type="button"
+                onClick={() => setCompletedOpen((v) => !v)}
+                className="flex w-full items-center justify-between gap-2 bg-slate-800/60 px-4 py-3 text-left transition hover:bg-slate-800"
+              >
+                <span className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+                  <span className="text-emerald-400">✅</span> Préstamos completados ({completedLoans.length})
+                </span>
+                <span className="text-slate-400">{completedOpen ? '▾ Cerrar' : '▸ Abrir'}</span>
+              </button>
+              {completedOpen && (
+                <div className="max-h-[28rem] overflow-y-auto">{renderLoanTable(completedLoans)}</div>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {/* Modal registrar préstamo */}
