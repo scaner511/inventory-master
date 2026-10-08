@@ -575,8 +575,8 @@ export default function Loans() {
                         onChange={(e) => updateCartItem(it.key, { quantity: e.target.value })}
                         aria-label={`Cantidad de ${p?.name || 'producto'}`}
                       />
-                      {hasLocations ? (
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2">
+                        {hasLocations ? (
                           <Select
                             value={it.location_out}
                             onChange={(e) => updateCartItem(it.key, { location_out: e.target.value })}
@@ -591,16 +591,16 @@ export default function Loans() {
                               </option>
                             ))}
                           </Select>
-                          <button
-                            type="button"
-                            onClick={() => removeCartItem(it.key)}
-                            className="rounded-md bg-red-500/10 p-2 text-red-400 transition hover:bg-red-500/20"
-                            title="Quitar producto"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
+                        ) : (
+                          <Input
+                            type="text"
+                            value={it.location_out}
+                            onChange={(e) => updateCartItem(it.key, { location_out: e.target.value })}
+                            placeholder="Ubicación de salida (opcional)"
+                            aria-label="Ubicación de salida"
+                            className="flex-1"
+                          />
+                        )}
                         <button
                           type="button"
                           onClick={() => removeCartItem(it.key)}
@@ -609,7 +609,7 @@ export default function Loans() {
                         >
                           ✕
                         </button>
-                      )}
+                      </div>
                     </div>
                   )
                 })}
@@ -723,7 +723,15 @@ export default function Loans() {
                             ))}
                           </Select>
                         ) : (
-                          <span className="text-xs text-slate-500 flex-1">Sin ubicaciones</span>
+                          <Input
+                            type="text"
+                            value={it.location_out}
+                            onChange={(e) => updateEditItem(it.key, { location_out: e.target.value })}
+                            disabled={editLocked}
+                            placeholder="Ubicación de salida (opcional)"
+                            aria-label="Ubicación de salida"
+                            className="flex-1"
+                          />
                         )}
                         {!editLocked && (
                           <button

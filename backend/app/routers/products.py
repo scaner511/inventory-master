@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user, require_admin
+from app.deps import get_current_user, require_privileged
 from app.models import Product, ProductStockLocation, User
 from app.schemas import ProductCreate, ProductOut, ProductUpdate
 from app.utils import locations as loc_utils
@@ -437,7 +437,7 @@ def update_product(
 
 
 @router.delete("/all", status_code=200)
-def delete_all_products(db: Session = Depends(get_db), user: User = Depends(require_admin)):
+def delete_all_products(db: Session = Depends(get_db), user: User = Depends(require_privileged)):
     """Elimina TODOS los productos del cliente (solo administrador).
 
     Exige confirmación implícita: no hay copia de seguridad, así que primero
