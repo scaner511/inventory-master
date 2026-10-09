@@ -248,6 +248,37 @@ def _migrate_user_subscription(db: Session) -> None:
         db.commit()
 
 
+def _migrate_tenant_subscription(db: Session) -> None:
+    """Agrega la licencia a nivel de cliente (tenants).
+
+    Corre DESPUÉS de _migrate_user_subscription y de la creación del primer
+    tenant. Hereda el vencimiento máximo de los usuarios del cliente (así no
+    cambia fechas ya vigentes); si el cliente no tiene usuarios (DB nueva),
+    queda la suscripción por defecto de 30 días.
+    """
+    cols = _table_columns("tenants")
+    if "subscription_expires_at" not in cols:
+        db.execute(text("ALTER TABLE tenants ADD COLUMN subscription_expires_at DATE"))
+        db.commit()
+
+    fallback = date.today() + timedelta(days=settings.subscription_days)
+    pending = (
+        db.query(models.Tenant)
+        .filter(models.Tenant.subscription_expires_at.is_(None))
+        .all()
+    )
+    for tnt in pending:
+        row = (
+            db.query(models.User.subscription_expires_at)
+            .filter(models.User.tenant_id == tnt.id)
+            .order_by(models.User.subscription_expires_at.desc())
+            .first()
+        )
+        tnt.subscription_expires_at = row[0] if row and row[0] else fallback
+    if pending:
+        db.commit()
+
+
 def _migrate_product_stock_locations(db: Session) -> None:
     """Siembra/valida el stock por ubicación de los productos.
 
@@ -534,6 +565,7 @@ def init_db() -> None:
 
         # Cliente principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)
+        _migrate_tenant_subscription(db)
         _backfill_tenant(db, first_tenant.id)
         _migrate_product_condition(db)
         _migrate_product_stock_locations(db)

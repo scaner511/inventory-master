@@ -34,14 +34,7 @@ export default function License() {
             {isSuper ? (
               <p className="text-sm text-slate-400">El Super Admin es el operador del sistema y no tiene vencimiento.</p>
             ) : active ? (
-              status?.expires_at && (
-                <p className="text-sm text-slate-400">
-                  Vence el <span className="font-semibold text-slate-200">{status.expires_at}</span>
-                  {status.days_left > 0 && status.days_left <= 7 && (
-                    <span className="ml-2 text-amber-400">⚠️ solo {status.days_left} día(s) restante(s)</span>
-                  )}
-                </p>
-              )
+              <p className="text-sm text-slate-400">Tu cuenta está activa.</p>
             ) : (
               <p className="text-sm text-slate-300">
                 Tu acceso está bloqueado hasta renovar la suscripción. Contacta a tu proveedor para registrar el pago.

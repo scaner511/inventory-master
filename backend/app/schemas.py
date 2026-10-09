@@ -144,6 +144,9 @@ class TenantOut(BaseModel):
     max_users: int | None = None
     is_active: bool
     created_at: datetime
+    # Licencia del cliente (visible solo para el Super Admin).
+    subscription_expires_at: date | None = None
+    subscription_days_left: int | None = None
     users_count: int = 0
 
 

@@ -28,6 +28,9 @@ class Tenant(Base):
     # Límite de usuarios permitidos para este cliente. Si es NULL, se usa el
     # valor global MAX_USERS_PER_TENANT. Lo define el Super Admin al crearlo.
     max_users: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Licencia del cliente (30 días renovables). Es la fuente de verdad: los
+    # usuarios del cliente heredan este vencimiento. Solo el Super Admin la ve.
+    subscription_expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

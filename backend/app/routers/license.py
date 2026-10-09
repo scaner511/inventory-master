@@ -42,7 +42,12 @@ def _get_or_create_machine_code(db: Session) -> str:
 
 @router.get("/status")
 def status(db: Session = Depends(get_db), _user=Depends(get_current_user)):
-    return license_status(db, _user)
+    info = license_status(db, _user)
+    # La vigencia (días restantes / fecha) la ve solo el Super Admin.
+    if _user.role != "superadmin":
+        info["expires_at"] = None
+        info["days_left"] = None
+    return info
 
 
 @router.get("/machine-code")

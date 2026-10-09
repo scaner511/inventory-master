@@ -83,6 +83,40 @@ def _get_user(db: Session, user_id: int) -> User:
     return user
 
 
+def _subscription_days_left(tenant: Tenant) -> int | None:
+    if tenant.subscription_expires_at is None:
+        return None
+    return (tenant.subscription_expires_at - date.today()).days
+
+
+def _renew_tenant(db: Session, tenant: Tenant, days: int, actor: User) -> date:
+    """Renueva la licencia del cliente y la hereda a todos sus usuarios.
+
+    Base: el vencimiento actual si aún no venció; si ya venció, se cuenta
+    desde hoy. Devuelve la nueva fecha de vencimiento.
+    """
+    today = date.today()
+    base = tenant.subscription_expires_at or today
+    if base < today:
+        base = today
+    expire = base + timedelta(days=days)
+    tenant.subscription_expires_at = expire
+    db.query(User).filter(User.tenant_id == tenant.id).update(
+        {"subscription_expires_at": expire}, synchronize_session=False
+    )
+    record_audit(
+        db,
+        "SUBSCRIPTION_RENEWED",
+        actor.id,
+        tenant_id=tenant.id,
+        detail=(
+            f"Licencia de '{tenant.name}' renovada {days} días "
+            f"(vence el {expire.isoformat()})"
+        ),
+    )
+    return expire
+
+
 def _ensure_admin_remains(db: Session, user: User) -> None:
     """Evita dejar a un cliente sin ningún administrador."""
     if user.role != "admin" or user.tenant_id is None:
@@ -112,6 +146,7 @@ def list_tenants(db: Session = Depends(get_db)):
     for t in tenants:
         out = TenantOut.model_validate(t)
         out.users_count = _tenant_users_count(db, t.id)
+        out.subscription_days_left = _subscription_days_left(t)
         result.append(out)
     return result
 
@@ -123,7 +158,8 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.username == data.admin_username).first():
         raise HTTPException(status_code=400, detail="El nombre de usuario del administrador ya existe")
 
-    tenant = Tenant(name=data.name, max_users=data.max_users)
+    start = date.today() + timedelta(days=settings.subscription_days)
+    tenant = Tenant(name=data.name, max_users=data.max_users, subscription_expires_at=start)
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
@@ -137,13 +173,14 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
             role="admin",
             tenant_id=tenant.id,
             must_change_password=True,
-            subscription_expires_at=date.today() + timedelta(days=settings.subscription_days),
+            subscription_expires_at=start,
         )
     )
     db.commit()
 
     out = TenantOut.model_validate(tenant)
     out.users_count = _tenant_users_count(db, tenant.id)
+    out.subscription_days_left = _subscription_days_left(tenant)
     return out
 
 
@@ -176,6 +213,7 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
 
     out = TenantOut.model_validate(tenant)
     out.users_count = _tenant_users_count(db, tenant.id)
+    out.subscription_days_left = _subscription_days_left(tenant)
     return out
 
 
@@ -245,6 +283,9 @@ def reset_tenant(tenant_id: int, data: TenantReset, db: Session = Depends(get_db
     preserve.is_active = True
     preserve.active_session = None
     preserve.session_expires_at = None
+    # El administrador conservado hereda la vigencia del cliente.
+    if tenant.subscription_expires_at is not None:
+        preserve.subscription_expires_at = tenant.subscription_expires_at
 
     tenant.is_active = True
     db.commit()
@@ -272,7 +313,7 @@ def list_tenant_users(tenant_id: int, db: Session = Depends(get_db)):
 
 @router.post("/tenants/{tenant_id}/users", response_model=UserOut, status_code=201)
 def create_tenant_user(tenant_id: int, data: TenantUserCreate, db: Session = Depends(get_db)):
-    _get_tenant(db, tenant_id)
+    tenant = _get_tenant(db, tenant_id)
     if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(status_code=400, detail="El nombre de usuario ya existe")
     _ensure_user_quota(db, tenant_id)
@@ -287,7 +328,9 @@ def create_tenant_user(tenant_id: int, data: TenantUserCreate, db: Session = Dep
         must_change_password=True,
         security_question=data.security_question,
         security_answer=data.security_answer,
-        subscription_expires_at=date.today() + timedelta(days=settings.subscription_days),
+        # El nuevo usuario comparte la vigencia del cliente.
+        subscription_expires_at=tenant.subscription_expires_at
+        or (date.today() + timedelta(days=settings.subscription_days)),
     )
     db.add(user)
     db.commit()
@@ -331,6 +374,27 @@ def reset_password(user_id: int, data: AdminResetPassword, db: Session = Depends
     return {"message": f"Contraseña de '{user.username}' actualizada correctamente."}
 
 
+@router.post("/tenants/{tenant_id}/renew", status_code=200)
+def renew_tenant_subscription(
+    tenant_id: int,
+    data: SubscriptionRenew,
+    db: Session = Depends(get_db),
+    me: User = Depends(require_superadmin),
+):
+    """Renueva la licencia del cliente (por días) y la hereda a sus usuarios.
+
+    Visible solo para el Super Admin. Si la licencia está vigente se suman los
+    días al vencimiento actual; si ya venció, se cuenta desde hoy.
+    """
+    tenant = _get_tenant(db, tenant_id)
+    expire = _renew_tenant(db, tenant, data.days, me)
+    return {
+        "message": f"Licencia de '{tenant.name}' renovada por {data.days} días.",
+        "expires_at": expire.isoformat(),
+        "days_left": (expire - date.today()).days,
+    }
+
+
 @router.post("/users/{user_id}/renew", status_code=200)
 def renew_subscription(
     user_id: int,
@@ -338,37 +402,24 @@ def renew_subscription(
     db: Session = Depends(get_db),
     me: User = Depends(require_superadmin),
 ):
-    """Extiende la suscripción de un usuario (el pago lo registra el Super Admin).
+    """Renueva la licencia del cliente al que pertenece el usuario.
 
-    Si la suscripción aún está vigente se suman los días al vencimiento actual;
-    si ya venció, se cuenta desde hoy. El Super Admin queda exento.
+    La licencia es del CLIENTE, no del usuario: renovar a cualquiera de sus
+    usuarios renueva todo el cliente. El Super Admin queda exento.
     """
     user = _get_user(db, user_id)
     if user.role == "superadmin":
         raise HTTPException(status_code=400, detail="El Super Admin no tiene suscripción")
 
-    today = date.today()
-    base = user.subscription_expires_at or today
-    if base < today:
-        base = today
-    user.subscription_expires_at = base + timedelta(days=data.days)
+    if user.tenant_id is None:
+        raise HTTPException(status_code=400, detail="El usuario no pertenece a ningún cliente")
 
-    record_audit(
-        db,
-        "SUBSCRIPTION_RENEWED",
-        me.id,
-        detail=(
-            f"Suscripción de '{user.username}' extendida {data.days} días "
-            f"(vence el {user.subscription_expires_at.isoformat()})"
-        ),
-        tenant_id=user.tenant_id,
-    )
-    db.commit()
-
+    tenant = _get_tenant(db, user.tenant_id)
+    expire = _renew_tenant(db, tenant, data.days, me)
     return {
-        "message": f"Suscripción de '{user.username}' renovada por {data.days} días.",
-        "expires_at": user.subscription_expires_at.isoformat(),
-        "days_left": (user.subscription_expires_at - today).days,
+        "message": f"Licencia de '{tenant.name}' renovada por {data.days} días.",
+        "expires_at": expire.isoformat(),
+        "days_left": (expire - date.today()).days,
     }
 
 

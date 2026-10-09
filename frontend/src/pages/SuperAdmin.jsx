@@ -7,6 +7,7 @@ import {
   getGlobalUsers,
   getTenantUsers,
   getTenants,
+  renewTenantSubscription,
   renewUserSubscription,
   resetTenant,
   superadminDeleteUser,
@@ -173,6 +174,17 @@ function TenantsTab() {
     }
   }
 
+  async function handleRenewTenant(t) {
+    try {
+      const res = await renewTenantSubscription(t.id, 30)
+      toast.success(res.message)
+      load()
+      loadUsers(usersOpen)
+    } catch {
+      /* interceptor */
+    }
+  }
+
   async function loadUsers(tenantId) {
     try {
       setTenantUsers(await getTenantUsers(tenantId))
@@ -242,6 +254,7 @@ function TenantsTab() {
             { key: 'users', label: 'Usuarios', align: 'center' },
             { key: 'limit', label: 'Límite', align: 'center' },
             { key: 'active', label: 'Activo', align: 'center' },
+            { key: 'license', label: 'Licencia', align: 'center' },
             { key: 'created', label: 'Creado' },
             { key: 'actions', label: 'Acciones', align: 'center' },
           ]}
@@ -255,9 +268,36 @@ function TenantsTab() {
                   {t.max_users ?? 'Sin límite'}
                 </span>
               </td>
+              <td className="px-4 py-3 text-center">
+                {t.subscription_days_left == null ? (
+                  <span className="text-xs text-slate-500">—</span>
+                ) : t.subscription_days_left < 0 ? (
+                  <span className="rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-bold text-red-400" title={`Vence el ${t.subscription_expires_at}`}>
+                    Vencida
+                  </span>
+                ) : (
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                      t.subscription_days_left <= 7
+                        ? 'bg-amber-500/10 text-amber-400'
+                        : 'bg-emerald-500/10 text-emerald-400'
+                    }`}
+                    title={`Vence el ${t.subscription_expires_at}`}
+                  >
+                    {t.subscription_days_left} día(s)
+                  </span>
+                )}
+              </td>
               <td className="px-4 py-3 text-xs text-slate-400">{new Date(t.created_at).toLocaleDateString()}</td>
               <td className="px-4 py-3 text-center">
                 <div className="flex justify-center gap-1">
+                  <button
+                    onClick={() => handleRenewTenant(t)}
+                    className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400 transition hover:bg-emerald-500/20"
+                    title="Renovar licencia del cliente (30 días)"
+                  >
+                    💰
+                  </button>
                   <button
                     onClick={() => {
                       setUsersOpen(t.id)

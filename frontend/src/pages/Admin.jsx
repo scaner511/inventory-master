@@ -175,7 +175,6 @@ function UsersTab() {
             { key: 'active', label: 'Activo', align: 'center' },
             { key: 'mustChange', label: 'Contraseña', align: 'center' },
             { key: 'created', label: 'Creado' },
-            { key: 'subscription', label: 'Suscripción', align: 'center' },
             { key: 'actions', label: 'Acciones', align: 'center' },
           ]}
         >
@@ -200,26 +199,6 @@ function UsersTab() {
                 )}
               </td>
               <td className="px-4 py-3 text-xs text-slate-400">{new Date(u.created_at).toLocaleDateString()}</td>
-              <td className="px-4 py-3 text-center">
-                {u.subscription_days_left == null ? (
-                  <span className="text-xs text-slate-500">—</span>
-                ) : u.subscription_days_left < 0 ? (
-                  <span className="rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-bold text-red-400" title={`Vence el ${u.subscription_expires_at}`}>
-                    Vencida
-                  </span>
-                ) : (
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                      u.subscription_days_left <= 7
-                        ? 'bg-amber-500/10 text-amber-400'
-                        : 'bg-emerald-500/10 text-emerald-400'
-                    }`}
-                    title={`Vence el ${u.subscription_expires_at}`}
-                  >
-                    {u.subscription_days_left} día(s)
-                  </span>
-                )}
-              </td>
               <td className="px-4 py-3 text-center">
                 <div className="flex justify-center gap-1">
                   <button

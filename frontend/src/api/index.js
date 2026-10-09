@@ -255,6 +255,11 @@ export async function renewUserSubscription(id, days = 30) {
   return data
 }
 
+export async function renewTenantSubscription(id, days = 30) {
+  const { data } = await api.post(`/superadmin/tenants/${id}/renew`, { days })
+  return data
+}
+
 export async function superadminDeleteUser(id) {
   const { data } = await api.delete(`/superadmin/users/${id}`)
   return data

@@ -51,6 +51,14 @@ def _get_tenant_user(db: Session, user_id: int, tenant_id: int) -> User:
     return user
 
 
+def _user_out_public(user) -> UserOut:
+    """Salida de usuarios para el cliente: la vigencia la ve solo el Super Admin."""
+    out = user_out(user)
+    out.subscription_expires_at = None
+    out.subscription_days_left = None
+    return out
+
+
 def _ensure_admin_remains(db: Session, user: User) -> None:
     if user.role != "admin" or user.tenant_id is None:
         return
@@ -80,7 +88,7 @@ def list_users(db: Session = Depends(get_db), _user: User = Depends(require_admi
         .order_by(User.username)
         .all()
     )
-    return [user_out(u) for u in users]
+    return [_user_out_public(u) for u in users]
 
 
 @router.get("/terms-acceptances")
@@ -113,6 +121,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _user: User = D
     _ensure_quota(db, _user.tenant_id)
 
     password = data.password or settings.default_generic_password
+    tenant = db.get(Tenant, _user.tenant_id)
     user = User(
         username=data.username,
         email=data.email,
@@ -122,13 +131,15 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _user: User = D
         must_change_password=True,
         security_question=data.security_question,
         security_answer=data.security_answer,
-        # Suscripción: vigencia pagada por defecto (30 días).
-        subscription_expires_at=date.today() + timedelta(days=settings.subscription_days),
+        # El usuario nuevo comparte la vigencia de su cliente.
+        subscription_expires_at=tenant.subscription_expires_at
+        if tenant is not None and tenant.subscription_expires_at is not None
+        else date.today() + timedelta(days=settings.subscription_days),
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    return user_out(user)
+    return _user_out_public(user)
 
 
 @router.put("/{user_id}", response_model=UserOut)
@@ -145,7 +156,7 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db), _
         setattr(user, field, value)
     db.commit()
     db.refresh(user)
-    return user_out(user)
+    return _user_out_public(user)
 
 
 @router.post("/{user_id}/reset-password", status_code=200)
