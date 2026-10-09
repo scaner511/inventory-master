@@ -77,7 +77,9 @@ def set_locations(session: Session, product: Product, locations: list[dict]) -> 
     for loc in locations:
         name = (loc.get("location") or "").strip()
         qty = int(loc.get("quantity") or 0)
-        if not name or qty <= 0:
+        # Se conservan las filas con cantidad 0 (p. ej. una ubicación agotada):
+        # eliminarlas aquí borraba ubicaciones al editar un producto.
+        if not name:
             continue
         if not first_name:
             first_name = name

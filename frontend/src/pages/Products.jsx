@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { createProduct, deleteAllProducts, deleteProduct, getProducts, updateProduct } from '../api/index.js'
 import { api, formatMoney, openAuthenticatedUrl } from '../api/client.js'
@@ -24,11 +24,21 @@ const CONDITION_LABELS = {
   usado: 'Usado',
 }
 
+function fold(s) {
+  return (s || '')
+    .toString()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
 export default function Products() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin'
   const [products, setProducts] = useState([])
   const [q, setQ] = useState('')
+  const [minStock, setMinStock] = useState('')
+  const [sortBy, setSortBy] = useState('name_asc')
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
@@ -41,18 +51,51 @@ export default function Products() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      setProducts(await getProducts({ q }))
+      setProducts(await getProducts({}))
     } catch {
       /* interceptor */
     } finally {
       setLoading(false)
     }
-  }, [q])
+  }, [])
 
   useEffect(() => {
     const timer = setTimeout(load, 250)
     return () => clearTimeout(timer)
   }, [load])
+
+  const filtered = useMemo(() => {
+    const terms = fold(q).split(/\s+/).filter(Boolean)
+    const min = Number.parseInt(minStock, 10)
+    let list = products
+    if (terms.length) {
+      list = list.filter((p) => {
+        const hay = fold(
+          [
+            p.code,
+            p.name,
+            p.condition || '',
+            p.status || '',
+            p.location || '',
+            String(p.stock),
+            ...(Array.isArray(p.locations) ? p.locations.map((l) => l.location) : []),
+          ].join(' '),
+        )
+        return terms.every((t) => hay.includes(t))
+      })
+    }
+    if (minStock.trim() !== '' && !Number.isNaN(min)) {
+      list = list.filter((p) => p.stock >= min)
+    }
+    list = [...list].sort((a, b) => {
+      const nameSort = fold(a.name).localeCompare(fold(b.name))
+      if (sortBy === 'name_asc') return nameSort
+      if (sortBy === 'name_desc') return -nameSort
+      if (sortBy === 'stock_asc') return a.stock - b.stock || nameSort
+      return b.stock - a.stock || nameSort
+    })
+    return list
+  }, [products, q, minStock, sortBy])
 
   function openCreate(initialCode = '') {
     setEditing(null)
@@ -207,7 +250,11 @@ export default function Products() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-white md:text-3xl">Inventario</h2>
-          <p className="text-sm text-slate-400">{products.length} producto(s) registrados</p>
+          <p className="text-sm text-slate-400">
+            {filtered.length === products.length
+              ? `${products.length} producto(s) registrados`
+              : `${filtered.length} de ${products.length} producto(s)`}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="ghost" onClick={() => openAuthenticatedUrl('/reports/daily')}>
@@ -237,12 +284,29 @@ export default function Products() {
         stock total se calcula como la suma de las ubicaciones. Acepta nombres similares y archivos sin encabezados.
       </p>
 
-      <Input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Buscar por código o nombre..."
-        className="max-w-md"
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar en todo: código, nombre, estado, ubicación, cantidad..."
+          className="min-w-[16rem] flex-1"
+        />
+        <Input
+          type="number"
+          min="1"
+          value={minStock}
+          onChange={(e) => setMinStock(e.target.value)}
+          placeholder="Stock mín."
+          title="Mostrar solo productos con stock mayor o igual a este valor"
+          className="w-32 shrink-0"
+        />
+        <Select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="w-60 shrink-0">
+          <option value="name_asc">Nombre (A → Z)</option>
+          <option value="name_desc">Nombre (Z → A)</option>
+          <option value="stock_desc">Stock (mayor a menor)</option>
+          <option value="stock_asc">Stock (menor a mayor)</option>
+        </Select>
+      </div>
 
       {loading ? (
         <div className="flex justify-center py-16">
@@ -250,6 +314,8 @@ export default function Products() {
         </div>
       ) : products.length === 0 ? (
         <EmptyState message="No hay productos. Agrega el primero con el botón +" />
+      ) : filtered.length === 0 ? (
+        <EmptyState message="Sin coincidencias para el filtro actual." />
       ) : (
         <Table
           columns={[
@@ -264,7 +330,7 @@ export default function Products() {
             { key: 'actions', label: 'Acciones', align: 'center' },
           ]}
         >
-          {products.map((p) => (
+          {filtered.map((p) => (
             <tr key={p.id} className="transition hover:bg-slate-800/40">
               <td className="px-4 py-3 text-center font-mono text-xs text-slate-400">{p.code}</td>
               <td className="px-4 py-3 font-medium text-slate-100">{p.name}</td>
