@@ -598,10 +598,10 @@ def init_db() -> None:
         _migrate_drive_per_tenant(db)
         _migrate_user_active_session(db)
         _migrate_user_subscription(db)
-        # Debe correr antes de la primera consulta a Tenant (el modelo ya
-        # incluye la nueva columna; si la tabla existe, create_all no la agrega).
-        _migrate_tenant_subscription(db)
+        # database_name debe existir ANTES de cualquier consulta ORM a Tenant
+        # (el modelo ya la incluye y la tabla puede no tenerla aún).
         _migrate_tenant_database_name(db)
+        _migrate_tenant_subscription(db)
 
         # Cliente principal
         first_tenant = _get_or_create_first_tenant(db)

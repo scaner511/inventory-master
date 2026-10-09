@@ -22,6 +22,7 @@ COPY backend/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY backend/app ./app
+COPY backend/scripts ./scripts
 
 # Directorios que persisten en volúmenes Docker (backups y logos)
 RUN mkdir -p /app/backups /app/uploads/logos \

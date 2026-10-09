@@ -80,6 +80,23 @@ def _copy_model(model, tenant_id: int, src_conn, dest_engine, force: bool) -> in
     stmt = select(*columns)
     if "tenant_id" in src_cols:
         stmt = stmt.where(table.c.tenant_id == tenant_id)
+    elif "loan_id" in src_cols and "tenant_id" in _source_columns(src_conn, "loans"):
+        # Tablas hijas (loan_items) sin tenant_id: se filtran por su préstamo.
+        stmt = stmt.where(
+            table.c.loan_id.in_(
+                select(Loan.__table__.c.id).where(Loan.__table__.c.tenant_id == tenant_id)
+            )
+        )
+    elif "product_id" in src_cols and "tenant_id" in _source_columns(src_conn, "products"):
+        # Otras tablas hijas: se filtran por su producto.
+        stmt = stmt.where(
+            table.c.product_id.in_(
+                select(Product.__table__.c.id).where(Product.__table__.c.tenant_id == tenant_id)
+            )
+        )
+    else:
+        print(f"  [AVISO] {table.name}: sin forma de filtrar por cliente; se omite.")
+        return 0
 
     rows = src_conn.execute(stmt).mappings().all()
     if not rows:
