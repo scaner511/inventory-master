@@ -320,7 +320,11 @@ def _migrate_product_stock_locations(db: Session) -> None:
 def _get_or_create_first_tenant(db: Session) -> models.Tenant:
     tenant = db.query(models.Tenant).order_by(models.Tenant.id).first()
     if tenant is None:
-        tenant = models.Tenant(name=settings.default_tenant_name)
+        tenant = models.Tenant(
+            name=settings.default_tenant_name,
+            # El primer cliente nace con la suscripción por defecto.
+            subscription_expires_at=date.today() + timedelta(days=settings.subscription_days),
+        )
         db.add(tenant)
         db.commit()
         db.refresh(tenant)
@@ -562,10 +566,12 @@ def init_db() -> None:
         _migrate_loan_items(db)
         _migrate_user_active_session(db)
         _migrate_user_subscription(db)
+        # Debe correr antes de la primera consulta a Tenant (el modelo ya
+        # incluye la nueva columna; si la tabla existe, create_all no la agrega).
+        _migrate_tenant_subscription(db)
 
         # Cliente principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)
-        _migrate_tenant_subscription(db)
         _backfill_tenant(db, first_tenant.id)
         _migrate_product_condition(db)
         _migrate_product_stock_locations(db)
