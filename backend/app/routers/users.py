@@ -3,6 +3,8 @@
 Cada administrador solo ve y gestiona los usuarios de su propio cliente.
 El Super Admin administra todos los clientes desde /api/superadmin.
 """
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -120,6 +122,8 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _user: User = D
         must_change_password=True,
         security_question=data.security_question,
         security_answer=data.security_answer,
+        # Suscripción: vigencia pagada por defecto (30 días).
+        subscription_expires_at=date.today() + timedelta(days=settings.subscription_days),
     )
     db.add(user)
     db.commit()

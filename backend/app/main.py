@@ -1,5 +1,6 @@
 """Inventory Master OS Web - Aplicación principal FastAPI."""
 from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -218,6 +219,33 @@ def _migrate_user_active_session(db: Session) -> None:
     if "session_expires_at" not in cols:
         db.execute(text("ALTER TABLE users ADD COLUMN session_expires_at TIMESTAMP"))
     db.commit()
+
+
+def _migrate_user_subscription(db: Session) -> None:
+    """Agrega la suscripción por usuario (30 días) a la tabla users.
+
+    Los usuarios creados ANTES de este cambio (sin vigencia) reciben 30 días a
+    partir de hoy. El Super Admin queda exento: su suscripción va a NULL y
+    nunca bloquea.
+    """
+    cols = _table_columns("users")
+    if "subscription_expires_at" not in cols:
+        db.execute(text("ALTER TABLE users ADD COLUMN subscription_expires_at DATE"))
+        db.commit()
+
+    start = date.today() + timedelta(days=settings.subscription_days)
+    pending = (
+        db.query(models.User)
+        .filter(
+            models.User.role != "superadmin",
+            models.User.subscription_expires_at.is_(None),
+        )
+        .all()
+    )
+    for u in pending:
+        u.subscription_expires_at = start
+    if pending:
+        db.commit()
 
 
 def _migrate_product_stock_locations(db: Session) -> None:
@@ -502,6 +530,7 @@ def init_db() -> None:
         _migrate_loan_location_out(db)
         _migrate_loan_items(db)
         _migrate_user_active_session(db)
+        _migrate_user_subscription(db)
 
         # Cliente principal + datos existentes
         first_tenant = _get_or_create_first_tenant(db)
@@ -524,6 +553,7 @@ def init_db() -> None:
                     role="admin",
                     tenant_id=first_tenant.id,
                     must_change_password=False,
+                    subscription_expires_at=date.today() + timedelta(days=settings.subscription_days),
                 )
             )
 

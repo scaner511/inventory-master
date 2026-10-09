@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     # Contraseña genérica para usuarios nuevos (se pide cambiarla al primer login)
     default_generic_password: str = "Cambiar123!"
 
+    # Suscripción: días de vigencia por usuario (los paga el cliente). Al vencer
+    # sin renovar, se bloquea la app para ese usuario hasta que el Super Admin
+    # registre el pago y extienda la suscripción. El Super Admin queda exento.
+    subscription_days: int = 30
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

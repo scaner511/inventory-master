@@ -26,6 +26,10 @@ class UserOut(BaseModel):
     accepted_terms_date: datetime | None = None
     created_at: datetime
     last_login: datetime | None = None
+    # Suscripción: vigencia del usuario y días restantes (solo los clientes;
+    # el Super Admin va a None).
+    subscription_expires_at: date | None = None
+    subscription_days_left: int | None = None
 
 
 class TokenResponse(BaseModel):
@@ -40,6 +44,8 @@ def user_out(user) -> UserOut:
     if user.tenant_id is not None:
         tenant = getattr(user, "tenant", None)
         out.tenant_name = tenant.name if tenant is not None else None
+    if user.subscription_expires_at is not None:
+        out.subscription_days_left = (user.subscription_expires_at - date.today()).days
     return out
 
 
@@ -87,6 +93,12 @@ class UserUpdate(BaseModel):
 
 class AdminResetPassword(BaseModel):
     new_password: str = Field(min_length=6, max_length=128)
+
+
+class SubscriptionRenew(BaseModel):
+    """Extiende la suscripción de un usuario N días (lo registra el Super Admin
+    cuando el cliente paga)."""
+    days: int = Field(default=30, ge=1, le=3650)
 
 
 # ===================== TENANTS (multi-proveedor) =====================

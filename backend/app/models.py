@@ -56,6 +56,10 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Suscripción: vigencia pagada del usuario (30 días por defecto). Al vencer
+    # sin renovar, se bloquea el acceso a la app hasta que el Super Admin
+    # registre el pago y extienda la suscripción. El Super Admin no usa esto.
+    subscription_expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     # Sesión única: sólo un equipo puede tener la sesión activa a la vez.
     active_session: Mapped[str | None] = mapped_column(String(64), nullable=True)
     session_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

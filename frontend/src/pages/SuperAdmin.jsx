@@ -7,6 +7,7 @@ import {
   getGlobalUsers,
   getTenantUsers,
   getTenants,
+  renewUserSubscription,
   resetTenant,
   superadminDeleteUser,
   superadminResetPassword,
@@ -156,6 +157,17 @@ function TenantsTab() {
       toast.success(res.message, { duration: 6000 })
       setResetOpen(false)
       load()
+    } catch {
+      /* interceptor */
+    }
+  }
+
+  async function handleRenew(user) {
+    try {
+      const res = await renewUserSubscription(user.id, 30)
+      toast.success(res.message)
+      load()
+      loadUsers(usersOpen)
     } catch {
       /* interceptor */
     }
@@ -344,6 +356,7 @@ function TenantsTab() {
                 { key: 'role', label: 'Rol', align: 'center' },
                 { key: 'active', label: 'Activo', align: 'center' },
                 { key: 'created', label: 'Creado' },
+                { key: 'subscription', label: 'Suscripción', align: 'center' },
                 { key: 'actions', label: 'Acciones', align: 'center' },
               ]}
             >
@@ -354,7 +367,36 @@ function TenantsTab() {
                   <td className="px-4 py-3 text-center">{activeBadge(u.is_active)}</td>
                   <td className="px-4 py-3 text-xs text-slate-400">{new Date(u.created_at).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-center">
+                    {u.subscription_days_left == null ? (
+                      <span className="text-xs text-slate-500">—</span>
+                    ) : u.subscription_days_left < 0 ? (
+                      <span className="rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-bold text-red-400" title={`Vence el ${u.subscription_expires_at}`}>
+                        Vencida
+                      </span>
+                    ) : (
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                          u.subscription_days_left <= 7
+                            ? 'bg-amber-500/10 text-amber-400'
+                            : 'bg-emerald-500/10 text-emerald-400'
+                        }`}
+                        title={`Vence el ${u.subscription_expires_at}`}
+                      >
+                        {u.subscription_days_left} día(s)
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-center">
                     <div className="flex justify-center gap-1">
+                      {u.role !== 'superadmin' && (
+                        <button
+                          onClick={() => handleRenew(u)}
+                          className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400 transition hover:bg-emerald-500/20"
+                          title="Renovar suscripción (30 días)"
+                        >
+                          💰
+                        </button>
+                      )}
                       <button
                         onClick={() => {
                           setResetTarget(u)
@@ -527,6 +569,16 @@ function UsersTab() {
     }
   }
 
+  async function handleRenew(u) {
+    try {
+      const res = await renewUserSubscription(u.id, 30)
+      toast.success(res.message)
+      load()
+    } catch {
+      /* interceptor */
+    }
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-400">Usuarios de todos los clientes.</p>
@@ -541,6 +593,7 @@ function UsersTab() {
             { key: 'active', label: 'Activo', align: 'center' },
             { key: 'terms', label: 'Términos', align: 'center' },
             { key: 'created', label: 'Creado' },
+            { key: 'subscription', label: 'Vigencia', align: 'center' },
             { key: 'actions', label: 'Acciones', align: 'center' },
           ]}
         >
@@ -566,9 +619,36 @@ function UsersTab() {
               </td>
               <td className="px-4 py-3 text-xs text-slate-400">{new Date(u.created_at).toLocaleDateString()}</td>
               <td className="px-4 py-3 text-center">
+                {u.subscription_days_left == null ? (
+                  <span className="text-xs text-slate-500">—</span>
+                ) : u.subscription_days_left < 0 ? (
+                  <span className="rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-bold text-red-400" title={`Vence el ${u.subscription_expires_at}`}>
+                    Vencida
+                  </span>
+                ) : (
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                      u.subscription_days_left <= 7
+                        ? 'bg-amber-500/10 text-amber-400'
+                        : 'bg-emerald-500/10 text-emerald-400'
+                    }`}
+                    title={`Vence el ${u.subscription_expires_at}`}
+                  >
+                    {u.subscription_days_left} día(s)
+                  </span>
+                )}
+              </td>
+              <td className="px-4 py-3 text-center">
                 <div className="flex justify-center gap-1">
                   {u.role !== 'superadmin' && (
                     <>
+                      <button
+                        onClick={() => handleRenew(u)}
+                        className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400 transition hover:bg-emerald-500/20"
+                        title="Renovar suscripción (30 días)"
+                      >
+                        💰
+                      </button>
                       <button
                         onClick={() => openEdit(u)}
                         className="rounded-lg bg-blue-500/10 p-2 text-blue-400 transition hover:bg-blue-500/20"

@@ -250,6 +250,11 @@ export async function superadminResetPassword(id, newPassword) {
   return data
 }
 
+export async function renewUserSubscription(id, days = 30) {
+  const { data } = await api.post(`/superadmin/users/${id}/renew`, { days })
+  return data
+}
+
 export async function superadminDeleteUser(id) {
   const { data } = await api.delete(`/superadmin/users/${id}`)
   return data

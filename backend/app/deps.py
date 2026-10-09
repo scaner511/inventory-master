@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import License, Setting, Tenant, User
+from app.models import Setting, Tenant, User
 from app.utils.security import decode_access_token
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -103,23 +103,24 @@ def get_or_create_settings(db: Session, tenant_id: int | None = None) -> Setting
 
 
 def license_status(db: Session, user: User | None = None) -> dict:
-    """Devuelve el estado de la licencia: {required, active, expires_at, days_left}.
+    """Devuelve el estado de la suscripción: {required, active, expires_at, days_left}.
 
-    El Super Admin es el operador del sistema y NO está sujeto a licencia
-    ni a vencimiento.
+    Cada usuario tiene una suscripción de ``settings.subscription_days`` días
+    (30 por defecto). Al vencer sin pago, la app se bloquea para ese usuario.
+    El Super Admin es el operador del sistema y NO tiene vencimiento.
     """
     if user is not None and user.role == "superadmin":
         return {"required": False, "active": True, "expires_at": None, "days_left": None}
 
-    lic = db.get(License, 1)
-    if lic is None or not lic.is_active or lic.expires_at is None:
+    exp = user.subscription_expires_at if user is not None else None
+    if exp is None:
         return {"required": True, "active": False, "expires_at": None, "days_left": 0}
 
-    days_left = (lic.expires_at - datetime.now().date()).days
+    days_left = (exp - datetime.now().date()).days
     return {
         "required": True,
         "active": days_left >= 0,
-        "expires_at": lic.expires_at.isoformat(),
+        "expires_at": exp.isoformat(),
         "days_left": days_left,
     }
 
@@ -128,10 +129,10 @@ def require_valid_license(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Bloquea la app si la licencia está vencida o no activa.
+    """Bloquea la app para el usuario si su suscripción venció o no está activa.
 
     El Super Admin (operador del sistema) queda EXENTO: solo los clientes
-    (admins y operadores de cada tenant) están sujetos a la licencia.
+    (admins y operadores de cada tenant) están sujetos a la suscripción.
     """
     status_info = license_status(db, user)
     if not status_info["active"]:
@@ -139,7 +140,7 @@ def require_valid_license(
             status_code=403,
             detail={
                 "code": "LICENSE_BLOCKED",
-                "message": "Licencia vencida o no activada",
+                "message": "Suscripción vencida o no activada",
                 "license": status_info,
             },
         )

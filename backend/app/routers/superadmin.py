@@ -2,6 +2,8 @@
 
 Solo el Super Admin (role=superadmin) puede acceder a estas rutas.
 """
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -22,6 +24,7 @@ from app.models import (
 )
 from app.schemas import (
     AdminResetPassword,
+    SubscriptionRenew,
     TenantCreate,
     TenantOut,
     TenantReset,
@@ -31,6 +34,7 @@ from app.schemas import (
     UserUpdate,
     user_out,
 )
+from app.utils.audit import record_audit
 from app.utils.security import hash_password
 
 router = APIRouter(
@@ -133,6 +137,7 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
             role="admin",
             tenant_id=tenant.id,
             must_change_password=True,
+            subscription_expires_at=date.today() + timedelta(days=settings.subscription_days),
         )
     )
     db.commit()
@@ -282,6 +287,7 @@ def create_tenant_user(tenant_id: int, data: TenantUserCreate, db: Session = Dep
         must_change_password=True,
         security_question=data.security_question,
         security_answer=data.security_answer,
+        subscription_expires_at=date.today() + timedelta(days=settings.subscription_days),
     )
     db.add(user)
     db.commit()
@@ -323,6 +329,47 @@ def reset_password(user_id: int, data: AdminResetPassword, db: Session = Depends
     user.must_change_password = True
     db.commit()
     return {"message": f"Contraseña de '{user.username}' actualizada correctamente."}
+
+
+@router.post("/users/{user_id}/renew", status_code=200)
+def renew_subscription(
+    user_id: int,
+    data: SubscriptionRenew,
+    db: Session = Depends(get_db),
+    me: User = Depends(require_superadmin),
+):
+    """Extiende la suscripción de un usuario (el pago lo registra el Super Admin).
+
+    Si la suscripción aún está vigente se suman los días al vencimiento actual;
+    si ya venció, se cuenta desde hoy. El Super Admin queda exento.
+    """
+    user = _get_user(db, user_id)
+    if user.role == "superadmin":
+        raise HTTPException(status_code=400, detail="El Super Admin no tiene suscripción")
+
+    today = date.today()
+    base = user.subscription_expires_at or today
+    if base < today:
+        base = today
+    user.subscription_expires_at = base + timedelta(days=data.days)
+
+    record_audit(
+        db,
+        "SUBSCRIPTION_RENEWED",
+        me.id,
+        detail=(
+            f"Suscripción de '{user.username}' extendida {data.days} días "
+            f"(vence el {user.subscription_expires_at.isoformat()})"
+        ),
+        tenant_id=user.tenant_id,
+    )
+    db.commit()
+
+    return {
+        "message": f"Suscripción de '{user.username}' renovada por {data.days} días.",
+        "expires_at": user.subscription_expires_at.isoformat(),
+        "days_left": (user.subscription_expires_at - today).days,
+    }
 
 
 @router.delete("/users/{user_id}", status_code=200)
