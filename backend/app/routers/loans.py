@@ -4,8 +4,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, get_tenant_db
 from app.models import Loan, LoanItem, Product, User
 from app.schemas import LoanCreate, LoanOut, LoanReturn, LoanUpdate
 from app.utils import locations as loc_utils
@@ -68,7 +67,7 @@ def list_loans(
     q: str | None = Query(default=None, description="Filtro por vendedor o producto"),
     status_filter: str | None = Query(default=None, alias="status"),
     date_filter: date | None = Query(default=None, alias="date", description="Filtro por fecha del préstamo (YYYY-MM-DD)"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
     user: User = Depends(get_current_user),
 ):
     query = db.query(Loan).filter(Loan.tenant_id == user.tenant_id)
@@ -96,7 +95,7 @@ def list_loans(
 @router.post("", response_model=LoanOut, status_code=201)
 def create_loan(
     data: LoanCreate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
     user: User = Depends(get_current_user),
 ):
     if _seller_blocked(db, data.seller, user.tenant_id):
@@ -190,7 +189,7 @@ def create_loan(
 def update_loan(
     loan_id: int,
     data: LoanUpdate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
     user: User = Depends(get_current_user),
 ):
     """Edita un préstamo (cabecera y/o lista de ítems).
@@ -309,7 +308,7 @@ def update_loan(
 def return_loan(
     loan_id: int,
     data: LoanReturn,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
     user: User = Depends(get_current_user),
 ):
     loan = _get_loan(db, loan_id, user.tenant_id)
@@ -364,7 +363,7 @@ def return_loan(
 def extend_loan(
     loan_id: int,
     days: int = Query(ge=1, le=365),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
     user: User = Depends(get_current_user),
 ):
     loan = _get_loan(db, loan_id, user.tenant_id)

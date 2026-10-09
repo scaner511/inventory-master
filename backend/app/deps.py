@@ -6,7 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, get_tenant_session
 from app.models import Setting, Tenant, User
 from app.utils.security import decode_access_token
 
@@ -61,6 +61,25 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def get_tenant_db(user: User = Depends(get_current_user)):
+    """Dependencia de FastAPI para endpoints de NEGOCIO (datos del cliente).
+
+    Abre una sesión a la base de datos EXCLUSIVA del cliente autenticado.
+    El Super Admin (tenant_id NULL) no puede obtenerla: devuelve 403 para
+    impedir cualquier cruce de información entre clientes.
+    """
+    if user.tenant_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso exclusivo del cliente: el Super Admin no puede leer datos de negocio",
+        )
+    db = get_tenant_session(user.tenant_id)
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 def require_superadmin(user: User = Depends(get_current_user)) -> User:
     """Solo el Super Admin global (crea clientes y administra todo)."""
     if user.role != "superadmin":
@@ -102,7 +121,7 @@ def get_or_create_settings(db: Session, tenant_id: int | None = None) -> Setting
     return setting
 
 
-def license_status(db: Session, user: User | None = None) -> dict:
+def license_status(user: User | None = None) -> dict:
     """Devuelve el estado de la suscripción: {required, active, expires_at, days_left}.
 
     Cada usuario tiene una suscripción de ``settings.subscription_days`` días
@@ -125,16 +144,13 @@ def license_status(db: Session, user: User | None = None) -> dict:
     }
 
 
-def require_valid_license(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+def require_valid_license(user: User = Depends(get_current_user)):
     """Bloquea la app para el usuario si su suscripción venció o no está activa.
 
     El Super Admin (operador del sistema) queda EXENTO: solo los clientes
     (admins y operadores de cada tenant) están sujetos a la suscripción.
     """
-    status_info = license_status(db, user)
+    status_info = license_status(user)
     if not status_info["active"]:
         raise HTTPException(
             status_code=403,

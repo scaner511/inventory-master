@@ -9,7 +9,13 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import get_db
+from app.database import (
+    create_tenant_database,
+    drop_tenant_database,
+    get_db,
+    get_tenant_session,
+    slugify,
+)
 from app.deps import require_superadmin
 from app.models import (
     AuditLog,
@@ -34,7 +40,7 @@ from app.schemas import (
     UserUpdate,
     user_out,
 )
-from app.utils.audit import record_audit
+from app.utils.platform_audit import record_platform_audit
 from app.utils.security import hash_password
 
 router = APIRouter(
@@ -104,7 +110,7 @@ def _renew_tenant(db: Session, tenant: Tenant, days: int, actor: User) -> date:
     db.query(User).filter(User.tenant_id == tenant.id).update(
         {"subscription_expires_at": expire}, synchronize_session=False
     )
-    record_audit(
+    record_platform_audit(
         db,
         "SUBSCRIPTION_RENEWED",
         actor.id,
@@ -159,10 +165,20 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="El nombre de usuario del administrador ya existe")
 
     start = date.today() + timedelta(days=settings.subscription_days)
-    tenant = Tenant(name=data.name, max_users=data.max_users, subscription_expires_at=start)
+    database_name = slugify(data.name)
+    if db.query(Tenant).filter(Tenant.database_name == database_name).first():
+        database_name = f"im_{db.query(func.max(Tenant.id)).scalar() or 0}"
+    tenant = Tenant(
+        name=data.name,
+        max_users=data.max_users,
+        database_name=database_name,
+        subscription_expires_at=start,
+    )
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
+    # Cada cliente tiene SU PROPIA base de datos de negocio (aislamiento total).
+    create_tenant_database(tenant)
 
     password = data.admin_password or settings.default_generic_password
     db.add(
@@ -177,6 +193,12 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
         )
     )
     db.commit()
+    record_platform_audit(
+        db,
+        "TENANT_CREATED",
+        tenant_id=tenant.id,
+        detail=f"Cliente '{tenant.name}' creado con su base de datos '{database_name}'",
+    )
 
     out = TenantOut.model_validate(tenant)
     out.users_count = _tenant_users_count(db, tenant.id)
@@ -220,18 +242,20 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
 @router.delete("/tenants/{tenant_id}", status_code=200)
 def delete_tenant(tenant_id: int, db: Session = Depends(get_db)):
     tenant = _get_tenant(db, tenant_id)
-    loan_ids = db.query(Loan.id).filter(Loan.tenant_id == tenant_id)
-    db.query(LoanItem).filter(LoanItem.loan_id.in_(loan_ids)).delete(synchronize_session=False)
-    db.query(ProductStockLocation).filter(ProductStockLocation.tenant_id == tenant_id).delete(synchronize_session=False)
-    db.query(Loan).filter(Loan.tenant_id == tenant_id).delete(synchronize_session=False)
-    db.query(AuditLog).filter(AuditLog.tenant_id == tenant_id).delete(synchronize_session=False)
-    db.query(Product).filter(Product.tenant_id == tenant_id).delete(synchronize_session=False)
+    name = tenant.name
     db.query(User).filter(User.tenant_id == tenant_id).delete(synchronize_session=False)
     db.query(DriveConnection).filter(DriveConnection.tenant_id == tenant_id).delete(synchronize_session=False)
-    db.query(Setting).filter(Setting.tenant_id == tenant_id).delete(synchronize_session=False)
+    # Los datos de negocio del cliente viven en SU PROPIA base: se elimina toda.
+    drop_tenant_database(tenant.id, tenant.database_name)
+    record_platform_audit(
+        db,
+        "TENANT_DELETED",
+        tenant_id=tenant_id,
+        detail=f"Cliente '{name}' eliminado (incluida su base de datos '{tenant.database_name}')",
+    )
     db.delete(tenant)
     db.commit()
-    return {"message": f"Cliente '{tenant.name}' eliminado correctamente."}
+    return {"message": f"Cliente '{name}' eliminado correctamente."}
 
 
 @router.post("/tenants/{tenant_id}/reset", status_code=200)
@@ -264,16 +288,26 @@ def reset_tenant(tenant_id: int, data: TenantReset, db: Session = Depends(get_db
                 detail="El cliente no tiene un administrador para conservar",
             )
 
-    # Limpiar todos los datos operativos del cliente.
-    loan_ids = db.query(Loan.id).filter(Loan.tenant_id == tenant_id)
-    db.query(LoanItem).filter(LoanItem.loan_id.in_(loan_ids)).delete(synchronize_session=False)
-    db.query(ProductStockLocation).filter(ProductStockLocation.tenant_id == tenant_id).delete(synchronize_session=False)
-    db.query(Loan).filter(Loan.tenant_id == tenant_id).delete(synchronize_session=False)
-    db.query(AuditLog).filter(AuditLog.tenant_id == tenant_id).delete(synchronize_session=False)
-    db.query(Product).filter(Product.tenant_id == tenant_id).delete(synchronize_session=False)
+    # Limpiar todos los datos de negocio en LA BASE EXCLUSIVA del cliente.
+    tdb = get_tenant_session(tenant_id)
+    try:
+        tdb.query(LoanItem).delete(synchronize_session=False)
+        tdb.query(AuditLog).delete(synchronize_session=False)
+        tdb.query(ProductStockLocation).delete(synchronize_session=False)
+        tdb.query(Loan).delete(synchronize_session=False)
+        tdb.query(Product).delete(synchronize_session=False)
+        tdb.query(Setting).delete(synchronize_session=False)
+        tdb.commit()
+    finally:
+        tdb.close()
     db.query(DriveConnection).filter(DriveConnection.tenant_id == tenant_id).delete(synchronize_session=False)
-    db.query(Setting).filter(Setting.tenant_id == tenant_id).delete(synchronize_session=False)
     db.query(User).filter(User.tenant_id == tenant_id, User.id != preserve.id).delete(synchronize_session=False)
+    record_platform_audit(
+        db,
+        "TENANT_RESET",
+        tenant_id=tenant_id,
+        detail=f"Cliente '{tenant.name}' restablecido a estado de fábrica (dato de negocio borrado)",
+    )
 
     # Dejar el administrador como recién creado.
     preserve.password_hash = hash_password(settings.default_generic_password)
@@ -429,8 +463,6 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     if user.role == "superadmin":
         raise HTTPException(status_code=400, detail="No se puede eliminar a un Super Admin")
     _ensure_admin_remains(db, user)
-    db.query(AuditLog).filter(AuditLog.user_id == user_id).update({"user_id": None}, synchronize_session=False)
-    db.query(Loan).filter(Loan.created_by == user_id).update({"created_by": None}, synchronize_session=False)
     db.delete(user)
     db.commit()
     return {"message": f"Usuario '{user.username}' eliminado."}

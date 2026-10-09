@@ -92,7 +92,7 @@ def create_tenant_backup(db, tenant_id: int | None, tenant_prefix: str = "") -> 
 
 
 def create_backup(db) -> tuple[Path, str]:
-    """Crea un backup. Retorna (ruta, tipo) donde tipo es 'postgres' o 'excel'."""
+    """Crea un backup de la PLATAFORMA (cuentas y licencias). Retorna (ruta, tipo)."""
     folder = settings.backup_path
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -104,6 +104,36 @@ def create_backup(db) -> tuple[Path, str]:
     dest = folder / f"inventario_backup_{stamp}.xlsx"
     _excel_backup(db, dest)
     return dest, "excel"
+
+
+def create_all_backups(db) -> list[tuple[str, Path, str]]:
+    """Respalda la plataforma y la base de datos EXCLUSIVA de cada cliente.
+
+    Devuelve una lista de (etiqueta, ruta, tipo). Con una base por cliente, el
+    respaldo global (plataforma) NO contiene datos de negocio: cada cliente se
+    respalda desde su propia base.
+    """
+    from app.database import get_tenant_engine, get_tenant_session
+    from app.models import Tenant
+
+    folder = settings.backup_path
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    results: list[tuple[str, Path, str]] = [("global", *create_backup(db))]
+
+    for tenant in db.query(Tenant).all():
+        prefix = "".join(c for c in (tenant.name or "").lower() if c.isalnum() or c in "_-")[:20] or "prov"
+        tdb = get_tenant_session(tenant.id)
+        try:
+            if _pg_dump_available():
+                dsn = get_tenant_engine(tenant).url.render_as_string(hide_password=False)
+                dest = folder / f"backup_{prefix}_{stamp}.sql"
+                if run_pg_dump(dsn, dest):
+                    results.append((prefix, dest, "postgres"))
+                    continue
+            results.append((prefix, *create_tenant_backup(tdb, tenant.id, tenant_prefix=prefix)))
+        finally:
+            tdb.close()
+    return results
 
 
 def cleanup_old_backups() -> int:
@@ -189,6 +219,12 @@ def restore_from_excel(db, buffer) -> dict:
         "audit_logs": models.AuditLog,
     }
 
+    # Solo se restauran las tablas que EXISTEN en la base destino (la
+    # plataforma no tiene tablas de negocio y cada cliente no tiene cuentas).
+    existing = set(inspect(db.bind).get_table_names())
+    known = {name: model for name, model in known.items() if name in existing}
+    workbook = {name: df for name, df in workbook.items() if name in known}
+
     # Vaciar en orden inverso de dependencias (hijos primero).
     clear_order = [
         "audit_logs",
@@ -259,6 +295,8 @@ def restore_from_excel(db, buffer) -> dict:
         from sqlalchemy import text
 
         for table in ("products", "product_stock_locations", "loans", "loan_items", "users", "audit_logs"):
+            if table not in known:
+                continue
             db.execute(
                 text(
                     f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "

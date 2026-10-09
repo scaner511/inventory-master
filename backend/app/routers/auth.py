@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, get_tenant_session
 from app.deps import get_current_user
 from app.models import User
 from app.schemas import (
@@ -19,6 +19,7 @@ from app.schemas import (
     user_out,
 )
 from app.utils.audit import record_audit
+from app.utils.platform_audit import record_platform_audit
 from app.utils.security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -127,16 +128,19 @@ def accept_terms(user: User = Depends(get_current_user), db: Session = Depends(g
         user.accepted_terms = True
         user.accepted_terms_date = datetime.now()
         db.commit()
-        record_audit(
-            db,
-            "TERMS_ACCEPTED",
-            user.id,
-            detail=(
-                "Aceptó los Términos y Condiciones de Uso y la Política de "
-                "Privacidad de Inventory Master OS Web v2026"
-            ),
-            tenant_id=user.tenant_id,
+        detail = (
+            "Aceptó los Términos y Condiciones de Uso y la Política de "
+            "Privacidad de Inventory Master OS Web v2026"
         )
+        if user.tenant_id is not None:
+            # El historial de negocio vive en la base EXCLUSIVA del cliente.
+            tdb = get_tenant_session(user.tenant_id)
+            try:
+                record_audit(tdb, "TERMS_ACCEPTED", user.id, detail=detail, tenant_id=user.tenant_id)
+            finally:
+                tdb.close()
+        else:
+            record_platform_audit(db, "TERMS_ACCEPTED", user.id, detail=detail)
     return user_out(user)
 
 

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings as app_settings
 from app.database import get_db
-from app.deps import get_current_user, get_or_create_settings, require_privileged
+from app.deps import get_current_user, get_or_create_settings, get_tenant_db, require_privileged
 from app.models import User
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -36,7 +36,7 @@ class SettingsOut(BaseModel):
 
 
 @router.get("", response_model=SettingsOut)
-def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def get_settings(db: Session = Depends(get_tenant_db), user: User = Depends(get_current_user)):
     setting = get_or_create_settings(db, user.tenant_id)
     return SettingsOut(
         company_name=setting.company_name,
@@ -49,7 +49,7 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
 @router.put("", response_model=SettingsOut)
 def update_settings(
     data: SettingsUpdate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
     user: User = Depends(require_privileged),
 ):
     setting = get_or_create_settings(db, user.tenant_id)
@@ -71,7 +71,7 @@ def update_settings(
 @router.post("/logo")
 def upload_logo(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
     user: User = Depends(require_privileged),
 ):
     ext = Path(file.filename or "").suffix.lower()
@@ -91,7 +91,7 @@ def upload_logo(
 
 @router.get("/logo")
 def get_logo(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
     user: User = Depends(get_current_user),
 ):
     setting = get_or_create_settings(db, user.tenant_id)

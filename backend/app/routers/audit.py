@@ -1,4 +1,9 @@
-"""Historial de movimientos (auditoría)."""
+"""Historial de movimientos (auditoría) de UN cliente.
+
+Los registros viven en la base de datos del cliente. Los nombres de usuario
+se resuelven desde la base de la PLATAFORMA (los usuarios de negocio no
+comparten base con el cliente).
+"""
 from datetime import date, datetime
 
 import pandas as pd
@@ -6,18 +11,30 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.deps import require_admin
+from app.database import SessionLocal as PlatformSessionLocal
+from app.deps import get_tenant_db, require_admin
 from app.models import AuditLog, User
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
+
+
+def _username_map(user_ids: set[int]) -> dict[int, str | None]:
+    """Resuelve los nombres de usuario (plataforma) para los ids dados."""
+    if not user_ids:
+        return {}
+    pldb = PlatformSessionLocal()
+    try:
+        rows = pldb.query(User.id, User.username).filter(User.id.in_(user_ids)).all()
+    finally:
+        pldb.close()
+    return {r[0]: r[1] for r in rows}
 
 
 @router.get("")
 def list_audit(
     q: str | None = Query(default=None),
     day: date | None = Query(default=None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
     user: User = Depends(require_admin),
 ):
     query = db.query(AuditLog).filter(AuditLog.tenant_id == user.tenant_id)
@@ -35,17 +52,14 @@ def list_audit(
 
     entries = query.order_by(AuditLog.timestamp.desc()).limit(500).all()
 
+    usernames = _username_map({e.user_id for e in entries if e.user_id})
     result = []
     for e in entries:
-        username = None
-        if e.user_id:
-            user = db.get(User, e.user_id)
-            username = user.username if user else None
         result.append(
             {
                 "id": e.id,
                 "timestamp": e.timestamp.isoformat(),
-                "username": username,
+                "username": usernames.get(e.user_id),
                 "action": e.action,
                 "detail": e.detail,
                 "product_name": e.product_name,
@@ -56,18 +70,19 @@ def list_audit(
 
 
 @router.get("/export")
-def export_audit(db: Session = Depends(get_db), user: User = Depends(require_admin)):
+def export_audit(db: Session = Depends(get_tenant_db), user: User = Depends(require_admin)):
     rows = (
         db.query(AuditLog)
         .filter(AuditLog.tenant_id == user.tenant_id)
         .order_by(AuditLog.timestamp.desc())
         .all()
     )
+    usernames = _username_map({r.user_id for r in rows if r.user_id})
     data = [
         {
             "ID": r.id,
             "Fecha": r.timestamp,
-            "Usuario": r.user_id,
+            "Usuario": usernames.get(r.user_id, f"id {r.user_id}" if r.user_id else ""),
             "Accion": r.action,
             "Producto": r.product_name,
             "Cantidad": r.quantity,

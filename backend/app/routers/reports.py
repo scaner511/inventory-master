@@ -8,8 +8,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.deps import get_current_user, get_or_create_settings
+from app.database import SessionLocal as PlatformSessionLocal
+from app.deps import get_current_user, get_or_create_settings, get_tenant_db
 from app.models import Loan, User
 from app.services.pdf import generate_loan_pdf
 
@@ -31,7 +31,7 @@ def _excel_response(df: pd.DataFrame, filename: str) -> StreamingResponse:
 
 
 @router.get("/daily")
-def daily_report(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def daily_report(db: Session = Depends(get_tenant_db), user: User = Depends(get_current_user)):
     """Inventario completo + movimientos del día en un solo Excel."""
     today = date.today()
     today_str = today.strftime("%Y-%m-%d")
@@ -59,12 +59,14 @@ def daily_report(db: Session = Depends(get_db), user: User = Depends(get_current
     # rompe porque no existe el operador date = character varying.
     # IMPORTANTE: se usa text(...) para que SQLAlchemy bindee :tid/:start/:end;
     # pasar SQL crudo a pandas con params rompe en PostgreSQL (sintaxis ':').
+    # El nombre de usuario se resuelve desde la plataforma (los usuarios de
+    # negocio no comparten base con el cliente).
     df_movements = pd.read_sql(
         text(
             """
-            SELECT a.timestamp AS Fecha, COALESCE(u.username, 'Sistema') AS Usuario,
-                   a.action AS Accion, a.product_name AS Producto, a.quantity AS Cantidad
-            FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
+            SELECT a.timestamp AS Fecha, a.user_id, a.action AS Accion,
+                   a.product_name AS Producto, a.quantity AS Cantidad
+            FROM audit_logs a
             WHERE a.tenant_id = :tid AND a.timestamp >= :start AND a.timestamp < :end
             ORDER BY a.timestamp DESC
             """
@@ -72,6 +74,18 @@ def daily_report(db: Session = Depends(get_db), user: User = Depends(get_current
         db.bind,
         params={"tid": user.tenant_id, "start": day_start, "end": day_end},
     )
+    if not df_movements.empty:
+        pldb = PlatformSessionLocal()
+        try:
+            ids = df_movements["user_id"].dropna().astype(int).tolist()
+            names = {}
+            if ids:
+                rows = pldb.query(User.id, User.username).filter(User.id.in_(ids)).all()
+                names = {r[0]: r[1] for r in rows}
+        finally:
+            pldb.close()
+        df_movements["Usuario"] = df_movements["user_id"].map(names).fillna("Sistema")
+        df_movements = df_movements.drop(columns=["user_id"])
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -88,7 +102,7 @@ def daily_report(db: Session = Depends(get_db), user: User = Depends(get_current
 
 
 @router.get("/loan-ticket/{loan_id}")
-def loan_ticket(loan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def loan_ticket(loan_id: int, db: Session = Depends(get_tenant_db), user: User = Depends(get_current_user)):
     loan = (
         db.query(Loan)
         .filter(Loan.id == loan_id, Loan.tenant_id == user.tenant_id)

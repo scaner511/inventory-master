@@ -16,12 +16,13 @@ from fastapi.responses import (
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, get_tenant_session
 from app.deps import require_privileged, require_superadmin
 from app.models import Tenant, User
 from app.services import backup as backup_service
 from app.services import gdrive
 from app.utils.audit import record_audit
+from app.utils.platform_audit import record_platform_audit
 from app.utils.security import decode_access_token
 
 router = APIRouter(prefix="/api/backup", tags=["backup"])
@@ -49,19 +50,42 @@ def _tenant_context(db: Session, user: User) -> tuple[int | None, str]:
     return user.tenant_id, prefix
 
 
+def _audit_drive(db: Session, tenant_id: int | None, action: str, user_id: int | None, detail: str) -> None:
+    """Registra una acción de backup/Drive en el historial correcto.
+
+    Cliente (tenant_id no nulo): auditoría de negocio EN SU BASE.
+    Super Admin (None): auditoría de plataforma.
+    """
+    if tenant_id is None:
+        record_platform_audit(db, action, user_id, detail=detail)
+    else:
+        tdb = get_tenant_session(tenant_id)
+        try:
+            record_audit(tdb, action, user_id, tenant_id=tenant_id, detail=detail)
+        finally:
+            tdb.close()
+
+
 @router.post("/run", dependencies=[Depends(require_privileged)])
 def run_backup(db: Session = Depends(get_db), _user: User = Depends(require_privileged)):
     tenant_id, prefix = _tenant_context(db, _user)
-    path, kind = backup_service.create_tenant_backup(db, tenant_id, tenant_prefix=prefix)
-    drive_result = None
-    if settings.google_drive_auto_upload and gdrive.active_mode(db, tenant_id):
-        try:
-            info = gdrive.upload_file(path, db, tenant_id)
-            drive_result = {"uploaded": True, **info}
-            record_audit(db, "BACKUP", _user.id, tenant_id=tenant_id,
-                         detail=f"Backup '{path.name}' subido a Google Drive")
-        except Exception as e:
-            drive_result = {"uploaded": False, "error": str(e)}
+    # El respaldo del cliente se genera desde SU PROPIA base de datos.
+    bdb = get_tenant_session(tenant_id) if tenant_id is not None else db
+    close_bdb = bdb is not db
+    try:
+        path, kind = backup_service.create_tenant_backup(bdb, tenant_id, tenant_prefix=prefix)
+        drive_result = None
+        if settings.google_drive_auto_upload and gdrive.active_mode(db, tenant_id):
+            try:
+                info = gdrive.upload_file(path, db, tenant_id)
+                drive_result = {"uploaded": True, **info}
+                record_audit(bdb, "BACKUP", _user.id, tenant_id=tenant_id,
+                             detail=f"Backup '{path.name}' subido a Google Drive")
+            except Exception as e:
+                drive_result = {"uploaded": False, "error": str(e)}
+    finally:
+        if close_bdb:
+            bdb.close()
     return {
         "message": "Backup creado correctamente.",
         "file": path.name,
@@ -79,7 +103,8 @@ def list_backups():
 def purge_backups(db: Session = Depends(get_db), _user=Depends(require_superadmin)):
     """Borra todas las bases de datos de respaldo excepto la última generada."""
     deleted, kept = backup_service.purge_all_but_latest()
-    record_audit(db, "BACKUP", _user.id, detail=f"Purga de backups: {deleted} eliminado(s), conservado '{kept}'")
+    record_platform_audit(db, "BACKUP_PURGE", _user.id,
+                          detail=f"Purga de backups: {deleted} eliminado(s), conservado '{kept}'")
     if deleted == 0:
         return {"message": "No había backups que borrar.", "deleted": 0}
     return {
@@ -106,7 +131,8 @@ def restore_backup(file: UploadFile = File(...), db: Session = Depends(get_db), 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"No se pudo restaurar el respaldo: {e}")
 
-    record_audit(db, "RESTAURACION", _user.id, detail=f"Base de datos restaurada desde {file.filename}")
+    record_platform_audit(db, "RESTAURACION", _user.id,
+                          detail=f"Base de datos restaurada desde {file.filename}")
     summary = ", ".join(f"{name}: {count}" for name, count in counts.items())
     return {"message": f"Base de datos restaurada correctamente ({summary}).", "tables": counts}
 
@@ -179,7 +205,7 @@ def drive_upload(name: str, db: Session = Depends(get_db), _user=Depends(require
         info = gdrive.upload_file(path, db, None)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"No se pudo subir a Drive: {e}")
-    record_audit(db, "BACKUP", _user.id, detail=f"Backup '{name}' subido a Google Drive")
+    record_platform_audit(db, "BACKUP", _user.id, detail=f"Backup '{name}' subido a Google Drive")
     return {"message": f"'{name}' subido a Google Drive correctamente.", "file": name, **info}
 
 
@@ -245,8 +271,8 @@ def oauth_callback(request: Request, code: str = "", state: str = "", error: str
             raise RuntimeError("Google no devolvió un refresh_token; reintenta la conexión.")
         email = gdrive.fetch_user_email(tokens.get("access_token", ""))
         gdrive.save_connection(db, tenant_id, refresh_token, email)
-        record_audit(db, "BACKUP", None, tenant_id=tenant_id,
-                     detail=f"Google Drive conectado ({email or 'sin email'})")
+        _audit_drive(db, tenant_id, "BACKUP", None,
+                     f"Google Drive conectado ({email or 'sin email'})")
     except Exception as e:
         return _back(False, str(e)[:120])
 
@@ -259,7 +285,7 @@ def oauth_disconnect(db: Session = Depends(get_db), _user: User = Depends(requir
     had = gdrive.disconnect(db, tenant_id)
     if not had:
         return {"message": "No había conexión de Google Drive.", "disconnected": False}
-    record_audit(db, "BACKUP", _user.id, tenant_id=tenant_id, detail="Google Drive desconectado")
+    _audit_drive(db, tenant_id, "BACKUP", _user.id, "Google Drive desconectado")
     return {"message": "Google Drive desconectado correctamente.", "disconnected": True}
 
 
@@ -316,7 +342,7 @@ def drive_restore(file_id: str, db: Session = Depends(get_db), _user=Depends(req
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"No se pudo restaurar el respaldo: {e}")
 
-    record_audit(db, "RESTAURACION", _user.id, detail=f"Base de datos restaurada desde Google Drive ({name})")
+    record_platform_audit(db, "RESTAURACION", _user.id, detail=f"Base de datos restaurada desde Google Drive ({name})")
     summary = ", ".join(f"{n}: {c}" for n, c in counts.items())
     return {
         "message": f"Base de datos restaurada correctamente ({summary}).",

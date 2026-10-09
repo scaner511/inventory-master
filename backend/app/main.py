@@ -13,7 +13,7 @@ from starlette.responses import JSONResponse
 
 from app import models
 from app.config import BASE_DIR, settings
-from app.database import Base, SessionLocal, engine
+from app.database import Base, SessionLocal, create_tenant_database, default_database_name, engine, slugify
 from app.deps import require_valid_license
 from app.routers import (
     audit,
@@ -279,6 +279,32 @@ def _migrate_tenant_subscription(db: Session) -> None:
         db.commit()
 
 
+def _migrate_tenant_database_name(db: Session) -> None:
+    """Agrega tenants.database_name y asigna un nombre único a cada cliente.
+
+    Cada cliente tiene su PROPIA base de datos de negocio; este nombre la
+    identifica en el servidor PostgreSQL (o el archivo SQLite en desarrollo).
+    """
+    if "database_name" not in _table_columns("tenants"):
+        db.execute(text("ALTER TABLE tenants ADD COLUMN database_name VARCHAR(80)"))
+        db.commit()
+    for tnt in db.query(models.Tenant).all():
+        if tnt.database_name:
+            continue
+        candidate = slugify(tnt.name) or default_database_name(tnt.id)
+        base = candidate
+        i = 1
+        while (
+            db.query(models.Tenant)
+            .filter(models.Tenant.database_name == candidate, models.Tenant.id != tnt.id)
+            .first()
+        ):
+            i += 1
+            candidate = f"{base}_{i}"
+        tnt.database_name = candidate
+    db.commit()
+
+
 def _migrate_product_stock_locations(db: Session) -> None:
     """Siembra/valida el stock por ubicación de los productos.
 
@@ -322,12 +348,16 @@ def _get_or_create_first_tenant(db: Session) -> models.Tenant:
     if tenant is None:
         tenant = models.Tenant(
             name=settings.default_tenant_name,
+            database_name=slugify(settings.default_tenant_name) or "im_cliente",
             # El primer cliente nace con la suscripción por defecto.
             subscription_expires_at=date.today() + timedelta(days=settings.subscription_days),
         )
         db.add(tenant)
         db.commit()
         db.refresh(tenant)
+        if not tenant.database_name:
+            tenant.database_name = default_database_name(tenant.id)
+            db.commit()
     return tenant
 
 
@@ -551,33 +581,30 @@ def _ensure_superadmin(db: Session) -> None:
 
 
 def init_db() -> None:
-    """Crea tablas y datos por defecto si no existen."""
+    """Crea las tablas de la PLATAFORMA y prepara la base de cada cliente.
+
+    - Plataforma (una sola base): tenants, users, licenses, used_license_keys,
+      drive_connection y platform_audit_logs.
+    - Negocio: UNA base por cliente (se crea/verifica al final).
+    """
     Base.metadata.create_all(bind=engine)
     db: Session = SessionLocal()
     try:
         _migrate(db)
-        _migrate_tenant_columns(db)
         _migrate_roles(db)
         _migrate_license_machine_code(db)
         _migrate_accept_terms(db)
         _migrate_tenant_max_users(db)
         _migrate_drive_per_tenant(db)
-        _migrate_loan_location_out(db)
-        _migrate_loan_items(db)
         _migrate_user_active_session(db)
         _migrate_user_subscription(db)
         # Debe correr antes de la primera consulta a Tenant (el modelo ya
         # incluye la nueva columna; si la tabla existe, create_all no la agrega).
         _migrate_tenant_subscription(db)
+        _migrate_tenant_database_name(db)
 
-        # Cliente principal + datos existentes
+        # Cliente principal
         first_tenant = _get_or_create_first_tenant(db)
-        _backfill_tenant(db, first_tenant.id)
-        _migrate_product_condition(db)
-        _migrate_product_stock_locations(db)
-        _migrate_products_unique(db)
-        _ensure_tenant_indexes(db)
-        _migrate_settings_per_tenant(db)
 
         _ensure_superadmin(db)
 
@@ -611,6 +638,31 @@ def init_db() -> None:
     finally:
         db.close()
 
+    # Crear/verificar la base de datos de negocio EXCLUSIVA de cada cliente.
+    _ensure_tenant_databases()
+
+
+def _ensure_tenant_databases() -> None:
+    """Crea (si falta) el esquema de negocio de cada cliente.
+
+    Idempotente: si la base ya existe y tiene el esquema, no hace nada.
+    """
+    db: Session = SessionLocal()
+    try:
+        for tenant in db.query(models.Tenant).all():
+            if not tenant.database_name:
+                tenant.database_name = slugify(tenant.name) or default_database_name(tenant.id)
+                db.commit()
+            try:
+                create_tenant_database(tenant)
+            except Exception as exc:  # no romper el arranque por un cliente
+                print(
+                    f"[AVISO] No se pudo preparar la base de datos del cliente "
+                    f"'{tenant.name}' ({tenant.database_name}): {exc}"
+                )
+    finally:
+        db.close()
+
 
 scheduler = BackgroundScheduler()
 
@@ -636,16 +688,18 @@ def schedule_backup_job() -> None:
 def _run_scheduled_backup() -> None:
     db: Session = SessionLocal()
     try:
-        path, _kind = backup_service.create_backup(db)
+        # Plataforma + una copia por CADA cliente (bases separadas).
+        backups = backup_service.create_all_backups(db)
         backup_service.cleanup_old_backups()
         if settings.google_drive_auto_upload:
             from app.services import gdrive
 
             if gdrive.active_mode(db, None):
-                try:
-                    gdrive.upload_file(path, db, None)
-                except Exception:
-                    pass  # la copia local ya está a salvo; Drive se reintenta al día siguiente
+                for _label, path, _kind in backups:
+                    try:
+                        gdrive.upload_file(path, db, None)
+                    except Exception:
+                        pass  # la copia local ya está a salvo; Drive se reintenta al día siguiente
     finally:
         db.close()
 

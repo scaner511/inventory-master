@@ -5,8 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.deps import get_current_user, get_or_create_settings
+from app.deps import get_current_user, get_or_create_settings, get_tenant_db
 from app.models import Loan, LoanItem, Product, ProductStockLocation, User
 from app.schemas import DashboardOut
 
@@ -14,7 +13,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 @router.get("", response_model=DashboardOut)
-def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def dashboard(db: Session = Depends(get_tenant_db), user: User = Depends(get_current_user)):
     tenant_id = user.tenant_id
     threshold = get_or_create_settings(db, user.tenant_id).low_stock_threshold or 5
 
