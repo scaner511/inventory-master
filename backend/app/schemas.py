@@ -306,3 +306,138 @@ class DashboardOut(BaseModel):
     loans_last_7_days: list[dict] = []
     # Stock total agrupado por ubicación (feature stock por ubicación).
     stock_by_location: list[dict] = []
+
+
+# ===================== RECEPCIÓN DE MERCANCÍA (depósito temporal) =====================
+
+
+class TsLocationBase(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    is_active: bool = True
+
+
+class TsLocationCreate(TsLocationBase):
+    pass
+
+
+class TsLocationUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None
+    is_active: bool | None = None
+
+
+class TsLocationOut(TsLocationBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+
+
+class TsItemCreate(BaseModel):
+    product_id: int | None = None
+    product_name: str = Field(min_length=1, max_length=255)
+    barcode: str | None = None
+    quantity: int = Field(default=1, ge=1)
+    note: str | None = None
+
+
+class TsItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int | None = None
+    product_name: str
+    barcode: str | None = None
+    quantity: int
+    returned_qty: int
+    note: str | None = None
+    pending: int = 0
+    completed: bool = False
+
+
+class TsCreate(BaseModel):
+    entry_date: date | None = None
+    deadline_date: date
+    party_name: str = Field(min_length=1, max_length=150)
+    party_company: str | None = None
+    party_phone: str | None = None
+    party_email: str | None = None
+    reference_document: str | None = None
+    location_id: int | None = None
+    note: str | None = None
+    items: list[TsItemCreate] = Field(min_length=1)
+
+
+class TsUpdate(BaseModel):
+    entry_date: date | None = None
+    deadline_date: date | None = None
+    party_name: str | None = Field(default=None, min_length=1, max_length=150)
+    party_company: str | None = None
+    party_phone: str | None = None
+    party_email: str | None = None
+    reference_document: str | None = None
+    location_id: int | None = None
+    note: str | None = None
+    status: str | None = Field(default=None, pattern="^(recibido|almacenado)$")
+    items: list[TsItemCreate] | None = None
+
+
+class TsExit(BaseModel):
+    """Salida de la mercancía (flujo único: devuelto o retirado)."""
+
+    exit_type: str = Field(pattern="^(devuelto|retirado)$")
+    responsible: str | None = None
+    document: str | None = None
+    note: str | None = None
+
+
+class TsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    number: str
+    short_code: str
+    entry_date: date
+    deadline_date: date
+    party_name: str
+    party_company: str | None = None
+    party_phone: str | None = None
+    party_email: str | None = None
+    reference_document: str | None = None
+    received_by: int | None = None
+    location_id: int | None = None
+    location_name: str | None = None
+    note: str | None = None
+    status: str
+    exit_date: datetime | None = None
+    exit_type: str | None = None
+    exit_responsible: str | None = None
+    exit_document: str | None = None
+    exit_note: str | None = None
+    items: list[TsItemOut] = []
+    days_left: int = 0
+    computed_status: str = "recibido"
+    total_units: int = 0
+
+
+class TsHistoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    storage_id: int | None = None
+    timestamp: datetime
+    user_id: int | None = None
+    action: str
+    detail: str | None = None
+
+
+class TsDashboardOut(BaseModel):
+    active_receptions: int
+    stored_products: int
+    stored_units: int
+    expiring_soon: int
+    expired: int
+    returned_this_month: int
+    by_party: list[dict] = []
+    by_location: list[dict] = []

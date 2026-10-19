@@ -95,3 +95,165 @@ def generate_loan_pdf(
     c.save()
     buffer.seek(0)
     return buffer
+
+
+def generate_temporary_storage_pdf(
+    data: dict,
+    logo_path: str | None = None,
+    company_name: str = "MC'CEA INVENTORY",
+) -> io.BytesIO:
+    """Comprobante de recepción de mercancía en depósito temporal.
+
+    `data` incluye: number, short_code, entry_date, deadline_date, party_name,
+    party_company, party_phone, party_email, reference_document, location_name,
+    note, status, y items = [{product_name, quantity, returned_qty, pending}].
+    Si la recepción ya tiene salida, agrega el bloque de devolución/retiro.
+    """
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+
+    if logo_path and Path(logo_path).exists():
+        try:
+            c.drawImage(logo_path, 50, 720, width=130, height=80, preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+
+    c.setFont("Helvetica-Bold", 15)
+    c.drawString(200, 755, "RECEPCION DE MERCANCIA")
+    c.setFont("Helvetica", 10)
+    c.drawString(200, 740, "Deposito temporal de mercancia de terceros")
+
+    y = 710
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "No. Recepcion:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, str(data.get("number", "-")))
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(380, y, "Codigo:")
+    c.setFont("Helvetica", 11)
+    c.drawString(450, y, str(data.get("short_code", "-")))
+    y -= 24
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Estado:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, str(data.get("status", "-")))
+
+    y -= 34
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Tercero / Vendedor:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, str(data.get("party_name", "-")))
+    y -= 24
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Empresa:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, str(data.get("party_company") or "-"))
+    y -= 24
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Telefono:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, str(data.get("party_phone") or "-"))
+    y -= 24
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Correo:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, str(data.get("party_email") or "-"))
+    y -= 24
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Doc. Referencia:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, str(data.get("reference_document") or "-"))
+    y -= 24
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Ubicacion:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, str(data.get("location_name") or "-"))
+    y -= 24
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Fecha Entrada:")
+    c.setFont("Helvetica", 11)
+    c.drawString(180, y, str(data.get("entry_date", "-")))
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(380, y, "Fecha Limite:")
+    c.setFont("Helvetica", 11)
+    c.drawString(450, y, str(data.get("deadline_date", "-")))
+
+    y -= 34
+    c.line(50, y, 550, y)
+    y -= 20
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "PRODUCTOS")
+    y -= 22
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(60, y, "#")
+    c.drawString(90, y, "Producto")
+    c.drawString(420, y, "Cant.")
+    c.drawString(480, y, "Pend.")
+    y -= 16
+    c.setFont("Helvetica", 10)
+    items = data.get("items") or []
+    for idx, it in enumerate(items, 1):
+        if y < 120:
+            c.showPage()
+            y = 750
+            c.setFont("Helvetica", 10)
+        name = str(it.get("product_name", ""))
+        if len(name) > 55:
+            name = name[:52] + "..."
+        c.drawString(60, y, str(idx))
+        c.drawString(90, y, name)
+        c.drawString(420, y, str(it.get("quantity", 0)))
+        c.drawString(480, y, str(it.get("pending", it.get("quantity", 0))))
+        y -= 18
+
+    total_units = sum(int(it.get("quantity", 0)) for it in items)
+    y -= 6
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(90, y, "TOTAL DE UNIDADES:")
+    c.drawString(420, y, str(total_units))
+    y -= 30
+
+    if data.get("exit_type"):
+        c.line(50, y, 550, y)
+        y -= 20
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50, y, f"SALIDA ({str(data.get('exit_type')).upper()})")
+        y -= 22
+        c.setFont("Helvetica", 10)
+        c.drawString(60, y, f"Fecha: {data.get('exit_date') or '-'}")
+        y -= 18
+        c.drawString(60, y, f"Responsable: {data.get('exit_responsible') or '-'}")
+        y -= 18
+        c.drawString(60, y, f"Documento: {data.get('exit_document') or '-'}")
+        y -= 18
+        c.drawString(60, y, f"Observaciones: {data.get('exit_note') or '-'}")
+        y -= 30
+
+    if data.get("note"):
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(50, y, "Observaciones:")
+        y -= 18
+        c.setFont("Helvetica", 10)
+        note = str(data.get("note"))
+        c.drawString(60, y, note[:95])
+        y -= 40
+
+    if y > 130:
+        c.line(50, y, 220, y)
+        c.line(320, y, 500, y)
+        c.setFont("Helvetica", 10)
+        c.drawString(70, y - 15, "Firma de quien entrega")
+        c.drawString(340, y - 15, "Firma de quien recibe")
+
+    c.setFont("Helvetica", 9)
+    c.drawString(
+        50,
+        50,
+        "Mercancia de terceros en deposito temporal - NO es propiedad de "
+        f"{company_name} - {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+    )
+
+    c.save()
+    buffer.seek(0)
+    return buffer

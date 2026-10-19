@@ -198,6 +198,75 @@ export async function disconnectDrive() {
   return data
 }
 
+/* ================= RECEPCIÓN DE MERCANCÍA (depósito temporal) ================= */
+
+export async function getTsLocations() {
+  const { data } = await api.get('/temporary-storage/locations')
+  return data
+}
+
+export async function createTsLocation(payload) {
+  const { data } = await api.post('/temporary-storage/locations', payload)
+  return data
+}
+
+export async function updateTsLocation(id, payload) {
+  const { data } = await api.put(`/temporary-storage/locations/${id}`, payload)
+  return data
+}
+
+export async function deleteTsLocation(id) {
+  const { data } = await api.delete(`/temporary-storage/locations/${id}`)
+  return data
+}
+
+export async function getTemporaryStorage({ q = '', status = '', party = '', locationId = '', dateFrom = '', dateTo = '' } = {}) {
+  const params = {}
+  if (q) params.q = q
+  if (status) params.status = status
+  if (party) params.party = party
+  if (locationId) params.location_id = locationId
+  if (dateFrom) params.date_from = dateFrom
+  if (dateTo) params.date_to = dateTo
+  const { data } = await api.get('/temporary-storage', { params })
+  return data
+}
+
+export async function getTemporaryStorageOne(id) {
+  const { data } = await api.get(`/temporary-storage/${id}`)
+  return data
+}
+
+export async function createTemporaryStorage(payload) {
+  const { data } = await api.post('/temporary-storage', payload)
+  return data
+}
+
+export async function updateTemporaryStorage(id, payload) {
+  const { data } = await api.put(`/temporary-storage/${id}`, payload)
+  return data
+}
+
+export async function exitTemporaryStorage(id, payload) {
+  const { data } = await api.post(`/temporary-storage/${id}/exit`, payload)
+  return data
+}
+
+export async function deleteTemporaryStorage(id) {
+  const { data } = await api.delete(`/temporary-storage/${id}`)
+  return data
+}
+
+export async function getTsHistory(id) {
+  const { data } = await api.get(`/temporary-storage/${id}/history`)
+  return data
+}
+
+export async function getTsDashboard() {
+  const { data } = await api.get('/temporary-storage/dashboard')
+  return data
+}
+
 /* ================= SUPER ADMIN (multi-cliente) ================= */
 
 export async function getTenants() {

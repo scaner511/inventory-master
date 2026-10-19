@@ -294,3 +294,159 @@ class Setting(BaseBusiness):
     company_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     logo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     low_stock_threshold: Mapped[int] = mapped_column(Integer, default=5)
+
+
+# ==============================================================================
+# MÓDULO: RECEPCIÓN DE MERCANCÍA (mercancía de terceros en depósito temporal)
+#
+# Totalmente INDEPENDIENTE del inventario oficial. La mercancía NO es propiedad
+# de la empresa, NO suma existencias y NO altera products.stock,
+# product_stock_locations, préstamos ni reportes de inventario. Usa tablas
+# propias; los productos se referencian por id (referencial) y, si no existen
+# en el catálogo, se guarda su nombre para no tocar el inventario.
+# ==============================================================================
+
+
+class TemporaryStorageLocation(BaseBusiness):
+    """Ubicación física del depósito temporal (catálogo independiente).
+
+    No se mezcla con las ubicaciones del inventario tradicional
+    (product_stock_locations): son espacios separados del almacén.
+    """
+
+    __tablename__ = "temporary_storage_locations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_ts_location_tenant_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), index=True)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TemporaryStorage(BaseBusiness):
+    """Recepción: cabecera con los datos del tercero y N productos.
+
+    `number` es el consecutivo autogenerado (REC-AAAA-NNNN).
+    `short_code` es un código corto (TS-XXXXXX) único por cliente para
+    búsquedas rápidas e impresión del comprobante.
+    """
+
+    __tablename__ = "temporary_storage"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "number", name="uq_ts_tenant_number"),
+        UniqueConstraint("tenant_id", "short_code", name="uq_ts_tenant_short_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    number: Mapped[str] = mapped_column(String(30), index=True)
+    short_code: Mapped[str] = mapped_column(String(12), index=True)
+    entry_date: Mapped[date] = mapped_column(Date, default=date.today)
+    deadline_date: Mapped[date] = mapped_column(Date)
+    # Tercero que deja la mercancía (vendedor/proveedor/distribuidor).
+    party_name: Mapped[str] = mapped_column(String(150), index=True)
+    party_company: Mapped[str | None] = mapped_column(String(150), nullable=True, index=True)
+    party_phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    party_email: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    reference_document: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    received_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    location_id: Mapped[int | None] = mapped_column(
+        ForeignKey("temporary_storage_locations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Estado manual/derivado:
+    # recibido | almacenado | devuelto | retirado
+    status: Mapped[str] = mapped_column(String(20), default="recibido", index=True)
+    # Datos de salida (cuando la mercancía se devuelve o se retira).
+    exit_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    exit_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # devuelto | retirado
+    exit_responsible: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    exit_document: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    exit_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    exit_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    items: Mapped[list["TemporaryStorageItem"]] = relationship(
+        back_populates="storage",
+        cascade="all, delete-orphan",
+        order_by="TemporaryStorageItem.id",
+    )
+    location: Mapped["TemporaryStorageLocation | None"] = relationship()
+
+    @property
+    def days_left(self) -> int:
+        return (self.deadline_date - date.today()).days
+
+    @property
+    def is_out(self) -> bool:
+        return self.status in ("devuelto", "retirado")
+
+    @property
+    def computed_status(self) -> str:
+        """Estado visual: conserva el manual (recibido/almacenado) mientras no
+        haya salida y agrega el vencimiento calculado en la fecha límite."""
+        if self.is_out:
+            return self.status
+        if self.deadline_date < date.today():
+            return "vencido"
+        if self.days_left <= 7:
+            return "proximo_vencer"
+        return self.status
+
+    @property
+    def total_units(self) -> int:
+        return sum(item.quantity for item in self.items)
+
+
+class TemporaryStorageItem(BaseBusiness):
+    """Producto dentro de una recepción.
+
+    `product_id` es referencial (apunta al catálogo si el producto existía).
+    `product_name`/`barcode` son una instantánea para no depender del catálogo
+    y permitir productos temporales que no existen en el inventario.
+    """
+
+    __tablename__ = "temporary_storage_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    storage_id: Mapped[int] = mapped_column(
+        ForeignKey("temporary_storage.id", ondelete="CASCADE"), index=True
+    )
+    product_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    product_name: Mapped[str] = mapped_column(String(255), index=True)
+    barcode: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    returned_qty: Mapped[int] = mapped_column(Integer, default=0)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    storage: Mapped["TemporaryStorage"] = relationship(back_populates="items")
+
+    @property
+    def pending(self) -> int:
+        return max(self.quantity - self.returned_qty, 0)
+
+    @property
+    def completed(self) -> bool:
+        return self.returned_qty >= self.quantity
+
+
+class TemporaryStorageHistory(BaseBusiness):
+    """Trazabilidad completa del módulo (recepción, edición, cambio de
+    ubicación, cambio de fecha límite, devolución/retiro).
+
+    Tabla propia e independiente de audit_logs del inventario.
+    """
+
+    __tablename__ = "temporary_storage_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    storage_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    action: Mapped[str] = mapped_column(String(60))
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)

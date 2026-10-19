@@ -6,7 +6,8 @@ import { useEffect, useState } from 'react'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: 'M3 13l9-9 9 9M5 10v10h14V10' },
-  { to: '/loans', label: 'Préstamos', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
+  { to: '/temporary-storage', label: 'Recepción Mercancía', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
+  { to: '/loans', label: 'PrAcstamos', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
   { to: '/history', label: 'Historial', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', adminOnly: true },
   { to: '/admin', label: 'Panel Admin', icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z', adminOnly: true },
   { to: '/superadmin', label: 'Super Admin', icon: 'M9 12l2 2 4-4m5.6-2.6A9 9 0 1112 3a9 9 0 018.6 6.4z', superadminOnly: true },

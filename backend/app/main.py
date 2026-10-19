@@ -26,6 +26,7 @@ from app.routers import (
     reports,
     settings as settings_router,
     superadmin,
+    temporary_storage,
     users,
 )
 from app.utils.security import decode_access_token, hash_password
@@ -817,6 +818,7 @@ app.include_router(products.router, dependencies=business_deps)
 app.include_router(loans.router, dependencies=business_deps)
 app.include_router(dashboard.router, dependencies=business_deps)
 app.include_router(reports.router, dependencies=business_deps)
+app.include_router(temporary_storage.router, dependencies=business_deps)
 app.include_router(backup.router, dependencies=business_deps)
 # El flujo OAuth de Drive lo inicia/retoma Google desde el navegador: sin
 # bloqueo de licencia ni JWT (se valida por otros medios dentro de cada ruta).
