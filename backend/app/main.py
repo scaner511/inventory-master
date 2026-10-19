@@ -646,6 +646,40 @@ def init_db() -> None:
     _ensure_tenant_databases()
 
 
+def _tenant_table_columns(tenant_engine, table: str) -> set[str]:
+    try:
+        return {c["name"] for c in inspect(tenant_engine).get_columns(table)}
+    except Exception:
+        return set()
+
+
+# Columnas agregadas a tablas de negocio DESPUÉS de su creación inicial.
+# create_all solo crea tablas nuevas, no columnas: aquí se aplican a clientes
+# ya existentes de forma idempotente. Formato: (tabla, columna, definición SQL).
+TENANT_COLUMN_MIGRATIONS = [
+    ("appointment_closures", "has_budget", "VARCHAR(20)"),
+    ("appointment_closures", "is_decision_maker", "VARCHAR(30)"),
+    ("appointment_closures", "close_probability", "INTEGER"),
+    ("appointment_closures", "monthly_value", "NUMERIC(14, 2)"),
+    ("appointment_closures", "setup_value", "NUMERIC(14, 2)"),
+    ("appointment_closures", "lost_reason", "VARCHAR(40)"),
+    ("appointment_closures", "lost_reason_detail", "TEXT"),
+]
+
+
+def _migrate_tenant_columns(tenant_engine) -> None:
+    """Agrega columnas nuevas a tablas de negocio de un cliente ya existente."""
+    for table, column, definition in TENANT_COLUMN_MIGRATIONS:
+        cols = _tenant_table_columns(tenant_engine, table)
+        if not cols or column in cols:
+            continue
+        try:
+            with tenant_engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
+        except Exception as exc:  # no romper el arranque por una columna
+            print(f"[AVISO] No se pudo agregar {table}.{column}: {exc}")
+
+
 def _ensure_tenant_databases() -> None:
     """Crea (si falta) el esquema de negocio de cada cliente.
 
@@ -664,8 +698,11 @@ def _ensure_tenant_databases() -> None:
                 db.commit()
             try:
                 create_tenant_database(tenant)
+                tenant_engine = get_tenant_engine(tenant)
                 # Agrega tablas de módulos nuevos en clientes ya existentes.
-                BaseBusiness.metadata.create_all(bind=get_tenant_engine(tenant))
+                BaseBusiness.metadata.create_all(bind=tenant_engine)
+                # Agrega columnas nuevas a tablas ya existentes.
+                _migrate_tenant_columns(tenant_engine)
             except Exception as exc:  # no romper el arranque por un cliente
                 print(
                     f"[AVISO] No se pudo preparar la base de datos del cliente "
