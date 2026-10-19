@@ -6,22 +6,29 @@ conversión a cliente. Todas las tablas son de negocio (tenant_id).
 
 Endpoints bajo /api/prospects.
 """
+import base64
 import io
+import shutil
+import uuid
 from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.config import settings as app_settings
 from app.deps import get_current_user, get_tenant_db, require_admin
 from app.models import (
     PROSPECT_STATUSES,
     Notification,
     Prospect,
     ProspectActivity,
+    ProspectFile,
     ProspectHistory,
     ProspectNote,
+    ProspectSignature,
     SalesPipeline,
     User,
 )
@@ -33,11 +40,14 @@ from app.schemas import (
     ProspectActivityOut,
     ProspectActivityUpdate,
     ProspectCreate,
+    ProspectFileOut,
     ProspectHistoryOut,
     ProspectMove,
     ProspectNoteCreate,
     ProspectNoteOut,
     ProspectOut,
+    ProspectSignatureCreate,
+    ProspectSignatureOut,
     ProspectUpdate,
 )
 from app.utils.audit import record_audit
@@ -45,6 +55,9 @@ from app.utils.audit import record_audit
 router = APIRouter(prefix="/api/prospects", tags=["prospects"])
 
 XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+ALLOWED_FILE_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt"}
+MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # Etapas por defecto del embudo (se siembran por cliente la primera vez).
 DEFAULT_STAGES = [
@@ -304,6 +317,14 @@ def create_prospect(
         db, action="PROSPECTO", user_id=user.id, tenant_id=user.tenant_id,
         detail=f"Prospecto '{p.full_name}' creado",
     )
+    # Envío automático de la ficha al responsable asignado.
+    if p.owner_id:
+        _notify(
+            db, tenant_id=user.tenant_id, user_id=p.owner_id, kind="FICHA_ASIGNADA",
+            title="Nueva ficha de prospecto asignada",
+            body=f"{p.full_name}{(' · ' + p.phone) if p.phone else ''}",
+            entity="prospect", entity_id=p.id,
+        )
     db.commit()
     db.refresh(p)
     return _to_out(p)
@@ -347,6 +368,15 @@ def update_prospect(
     if "interested_products" in updates:
         p.interested_products = _products_to_json(updates["interested_products"])
         changed.append("interested_products")
+
+    # Envío automático de la ficha al nuevo responsable si cambió.
+    if "owner_id" in updates and p.owner_id and p.owner_id != user.id:
+        _notify(
+            db, tenant_id=user.tenant_id, user_id=p.owner_id, kind="FICHA_ASIGNADA",
+            title="Ficha de prospecto reasignada",
+            body=f"{p.full_name}{(' · ' + p.phone) if p.phone else ''}",
+            entity="prospect", entity_id=p.id,
+        )
 
     _history(
         db,
@@ -600,6 +630,185 @@ def list_history(
         .order_by(ProspectHistory.timestamp.desc())
         .all()
     )
+
+
+# --------------------------------------------------------------------------- #
+# Evidencias (adjuntos)
+# --------------------------------------------------------------------------- #
+@router.get("/{prospect_id}/files", response_model=list[ProspectFileOut])
+def list_files(
+    prospect_id: int,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    _get_prospect(db, prospect_id, user.tenant_id)
+    return (
+        db.query(ProspectFile)
+        .filter(ProspectFile.tenant_id == user.tenant_id, ProspectFile.prospect_id == prospect_id)
+        .order_by(ProspectFile.created_at.desc())
+        .all()
+    )
+
+
+@router.post("/{prospect_id}/files", response_model=ProspectFileOut, status_code=201)
+def upload_file(
+    prospect_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    _get_prospect(db, prospect_id, user.tenant_id)
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_FILE_EXT:
+        raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
+
+    dest_dir = app_settings.prospect_files_path / str(user.tenant_id) / str(prospect_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    stored = f"{uuid.uuid4().hex}{ext}"
+    dest = dest_dir / stored
+    size = 0
+    with dest.open("wb") as buffer:
+        while True:
+            chunk = file.file.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_FILE_BYTES:
+                buffer.close()
+                dest.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail="El archivo supera el límite de 10 MB")
+            buffer.write(chunk)
+
+    rec = ProspectFile(
+        tenant_id=user.tenant_id,
+        prospect_id=prospect_id,
+        filename=(file.filename or stored)[:255],
+        path=str(dest),
+        content_type=file.content_type,
+        size=size,
+        created_by=user.id,
+    )
+    db.add(rec)
+    _history(
+        db, prospect_id=prospect_id, tenant_id=user.tenant_id, user_id=user.id,
+        action="EVIDENCIA_AGREGADA", detail=rec.filename,
+    )
+    db.commit()
+    db.refresh(rec)
+    return rec
+
+
+@router.get("/files/{file_id}/download")
+def download_file(
+    file_id: int,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    rec = (
+        db.query(ProspectFile)
+        .filter(ProspectFile.id == file_id, ProspectFile.tenant_id == user.tenant_id)
+        .first()
+    )
+    if rec is None or not Path(rec.path).exists():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    return FileResponse(rec.path, filename=rec.filename, media_type=rec.content_type or "application/octet-stream")
+
+
+@router.delete("/files/{file_id}", status_code=204)
+def delete_file(
+    file_id: int,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    rec = (
+        db.query(ProspectFile)
+        .filter(ProspectFile.id == file_id, ProspectFile.tenant_id == user.tenant_id)
+        .first()
+    )
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    Path(rec.path).unlink(missing_ok=True)
+    _history(
+        db, prospect_id=rec.prospect_id, tenant_id=user.tenant_id, user_id=user.id,
+        action="EVIDENCIA_ELIMINADA", detail=rec.filename,
+    )
+    db.delete(rec)
+    db.commit()
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Firma digital
+# --------------------------------------------------------------------------- #
+def _decode_signature(image_data: str) -> bytes:
+    """Acepta data URL (data:image/png;base64,...) o base64 crudo."""
+    raw = image_data.split(",", 1)[1] if "," in image_data else image_data
+    try:
+        return base64.b64decode(raw)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Firma inválida (no se pudo decodificar)")
+
+
+@router.get("/{prospect_id}/signatures", response_model=list[ProspectSignatureOut])
+def list_signatures(
+    prospect_id: int,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    _get_prospect(db, prospect_id, user.tenant_id)
+    return (
+        db.query(ProspectSignature)
+        .filter(ProspectSignature.tenant_id == user.tenant_id, ProspectSignature.prospect_id == prospect_id)
+        .order_by(ProspectSignature.created_at.desc())
+        .all()
+    )
+
+
+@router.post("/{prospect_id}/signatures", response_model=ProspectSignatureOut, status_code=201)
+def save_signature(
+    prospect_id: int,
+    data: ProspectSignatureCreate,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    _get_prospect(db, prospect_id, user.tenant_id)
+    blob = _decode_signature(data.image_data)
+    if len(blob) > MAX_FILE_BYTES:
+        raise HTTPException(status_code=400, detail="La firma es demasiado grande")
+
+    dest_dir = app_settings.prospect_files_path / str(user.tenant_id) / str(prospect_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"firma_{data.role}_{uuid.uuid4().hex}.png"
+    dest.write_bytes(blob)
+
+    rec = ProspectSignature(
+        tenant_id=user.tenant_id, prospect_id=prospect_id,
+        role=data.role, path=str(dest), created_by=user.id,
+    )
+    db.add(rec)
+    _history(
+        db, prospect_id=prospect_id, tenant_id=user.tenant_id, user_id=user.id,
+        action="FIRMA_GUARDADA", detail=f"Firma del {data.role}",
+    )
+    db.commit()
+    db.refresh(rec)
+    return rec
+
+
+@router.get("/signatures/{signature_id}/image")
+def get_signature_image(
+    signature_id: int,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    rec = (
+        db.query(ProspectSignature)
+        .filter(ProspectSignature.id == signature_id, ProspectSignature.tenant_id == user.tenant_id)
+        .first()
+    )
+    if rec is None or not Path(rec.path).exists():
+        raise HTTPException(status_code=404, detail="Firma no encontrada")
+    return FileResponse(rec.path, media_type="image/png")
 
 
 # --------------------------------------------------------------------------- #

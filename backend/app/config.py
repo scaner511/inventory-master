@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     # Uploads (logo)
     uploads_dir: str = str(BASE_DIR / "uploads" / "logos")
 
+    # Adjuntos del módulo comercial (prospectos): evidencias y firmas
+    prospect_files_dir: str = str(BASE_DIR / "uploads" / "prospects")
+
     # Licencia
     license_prefix: str = "MC26"
     license_duration_days: int = 30
@@ -93,6 +96,12 @@ class Settings(BaseSettings):
     @property
     def uploads_path(self) -> Path:
         p = Path(self.uploads_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def prospect_files_path(self) -> Path:
+        p = Path(self.prospect_files_dir)
         p.mkdir(parents=True, exist_ok=True)
         return p
 

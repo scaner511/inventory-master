@@ -11,6 +11,7 @@ import {
   updateAppointment,
 } from '../api/index.js'
 import { useAuth } from '../context/AuthContext.jsx'
+import { API_BASE, openAuthenticatedUrl } from '../api/client.js'
 import Modal from '../components/ui/Modal.jsx'
 import { Button, Field, Input, Select, Textarea } from '../components/ui/Form.jsx'
 
@@ -234,6 +235,9 @@ export default function Calendar() {
       interest_products: [], delivered_info: [], commercial_status: '',
       next_followup_at: '', next_followup_kind: 'llamada', next_followup_observation: '',
       convert: false,
+      has_budget: '', is_decision_maker: '', close_probability: 50,
+      monthly_value: '', setup_value: '',
+      lost_reason: '', lost_reason_detail: '',
     })
   }
 
@@ -242,6 +246,13 @@ export default function Calendar() {
     if (!closureForm.result_detail.trim()) return toast.error('Describe el resultado de la visita')
     const payload = {
       ...closureForm,
+      close_probability: Number(closureForm.close_probability),
+      monthly_value: closureForm.monthly_value === '' ? null : Number(closureForm.monthly_value),
+      setup_value: closureForm.setup_value === '' ? null : Number(closureForm.setup_value),
+      has_budget: closureForm.has_budget || null,
+      is_decision_maker: closureForm.is_decision_maker || null,
+      lost_reason: closureForm.lost_reason || null,
+      lost_reason_detail: closureForm.lost_reason_detail || null,
       next_followup_at: closureForm.next_followup_at
         ? new Date(closureForm.next_followup_at).toISOString().slice(0, 19)
         : null,
@@ -318,6 +329,8 @@ export default function Calendar() {
           <Button variant="ghost" onClick={() => move(-1)}>‹</Button>
           <Button variant="ghost" onClick={() => setCursor(new Date())}>Hoy</Button>
           <Button variant="ghost" onClick={() => move(1)}>›</Button>
+          <Button variant="ghost" onClick={() => openAuthenticatedUrl(`${API_BASE}/appointments/export/excel`)}>Excel</Button>
+          <Button variant="ghost" onClick={() => openAuthenticatedUrl(`${API_BASE}/appointments/export/csv`)}>CSV</Button>
           <Button onClick={() => openCreate(toDateKey(cursor))}>+ Nueva cita</Button>
         </div>
       </div>
@@ -454,6 +467,69 @@ export default function Calendar() {
                 <Textarea className="mt-2" placeholder="Descripción de la demo" value={closureForm.demo_description} onChange={(e) => setClosureForm({ ...closureForm, demo_description: e.target.value })} />
               )}
             </div>
+
+            <Field label="¿Tiene presupuesto?">
+              <Select value={closureForm.has_budget} onChange={(e) => setClosureForm({ ...closureForm, has_budget: e.target.value })}>
+                <option value="">—</option>
+                <option value="si">Sí</option>
+                <option value="no">No</option>
+                <option value="desconocido">Desconocido</option>
+              </Select>
+            </Field>
+            <Field label="¿Es quien decide?">
+              <Select value={closureForm.is_decision_maker} onChange={(e) => setClosureForm({ ...closureForm, is_decision_maker: e.target.value })}>
+                <option value="">—</option>
+                <option value="si">Sí</option>
+                <option value="no">No</option>
+                <option value="debe_consultar">Debe consultar</option>
+              </Select>
+            </Field>
+            <Field label="Valor mensual (USD)">
+              <Input type="number" min="0" step="0.01" value={closureForm.monthly_value} onChange={(e) => setClosureForm({ ...closureForm, monthly_value: e.target.value })} />
+            </Field>
+            <Field label="Valor instalación (USD)">
+              <Input type="number" min="0" step="0.01" value={closureForm.setup_value} onChange={(e) => setClosureForm({ ...closureForm, setup_value: e.target.value })} />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label={`Probabilidad de cierre: ${closureForm.close_probability}%`}>
+                <input
+                  type="range" min="0" max="100" step="5" value={closureForm.close_probability}
+                  onChange={(e) => setClosureForm({ ...closureForm, close_probability: Number(e.target.value) })}
+                  className="w-full accent-blue-500"
+                />
+              </Field>
+            </div>
+
+            <Field label="Estado comercial">
+              <Select value={closureForm.commercial_status} onChange={(e) => setClosureForm({ ...closureForm, commercial_status: e.target.value })}>
+                <option value="">—</option>
+                <option value="interesado">Interesado</option>
+                <option value="cliente_potencial">Cliente potencial</option>
+                <option value="propuesta_enviada">Propuesta enviada</option>
+                <option value="negociacion">Negociación</option>
+                <option value="cliente_convertido">Cliente convertido</option>
+                <option value="no_interesado">No interesado</option>
+              </Select>
+            </Field>
+            <Field label="Motivo de no compra">
+              <Select value={closureForm.lost_reason} onChange={(e) => setClosureForm({ ...closureForm, lost_reason: e.target.value })}>
+                <option value="">—</option>
+                <option value="precio">Precio</option>
+                <option value="sin_presupuesto">Sin presupuesto</option>
+                <option value="no_necesita">No lo necesita</option>
+                <option value="compro_competencia">Compró a la competencia</option>
+                <option value="no_decision">No es quien decide</option>
+                <option value="otro">Otro</option>
+              </Select>
+            </Field>
+            {closureForm.lost_reason && (
+              <div className="sm:col-span-2">
+                <Field label="Detalle del motivo">
+                  <Textarea value={closureForm.lost_reason_detail} onChange={(e) => setClosureForm({ ...closureForm, lost_reason_detail: e.target.value })} />
+                </Field>
+              </div>
+            )}
+
             <div className="sm:col-span-2">
               <Field label="Próximo seguimiento (fecha/hora)">
                 <Input type="datetime-local" value={closureForm.next_followup_at} onChange={(e) => setClosureForm({ ...closureForm, next_followup_at: e.target.value })} />

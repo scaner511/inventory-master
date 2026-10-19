@@ -740,6 +740,16 @@ class AppointmentClosure(BaseBusiness):
     interest_products: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON lista
     delivered_info: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON lista
     commercial_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Evaluación comercial del prospecto durante la visita.
+    has_budget: Mapped[str | None] = mapped_column(String(20), nullable=True)  # si|no|desconocido
+    is_decision_maker: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    close_probability: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 0..100
+    # Valor de oportunidad detectado en la visita.
+    monthly_value: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    setup_value: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # Motivos de no compra (cuando aplica).
+    lost_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    lost_reason_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

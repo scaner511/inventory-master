@@ -23,6 +23,8 @@ build/
 # ===== Datos generados por la app =====
 backend/uploads/logos/*
 !backend/uploads/logos/.gitkeep
+backend/uploads/prospects/*
+!backend/uploads/prospects/.gitkeep
 backend/backups/*
 !backend/backups/.gitkeep
 *.sqlite3

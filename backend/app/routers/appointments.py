@@ -4,10 +4,13 @@ Parte del módulo Gestión de Prospectos. Tablas de negocio (tenant_id).
 
 Endpoints bajo /api/appointments.
 """
+import io
 import json
 from datetime import date, datetime, time, timedelta
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.deps import get_current_user, get_tenant_db
@@ -339,6 +342,13 @@ def close_appointment(
         interest_products=json.dumps(data.interest_products) if data.interest_products else None,
         delivered_info=json.dumps(data.delivered_info) if data.delivered_info else None,
         commercial_status=data.commercial_status,
+        has_budget=data.has_budget,
+        is_decision_maker=data.is_decision_maker,
+        close_probability=data.close_probability,
+        monthly_value=data.monthly_value,
+        setup_value=data.setup_value,
+        lost_reason=data.lost_reason,
+        lost_reason_detail=(data.lost_reason_detail or "").strip() or None,
         created_by=user.id,
     )
     db.add(closure)
@@ -353,6 +363,20 @@ def close_appointment(
         p.interested_products = json.dumps(data.interest_products)
     if data.commercial_status:
         p.commercial_status = data.commercial_status
+    # Evaluación comercial y valor de oportunidad detectados en la visita.
+    if data.has_budget:
+        p.has_budget = data.has_budget
+    if data.is_decision_maker:
+        p.is_decision_maker = data.is_decision_maker
+    if data.close_probability is not None:
+        p.close_probability = data.close_probability
+    if data.monthly_value is not None:
+        p.monthly_value = data.monthly_value
+    if data.setup_value is not None:
+        p.setup_value = data.setup_value
+    if data.lost_reason:
+        p.lost_reason = data.lost_reason
+        p.lost_reason_detail = (data.lost_reason_detail or "").strip() or None
 
     if data.result == "venta_realizada":
         p.status = "cliente_convertido"
@@ -528,4 +552,75 @@ def commercial_dashboard(
             [{"reason": k, "count": v} for k, v in lost_reasons.items()],
             key=lambda x: x["count"], reverse=True,
         ),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Exportación de citas
+# --------------------------------------------------------------------------- #
+def _appointments_rows(db: Session, tenant_id: int) -> list[dict]:
+    appts = (
+        db.query(Appointment)
+        .filter(Appointment.tenant_id == tenant_id)
+        .order_by(Appointment.start_at)
+        .all()
+    )
+    names = {
+        pid: name
+        for pid, name in db.query(Prospect.id, Prospect.full_name)
+        .filter(Prospect.tenant_id == tenant_id)
+        .all()
+    }
+    labels = {
+        "programada": "Programada", "confirmada": "Confirmada", "en_proceso": "En proceso",
+        "completada": "Completada", "cancelada": "Cancelada", "reagendada": "Reagendada",
+    }
+    rows = []
+    for a in appts:
+        rows.append({
+            "Prospecto": names.get(a.prospect_id, f"#{a.prospect_id}"),
+            "Inicio": a.start_at.strftime("%Y-%m-%d %H:%M") if a.start_at else "",
+            "Fin": a.end_at.strftime("%Y-%m-%d %H:%M") if a.end_at else "",
+            "Estado": labels.get(a.status, a.status),
+            "Dirección": a.address or "",
+            "Teléfono": a.phone or "",
+            "Observaciones": a.observation or "",
+        })
+    return rows
+
+
+@router.get("/export/excel")
+def export_appointments_excel(
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    rows = _appointments_rows(db, user.tenant_id)
+    columns = ["Prospecto", "Inicio", "Fin", "Estado", "Dirección", "Teléfono", "Observaciones"]
+    df = pd.DataFrame(rows, columns=columns)
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False)
+    buffer.seek(0)
+    filename = f"Citas_{date.today().strftime('%Y-%m-%d')}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/csv")
+def export_appointments_csv(
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    rows = _appointments_rows(db, user.tenant_id)
+    columns = ["Prospecto", "Inicio", "Fin", "Estado", "Dirección", "Teléfono", "Observaciones"]
+    df = pd.DataFrame(rows, columns=columns)
+    csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
+    filename = f"Citas_{date.today().strftime('%Y-%m-%d')}.csv"
+    return StreamingResponse(
+        io.BytesIO(csv_bytes),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

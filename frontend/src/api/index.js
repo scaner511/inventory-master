@@ -355,6 +355,37 @@ export async function getOpportunitySummary() {
   return data
 }
 
+/* ---- Evidencias (adjuntos) y firmas del prospecto ---- */
+
+export async function getProspectFiles(id) {
+  const { data } = await api.get(`/prospects/${id}/files`)
+  return data
+}
+
+export async function uploadProspectFile(id, file) {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post(`/prospects/${id}/files`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
+export async function deleteProspectFile(fileId) {
+  const { data } = await api.delete(`/prospects/files/${fileId}`)
+  return data
+}
+
+export async function getProspectSignatures(id) {
+  const { data } = await api.get(`/prospects/${id}/signatures`)
+  return data
+}
+
+export async function saveProspectSignature(id, role, imageData) {
+  const { data } = await api.post(`/prospects/${id}/signatures`, { role, image_data: imageData })
+  return data
+}
+
 /* ================= CITAS, RECORDATORIOS Y NOTIFICACIONES ================= */
 
 export async function getAppointments({ dateFrom = '', dateTo = '', userId = '', status = '' } = {}) {

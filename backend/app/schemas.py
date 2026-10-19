@@ -1,7 +1,18 @@
 """Esquemas Pydantic (validación de entrada/salida de la API)."""
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_serializer, field_validator
+
+
+def _utc_iso(dt: datetime | None) -> str | None:
+    """Serializa datetimes naive (guardados en UTC) con sufijo Z.
+
+    El frontend envía las citas en UTC; sin la 'Z' el navegador las
+    interpretaría como hora local y desplazaría las citas.
+    """
+    if dt is None:
+        return None
+    return dt.isoformat() + "Z" if dt.tzinfo is None else dt.isoformat()
 
 # ===================== AUTH =====================
 
@@ -613,6 +624,10 @@ class AppointmentReminderOut(BaseModel):
     sent: bool
     sent_at: datetime | None = None
 
+    @field_serializer("fire_at", "sent_at")
+    def _ser(self, dt: datetime | None) -> str | None:
+        return _utc_iso(dt)
+
 
 class AppointmentCreate(BaseModel):
     prospect_id: int
@@ -655,6 +670,10 @@ class AppointmentOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_serializer("start_at", "end_at", "created_at", "updated_at")
+    def _ser(self, dt: datetime | None) -> str | None:
+        return _utc_iso(dt)
+
 
 class NotificationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -667,6 +686,10 @@ class NotificationOut(BaseModel):
     entity_id: int | None = None
     read: bool
     created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser(self, dt: datetime | None) -> str | None:
+        return _utc_iso(dt)
 
 
 # ===================== CIERRE DE VISITAS =====================
@@ -686,9 +709,19 @@ class AppointmentClosureCreate(BaseModel):
     delivered_info: list[str] = []
     commercial_status: str | None = None
     next_followup_at: datetime | None = None
-    next_followup_kind: str | None = None
+    next_followup_kind: str | None = Field(default=None, pattern="^(llamada|whatsapp|correo|visita|videollamada|otro)$")
     next_followup_observation: str | None = None
     convert: bool = False
+    # Evaluación comercial.
+    has_budget: str | None = Field(default=None, pattern="^(si|no|desconocido)$")
+    is_decision_maker: str | None = Field(default=None, pattern="^(si|no|debe_consultar)$")
+    close_probability: int | None = Field(default=None, ge=0, le=100)
+    # Valor de oportunidad.
+    monthly_value: float | None = None
+    setup_value: float | None = None
+    # Motivos de no compra.
+    lost_reason: str | None = Field(default=None, max_length=40)
+    lost_reason_detail: str | None = None
 
 
 class AppointmentClosureOut(BaseModel):
@@ -711,7 +744,57 @@ class AppointmentClosureOut(BaseModel):
     interest_products: list[str] = []
     delivered_info: list[str] = []
     commercial_status: str | None = None
+    has_budget: str | None = None
+    is_decision_maker: str | None = None
+    close_probability: int | None = None
+    monthly_value: float | None = None
+    setup_value: float | None = None
+    lost_reason: str | None = None
+    lost_reason_detail: str | None = None
     created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser(self, dt: datetime | None) -> str | None:
+        return _utc_iso(dt)
+
+
+# ===================== EVIDENCIAS Y FIRMAS =====================
+
+
+class ProspectFileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    prospect_id: int
+    filename: str
+    content_type: str | None = None
+    size: int | None = None
+    created_by: int | None = None
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser(self, dt: datetime | None) -> str | None:
+        return _utc_iso(dt)
+
+
+class ProspectSignatureCreate(BaseModel):
+    role: str = Field(pattern="^(cliente|representante)$")
+    # Imagen de la firma en base64 data URL (data:image/png;base64,...).
+    image_data: str = Field(min_length=20)
+
+
+class ProspectSignatureOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    prospect_id: int
+    role: str
+    created_by: int | None = None
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser(self, dt: datetime | None) -> str | None:
+        return _utc_iso(dt)
 
 
 class CommercialDashboardOut(BaseModel):

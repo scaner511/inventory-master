@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import {
   addProspectActivity,
@@ -6,14 +6,19 @@ import {
   convertProspect,
   createProspect,
   deleteProspect,
+  deleteProspectFile,
   getOpportunitySummary,
   getProspectActivities,
   getProspectBoard,
+  getProspectFiles,
   getProspectHistory,
   getProspectNotes,
+  getProspectSignatures,
   getProspects,
   moveProspect,
+  saveProspectSignature,
   updateProspect,
+  uploadProspectFile,
 } from '../api/index.js'
 import { openAuthenticatedUrl, API_BASE, formatMoney } from '../api/client.js'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -96,6 +101,10 @@ export default function Prospects() {
   const [history, setHistory] = useState([])
   const [newNote, setNewNote] = useState('')
   const [activityForm, setActivityForm] = useState({ kind: 'llamada', scheduled_at: '', observation: '', result: '', status: 'pendiente' })
+  const [files, setFiles] = useState([])
+  const [signatures, setSignatures] = useState([])
+  const [sigRole, setSigRole] = useState('cliente')
+  const [uploading, setUploading] = useState(false)
 
   const [board, setBoard] = useState(null)
   const [dragging, setDragging] = useState(null)
@@ -190,10 +199,62 @@ export default function Prospects() {
 
   function openDetail(p) {
     setDetail(p)
-    setNotes([]); setActivities([]); setHistory([])
+    setNotes([]); setActivities([]); setHistory([]); setFiles([]); setSignatures([])
     getProspectNotes(p.id).then(setNotes).catch(() => {})
     getProspectActivities(p.id).then(setActivities).catch(() => {})
     getProspectHistory(p.id).then(setHistory).catch(() => {})
+    getProspectFiles(p.id).then(setFiles).catch(() => {})
+    getProspectSignatures(p.id).then(setSignatures).catch(() => {})
+  }
+
+  async function handleUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      await uploadProspectFile(detail.id, file)
+      setFiles(await getProspectFiles(detail.id))
+      setHistory(await getProspectHistory(detail.id))
+      toast.success('Evidencia adjuntada')
+    } catch {
+      /* interceptor */
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  async function handleDeleteFile(fileId) {
+    if (!window.confirm('¿Eliminar esta evidencia?')) return
+    try {
+      await deleteProspectFile(fileId)
+      setFiles(await getProspectFiles(detail.id))
+      toast.success('Evidencia eliminada')
+    } catch {
+      /* interceptor */
+    }
+  }
+
+  async function handleSaveSignature() {
+    const canvas = document.getElementById('signature-pad')
+    if (!canvas) return
+    const dataUrl = canvas.toDataURL('image/png')
+    try {
+      await saveProspectSignature(detail.id, sigRole, dataUrl)
+      setSignatures(await getProspectSignatures(detail.id))
+      setHistory(await getProspectHistory(detail.id))
+      clearSignature()
+      toast.success('Firma guardada')
+    } catch {
+      /* interceptor */
+    }
+  }
+
+  function clearSignature() {
+    const canvas = document.getElementById('signature-pad')
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
   }
 
   async function handleAddNote() {
@@ -589,9 +650,105 @@ export default function Prospects() {
                 ))}
               </div>
             </div>
+
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Evidencias</p>
+              <input
+                type="file"
+                onChange={handleUpload}
+                disabled={uploading}
+                className="block w-full text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-xs file:text-slate-200"
+              />
+              <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">
+                {files.length === 0 ? <p className="text-xs text-slate-500">Sin archivos</p> : files.map((f) => (
+                  <div key={f.id} className="flex items-center justify-between border-b border-slate-800 py-1 text-xs">
+                    <span className="truncate text-slate-300">{f.filename} {f.size ? `(${Math.round(f.size / 1024)} KB)` : ''}</span>
+                    <button onClick={() => handleDeleteFile(f.id)} className="ml-2 text-red-400 hover:text-red-300">Eliminar</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Firma digital</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select className="w-40" value={sigRole} onChange={(e) => setSigRole(e.target.value)}>
+                  <option value="cliente">Cliente</option>
+                  <option value="representante">Representante</option>
+                </Select>
+                <Button type="button" variant="ghost" onClick={clearSignature}>Limpiar</Button>
+                <Button type="button" onClick={handleSaveSignature}>Guardar firma</Button>
+              </div>
+              <SignaturePad />
+              <div className="mt-2 space-y-1">
+                {signatures.length === 0 ? <p className="text-xs text-slate-500">Sin firmas registradas</p> : signatures.map((s) => (
+                  <p key={s.id} className="border-b border-slate-800 py-1 text-xs capitalize text-slate-300">
+                    {s.role} · {new Date(s.created_at).toLocaleString()}
+                  </p>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </Modal>
     </div>
+  )
+}
+
+function SignaturePad() {
+  const canvasRef = useRef(null)
+  const drawing = useRef(false)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    canvas.width = canvas.offsetWidth
+    canvas.height = 140
+    const ctx = canvas.getContext('2d')
+    ctx.lineWidth = 2
+    ctx.lineCap = 'round'
+    ctx.strokeStyle = '#e2e8f0'
+  }, [])
+
+  function pos(e) {
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const point = e.touches ? e.touches[0] : e
+    return { x: point.clientX - rect.left, y: point.clientY - rect.top }
+  }
+
+  function start(e) {
+    e.preventDefault()
+    drawing.current = true
+    const ctx = canvasRef.current.getContext('2d')
+    const { x, y } = pos(e)
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+  }
+  function move(e) {
+    if (!drawing.current) return
+    e.preventDefault()
+    const ctx = canvasRef.current.getContext('2d')
+    const { x, y } = pos(e)
+    ctx.lineTo(x, y)
+    ctx.stroke()
+  }
+  function end() {
+    drawing.current = false
+  }
+
+  return (
+    <canvas
+      id="signature-pad"
+      ref={canvasRef}
+      onMouseDown={start}
+      onMouseMove={move}
+      onMouseUp={end}
+      onMouseLeave={end}
+      onTouchStart={start}
+      onTouchMove={move}
+      onTouchEnd={end}
+      className="mt-2 w-full touch-none rounded-lg border border-dashed border-slate-600 bg-slate-900"
+    />
   )
 }
