@@ -57,6 +57,8 @@ function TenantsTab() {
   const [resetTenantInfo, setResetTenantInfo] = useState(null)
   const [resetAdmins, setResetAdmins] = useState([])
   const [resetKeepId, setResetKeepId] = useState('')
+  const [renewTarget, setRenewTarget] = useState(null)
+  const [renewDays, setRenewDays] = useState('30')
 
   const load = useCallback(async () => {
     try {
@@ -163,25 +165,33 @@ function TenantsTab() {
     }
   }
 
-  async function handleRenew(user) {
-    try {
-      const res = await renewUserSubscription(user.id, 30)
-      toast.success(res.message)
-      load()
-      loadUsers(usersOpen)
-    } catch {
-      /* interceptor */
-    }
+  function openRenew(target) {
+    setRenewTarget(target)
+    setRenewDays('30')
   }
 
-  async function handleRenewTenant(t) {
+  async function handleConfirmRenew(e) {
+    e.preventDefault()
+    if (!renewTarget) return
+    const days = Number(renewDays)
+    if (!Number.isInteger(days) || days < 1) {
+      toast.error('Indique una cantidad de días válida (mínimo 1).')
+      return
+    }
+    setSaving(true)
     try {
-      const res = await renewTenantSubscription(t.id, 30)
+      const res =
+        renewTarget.type === 'tenant'
+          ? await renewTenantSubscription(renewTarget.id, days)
+          : await renewUserSubscription(renewTarget.id, days)
       toast.success(res.message)
+      setRenewTarget(null)
       load()
-      loadUsers(usersOpen)
+      if (usersOpen) loadUsers(usersOpen)
     } catch {
       /* interceptor */
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -292,9 +302,9 @@ function TenantsTab() {
               <td className="px-4 py-3 text-center">
                 <div className="flex justify-center gap-1">
                   <button
-                    onClick={() => handleRenewTenant(t)}
+                    onClick={() => openRenew({ type: 'tenant', id: t.id, name: t.name })}
                     className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400 transition hover:bg-emerald-500/20"
-                    title="Renovar licencia del cliente (30 días)"
+                    title="Renovar licencia del cliente"
                   >
                     💰
                   </button>
@@ -430,9 +440,9 @@ function TenantsTab() {
                     <div className="flex justify-center gap-1">
                       {u.role !== 'superadmin' && (
                         <button
-                          onClick={() => handleRenew(u)}
+                          onClick={() => openRenew({ type: 'user', id: u.id, name: u.username })}
                           className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400 transition hover:bg-emerald-500/20"
-                          title="Renovar suscripción (30 días)"
+                          title="Renovar suscripción"
                         >
                           💰
                         </button>
@@ -535,6 +545,32 @@ function TenantsTab() {
           </div>
         </form>
       </Modal>
+
+      <Modal open={Boolean(renewTarget)} onClose={() => setRenewTarget(null)} title="Renovar licencia">
+        <form onSubmit={handleConfirmRenew} className="space-y-4">
+          <p className="text-sm text-slate-300">
+            ¿Cuántos días desea renovar a <span className="font-bold">{renewTarget?.name}</span>?
+          </p>
+          <Field label="Días a renovar" hint="Si la licencia sigue vigente los días se suman al vencimiento actual; si ya venció, se cuentan desde hoy.">
+            <Input
+              type="number"
+              min="1"
+              value={renewDays}
+              onChange={(e) => setRenewDays(e.target.value)}
+              placeholder="Ej: 30"
+              required
+            />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setRenewTarget(null)}>
+              Cancelar
+            </Button>
+            <Button type="submit" variant="success" disabled={saving}>
+              {saving ? 'Renovando...' : 'Renovar'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }
@@ -548,6 +584,8 @@ function UsersTab() {
   const [saving, setSaving] = useState(false)
   const [resetTarget, setResetTarget] = useState(null)
   const [resetPass, setResetPass] = useState('')
+  const [renewTarget, setRenewTarget] = useState(null)
+  const [renewDays, setRenewDays] = useState('30')
 
   const load = useCallback(async () => {
     try {
@@ -610,12 +648,28 @@ function UsersTab() {
   }
 
   async function handleRenew(u) {
+    setRenewTarget({ type: 'user', id: u.id, name: u.username })
+    setRenewDays('30')
+  }
+
+  async function handleConfirmRenew(e) {
+    e.preventDefault()
+    if (!renewTarget) return
+    const days = Number(renewDays)
+    if (!Number.isInteger(days) || days < 1) {
+      toast.error('Indique una cantidad de días válida (mínimo 1).')
+      return
+    }
+    setSaving(true)
     try {
-      const res = await renewUserSubscription(u.id, 30)
+      const res = await renewUserSubscription(renewTarget.id, days)
       toast.success(res.message)
+      setRenewTarget(null)
       load()
     } catch {
       /* interceptor */
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -762,6 +816,32 @@ function UsersTab() {
             </Button>
             <Button type="submit" variant="warning" disabled={saving}>
               Guardar
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={Boolean(renewTarget)} onClose={() => setRenewTarget(null)} title="Renovar suscripción">
+        <form onSubmit={handleConfirmRenew} className="space-y-4">
+          <p className="text-sm text-slate-300">
+            ¿Cuántos días desea renovar a <span className="font-bold">{renewTarget?.name}</span>?
+          </p>
+          <Field label="Días a renovar" hint="La licencia es del cliente: renovar a un usuario renueva a todo el cliente. Si sigue vigente se suman los días; si venció, se cuentan desde hoy.">
+            <Input
+              type="number"
+              min="1"
+              value={renewDays}
+              onChange={(e) => setRenewDays(e.target.value)}
+              placeholder="Ej: 30"
+              required
+            />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setRenewTarget(null)}>
+              Cancelar
+            </Button>
+            <Button type="submit" variant="success" disabled={saving}>
+              {saving ? 'Renovando...' : 'Renovar'}
             </Button>
           </div>
         </form>
