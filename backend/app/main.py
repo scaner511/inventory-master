@@ -1,6 +1,6 @@
 """Inventory Master OS Web - Aplicación principal FastAPI."""
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -16,13 +16,16 @@ from app.config import BASE_DIR, settings
 from app.database import Base, SessionLocal, create_tenant_database, default_database_name, engine, slugify
 from app.deps import require_valid_license
 from app.routers import (
+    appointments,
     audit,
     auth,
     backup,
     dashboard,
     license as license_router,
     loans,
+    notifications as notifications_router,
     products,
+    prospects,
     reports,
     settings as settings_router,
     superadmin,
@@ -647,7 +650,12 @@ def _ensure_tenant_databases() -> None:
     """Crea (si falta) el esquema de negocio de cada cliente.
 
     Idempotente: si la base ya existe y tiene el esquema, no hace nada.
+    Además aplica las tablas nuevas a clientes ya creados (create_tenant_database
+    solo siembra el esquema cuando falta 'products'): el create_all de más abajo
+    agrega únicamente las tablas que aún no existen, sin tocar datos.
     """
+    from app.database import BaseBusiness, get_tenant_engine
+
     db: Session = SessionLocal()
     try:
         for tenant in db.query(models.Tenant).all():
@@ -656,6 +664,8 @@ def _ensure_tenant_databases() -> None:
                 db.commit()
             try:
                 create_tenant_database(tenant)
+                # Agrega tablas de módulos nuevos en clientes ya existentes.
+                BaseBusiness.metadata.create_all(bind=get_tenant_engine(tenant))
             except Exception as exc:  # no romper el arranque por un cliente
                 print(
                     f"[AVISO] No se pudo preparar la base de datos del cliente "
@@ -682,6 +692,16 @@ def schedule_backup_job() -> None:
         max_instances=1,
         coalesce=True,
     )
+    # Recordatorios de citas: revisa cada minuto si toca enviar alguno.
+    scheduler.add_job(
+        _run_appointment_reminders,
+        trigger="interval",
+        minutes=1,
+        id="appointment_reminders",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     if not scheduler.running:
         scheduler.start()
 
@@ -703,6 +723,65 @@ def _run_scheduled_backup() -> None:
                         pass  # la copia local ya está a salvo; Drive se reintenta al día siguiente
     finally:
         db.close()
+
+
+def _run_appointment_reminders() -> None:
+    """Dispara los recordatorios de citas vencidos en la base de cada cliente."""
+    from app.database import get_tenant_engine
+
+    db: Session = SessionLocal()
+    try:
+        tenants = [t for t in db.query(models.Tenant).all() if t.database_name]
+    finally:
+        db.close()
+
+    now = datetime.utcnow()
+    for tenant in tenants:
+        try:
+            engine = get_tenant_engine(tenant)
+            with Session(engine) as tdb:
+                due = (
+                    tdb.query(models.AppointmentReminder)
+                    .filter(
+                        models.AppointmentReminder.sent.is_(False),
+                        models.AppointmentReminder.fire_at <= now,
+                    )
+                    .all()
+                )
+                for reminder in due:
+                    appt = (
+                        tdb.query(models.Appointment)
+                        .filter(models.Appointment.id == reminder.appointment_id)
+                        .first()
+                    )
+                    reminder.sent = True
+                    reminder.sent_at = now
+                    if appt is None or appt.status in ("cancelada", "completada"):
+                        continue
+                    prospect = (
+                        tdb.query(models.Prospect)
+                        .filter(models.Prospect.id == appt.prospect_id)
+                        .first()
+                    )
+                    name = prospect.full_name if prospect else f"Prospecto #{appt.prospect_id}"
+                    if reminder.minutes_before >= 60:
+                        label = f"{reminder.minutes_before // 60} h"
+                    else:
+                        label = f"{reminder.minutes_before} min"
+                    tdb.add(
+                        models.Notification(
+                            tenant_id=tenant.id,
+                            user_id=appt.user_id,
+                            kind="RECORDATORIO_CITA",
+                            title=f"Cita en {label}",
+                            body=f"{name} · {appt.start_at.strftime('%d/%m/%Y %H:%M')}",
+                            entity="appointment",
+                            entity_id=appt.id,
+                        )
+                    )
+                tdb.commit()
+        except Exception as exc:  # no romper el scheduler por un cliente
+            print(f"[AVISO] Recordatorios de '{tenant.name}' fallaron: {exc}")
 
 
 @asynccontextmanager
@@ -819,6 +898,9 @@ app.include_router(loans.router, dependencies=business_deps)
 app.include_router(dashboard.router, dependencies=business_deps)
 app.include_router(reports.router, dependencies=business_deps)
 app.include_router(temporary_storage.router, dependencies=business_deps)
+app.include_router(prospects.router, dependencies=business_deps)
+app.include_router(appointments.router, dependencies=business_deps)
+app.include_router(notifications_router.router, dependencies=business_deps)
 app.include_router(backup.router, dependencies=business_deps)
 # El flujo OAuth de Drive lo inicia/retoma Google desde el navegador: sin
 # bloqueo de licencia ni JWT (se valida por otros medios dentro de cada ruta).

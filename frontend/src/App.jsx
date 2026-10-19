@@ -6,6 +6,9 @@ import Dashboard from './pages/Dashboard.jsx'
 import Products from './pages/Products.jsx'
 import Loans from './pages/Loans.jsx'
 import TemporaryStorage from './pages/TemporaryStorage.jsx'
+import Prospects from './pages/Prospects.jsx'
+import Calendar from './pages/Calendar.jsx'
+import CommercialDashboard from './pages/CommercialDashboard.jsx'
 import History from './pages/History.jsx'
 import Admin from './pages/Admin.jsx'
 import SuperAdmin from './pages/SuperAdmin.jsx'
@@ -98,6 +101,30 @@ export default function App() {
           element={
             <LicenseGate>
               <TemporaryStorage />
+            </LicenseGate>
+          }
+        />
+        <Route
+          path="/prospects"
+          element={
+            <LicenseGate>
+              <Prospects />
+            </LicenseGate>
+          }
+        />
+        <Route
+          path="/calendar"
+          element={
+            <LicenseGate>
+              <Calendar />
+            </LicenseGate>
+          }
+        />
+        <Route
+          path="/commercial"
+          element={
+            <LicenseGate>
+              <CommercialDashboard />
             </LicenseGate>
           }
         />

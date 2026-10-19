@@ -450,3 +450,313 @@ class TemporaryStorageHistory(BaseBusiness):
     user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     action: Mapped[str] = mapped_column(String(60))
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ==============================================================================
+# MÓDULO: GESTIÓN DE PROSPECTOS (CRM comercial interno)
+#
+# Independiente del inventario y del CRM de cartera externo. Gestiona el ciclo
+# comercial de un prospecto: contacto -> citas -> seguimiento -> cierre -> cliente.
+# Todas las tablas son de NEGOCIO (BaseBusiness) con tenant_id.
+# ==============================================================================
+
+# Estados del prospecto (los del spec de la ficha).
+PROSPECT_STATUSES = (
+    "nuevo",
+    "contactado",
+    "interesado",
+    "pendiente_cita",
+    "visitado",
+    "cliente_potencial",
+    "cliente_convertido",
+    "no_interesado",
+)
+
+# Estados comerciales del cierre (actualización automática del prospecto).
+PROSPECT_COMMERCIAL_STATUSES = (
+    "nuevo",
+    "contactado",
+    "interesado",
+    "calificado",
+    "en_negociacion",
+    "propuesta_enviada",
+    "pendiente_respuesta",
+    "cliente_convertido",
+    "no_interesado",
+)
+
+PROSPECT_STATUS_LABELS = {
+    "nuevo": "Nuevo",
+    "contactado": "Contactado",
+    "interesado": "Interesado",
+    "pendiente_cita": "Pendiente de cita",
+    "visitado": "Visitado",
+    "cliente_potencial": "Cliente potencial",
+    "cliente_convertido": "Cliente convertido",
+    "no_interesado": "No interesado",
+}
+
+
+class SalesPipeline(BaseBusiness):
+    """Etapa del embudo/kanban (configurable por cliente)."""
+
+    __tablename__ = "sales_pipeline"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "slug", name="uq_pipeline_tenant_slug"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    slug: Mapped[str] = mapped_column(String(40))
+    name: Mapped[str] = mapped_column(String(80))
+    position: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    color: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    is_terminal: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_won: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_lost: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Prospect(BaseBusiness):
+    """Ficha completa del prospecto."""
+
+    __tablename__ = "prospects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(200), index=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    marital_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    knows_brand: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Notas rápidas de la ficha (máx. 500); el historial detallado va en prospect_notes.
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="nuevo", index=True)
+    commercial_status: Mapped[str] = mapped_column(String(30), default="nuevo", index=True)
+    # Calificación 1..5 (estrellas).
+    rating: Mapped[int] = mapped_column(Integer, default=3)
+    stage_slug: Mapped[str] = mapped_column(String(40), default="nuevo", index=True)
+    owner_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Evaluación comercial de la oportunidad.
+    has_budget: Mapped[str | None] = mapped_column(String(20), nullable=True)  # si|no|desconocido
+    is_decision_maker: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    close_probability: Mapped[int] = mapped_column(Integer, default=0)  # 0..100
+    # Valor de oportunidad.
+    monthly_value: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
+    setup_value: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
+    # Interés / cierre.
+    interested_products: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON ["inventario",...]
+    lost_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    lost_reason_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Conversión.
+    converted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    converted_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    next_followup_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    notes_rel: Mapped[list["ProspectNote"]] = relationship(
+        back_populates="prospect", cascade="all, delete-orphan"
+    )
+    activities: Mapped[list["ProspectActivity"]] = relationship(
+        back_populates="prospect", cascade="all, delete-orphan"
+    )
+
+    @property
+    def opportunity_value(self) -> float:
+        return float(self.monthly_value or 0) + float(self.setup_value or 0)
+
+    @property
+    def weighted_value(self) -> float:
+        return self.opportunity_value * (self.close_probability or 0) / 100.0
+
+
+class ProspectNote(BaseBusiness):
+    """Nota con fecha/usuario (historial de notas del prospecto)."""
+
+    __tablename__ = "prospect_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    prospect_id: Mapped[int] = mapped_column(
+        ForeignKey("prospects.id", ondelete="CASCADE"), index=True
+    )
+    text: Mapped[str] = mapped_column(String(500))
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    prospect: Mapped["Prospect"] = relationship(back_populates="notes_rel")
+
+
+class ProspectActivity(BaseBusiness):
+    """Seguimiento (llamada, WhatsApp, correo, visita, videollamada, otro)."""
+
+    __tablename__ = "prospect_activities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    prospect_id: Mapped[int] = mapped_column(
+        ForeignKey("prospects.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(30), index=True)  # llamada|whatsapp|correo|visita|videollamada|otro
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    done_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    observation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pendiente")  # pendiente|realizada|cancelada
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    prospect: Mapped["Prospect"] = relationship(back_populates="activities")
+
+
+class ProspectHistory(BaseBusiness):
+    """Línea de tiempo cronológica del prospecto."""
+
+    __tablename__ = "prospect_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    prospect_id: Mapped[int] = mapped_column(
+        ForeignKey("prospects.id", ondelete="CASCADE"), index=True
+    )
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    action: Mapped[str] = mapped_column(String(60))
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ProspectFile(BaseBusiness):
+    """Evidencia/adjunto del prospecto (imágenes, PDF, documentos)."""
+
+    __tablename__ = "prospect_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    prospect_id: Mapped[int] = mapped_column(
+        ForeignKey("prospects.id", ondelete="CASCADE"), index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255))
+    path: Mapped[str] = mapped_column(Text)
+    content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ProspectSignature(BaseBusiness):
+    """Firma digital (cliente / representante) guardada como imagen."""
+
+    __tablename__ = "prospect_signatures"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    prospect_id: Mapped[int] = mapped_column(
+        ForeignKey("prospects.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(20))  # cliente|representante
+    path: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Appointment(BaseBusiness):
+    """Cita comercial del prospecto."""
+
+    __tablename__ = "appointments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    prospect_id: Mapped[int] = mapped_column(
+        ForeignKey("prospects.id", ondelete="CASCADE"), index=True
+    )
+    start_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    observation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="programada", index=True)
+    # programada|confirmada|en_proceso|completada|cancelada|reagendada
+    reminder_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 15..1440
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    reminders: Mapped[list["AppointmentReminder"]] = relationship(
+        back_populates="appointment", cascade="all, delete-orphan"
+    )
+
+
+class AppointmentReminder(BaseBusiness):
+    """Recordatorio programado de una cita (una fila por tiempo configurado)."""
+
+    __tablename__ = "appointment_reminders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    appointment_id: Mapped[int] = mapped_column(
+        ForeignKey("appointments.id", ondelete="CASCADE"), index=True
+    )
+    minutes_before: Mapped[int] = mapped_column(Integer)  # 15,30,60,120,240,480,1440
+    fire_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    sent: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    appointment: Mapped["Appointment"] = relationship(back_populates="reminders")
+
+
+class AppointmentClosure(BaseBusiness):
+    """Formulario obligatorio de cierre de visita."""
+
+    __tablename__ = "appointment_closures"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    appointment_id: Mapped[int] = mapped_column(
+        ForeignKey("appointments.id", ondelete="CASCADE"), index=True
+    )
+    prospect_id: Mapped[int] = mapped_column(
+        ForeignKey("prospects.id", ondelete="CASCADE"), index=True
+    )
+    visit_date: Mapped[date] = mapped_column(Date)
+    arrival_time: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    departure_time: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    total_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result: Mapped[str] = mapped_column(String(40))
+    result_detail: Mapped[str] = mapped_column(String(1000))
+    markers: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON lista
+    interest_level: Mapped[int] = mapped_column(Integer, default=3)
+    demo_done: Mapped[bool] = mapped_column(Boolean, default=False)
+    demo_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    interest_products: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON lista
+    delivered_info: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON lista
+    commercial_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Notification(BaseBusiness):
+    """Notificación interna genérica (campana) para los usuarios del cliente."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    title: Mapped[str] = mapped_column(String(150))
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Referencias opcionales para navegar al origen.
+    entity: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

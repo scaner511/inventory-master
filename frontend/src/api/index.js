@@ -267,6 +267,163 @@ export async function getTsDashboard() {
   return data
 }
 
+/* ================= GESTIÓN DE PROSPECTOS (CRM comercial) ================= */
+
+export async function getProspects({ q = '', status = '', stage = '', ownerId = '', rating = '' } = {}) {
+  const params = {}
+  if (q) params.q = q
+  if (status) params.status = status
+  if (stage) params.stage = stage
+  if (ownerId) params.owner_id = ownerId
+  if (rating) params.rating = rating
+  const { data } = await api.get('/prospects', { params })
+  return data
+}
+
+export async function getProspect(id) {
+  const { data } = await api.get(`/prospects/${id}`)
+  return data
+}
+
+export async function createProspect(payload) {
+  const { data } = await api.post('/prospects', payload)
+  return data
+}
+
+export async function updateProspect(id, payload) {
+  const { data } = await api.put(`/prospects/${id}`, payload)
+  return data
+}
+
+export async function moveProspect(id, stageSlug) {
+  const { data } = await api.post(`/prospects/${id}/move`, { stage_slug: stageSlug })
+  return data
+}
+
+export async function convertProspect(id, note = null) {
+  const { data } = await api.post(`/prospects/${id}/convert`, { note })
+  return data
+}
+
+export async function deleteProspect(id) {
+  const { data } = await api.delete(`/prospects/${id}`)
+  return data
+}
+
+export async function getProspectNotes(id) {
+  const { data } = await api.get(`/prospects/${id}/notes`)
+  return data
+}
+
+export async function addProspectNote(id, text) {
+  const { data } = await api.post(`/prospects/${id}/notes`, { text })
+  return data
+}
+
+export async function getProspectActivities(id) {
+  const { data } = await api.get(`/prospects/${id}/activities`)
+  return data
+}
+
+export async function addProspectActivity(id, payload) {
+  const { data } = await api.post(`/prospects/${id}/activities`, payload)
+  return data
+}
+
+export async function updateProspectActivity(activityId, payload) {
+  const { data } = await api.put(`/prospects/activities/${activityId}`, payload)
+  return data
+}
+
+export async function getProspectHistory(id) {
+  const { data } = await api.get(`/prospects/${id}/history`)
+  return data
+}
+
+export async function getProspectPipeline() {
+  const { data } = await api.get('/prospects/pipeline')
+  return data
+}
+
+export async function getProspectBoard() {
+  const { data } = await api.get('/prospects/board')
+  return data
+}
+
+export async function getOpportunitySummary() {
+  const { data } = await api.get('/prospects/opportunity-summary')
+  return data
+}
+
+/* ================= CITAS, RECORDATORIOS Y NOTIFICACIONES ================= */
+
+export async function getAppointments({ dateFrom = '', dateTo = '', userId = '', status = '' } = {}) {
+  const params = {}
+  if (dateFrom) params.date_from = dateFrom
+  if (dateTo) params.date_to = dateTo
+  if (userId) params.user_id = userId
+  if (status) params.status = status
+  const { data } = await api.get('/appointments', { params })
+  return data
+}
+
+export async function createAppointment(payload) {
+  const { data } = await api.post('/appointments', payload)
+  return data
+}
+
+export async function updateAppointment(id, payload) {
+  const { data } = await api.put(`/appointments/${id}`, payload)
+  return data
+}
+
+export async function deleteAppointment(id) {
+  const { data } = await api.delete(`/appointments/${id}`)
+  return data
+}
+
+export async function getAppointmentReminders(id) {
+  const { data } = await api.get(`/appointments/${id}/reminders`)
+  return data
+}
+
+export async function closeAppointment(id, payload) {
+  const { data } = await api.post(`/appointments/${id}/closure`, payload)
+  return data
+}
+
+export async function getAppointmentClosure(id) {
+  const { data } = await api.get(`/appointments/${id}/closure`)
+  return data
+}
+
+export async function getCommercialDashboard() {
+  const { data } = await api.get('/appointments/dashboard/commercial')
+  return data
+}
+
+export async function getNotifications({ unreadOnly = false, limit = 50 } = {}) {
+  const { data } = await api.get('/notifications', {
+    params: { unread_only: unreadOnly, limit },
+  })
+  return data
+}
+
+export async function getUnreadNotificationsCount() {
+  const { data } = await api.get('/notifications/unread-count')
+  return data.count
+}
+
+export async function markNotificationRead(id) {
+  const { data } = await api.post(`/notifications/${id}/read`)
+  return data
+}
+
+export async function markAllNotificationsRead() {
+  const { data } = await api.post('/notifications/read-all')
+  return data
+}
+
 /* ================= SUPER ADMIN (multi-cliente) ================= */
 
 export async function getTenants() {

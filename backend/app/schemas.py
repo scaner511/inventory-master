@@ -441,3 +441,290 @@ class TsDashboardOut(BaseModel):
     returned_this_month: int
     by_party: list[dict] = []
     by_location: list[dict] = []
+
+
+# ===================== GESTIÓN DE PROSPECTOS =====================
+
+
+class PipelineStageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    slug: str
+    name: str
+    position: int
+    color: str | None = None
+    is_terminal: bool = False
+    is_won: bool = False
+    is_lost: bool = False
+
+
+class ProspectNoteCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+
+class ProspectNoteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    text: str
+    created_by: int | None = None
+    created_at: datetime
+
+
+class ProspectActivityCreate(BaseModel):
+    kind: str = Field(pattern="^(llamada|whatsapp|correo|visita|videollamada|otro)$")
+    scheduled_at: datetime | None = None
+    done_at: datetime | None = None
+    observation: str | None = None
+    result: str | None = None
+    status: str = Field(default="pendiente", pattern="^(pendiente|realizada|cancelada)$")
+    user_id: int | None = None
+
+
+class ProspectActivityUpdate(BaseModel):
+    kind: str | None = Field(default=None, pattern="^(llamada|whatsapp|correo|visita|videollamada|otro)$")
+    scheduled_at: datetime | None = None
+    done_at: datetime | None = None
+    observation: str | None = None
+    result: str | None = None
+    status: str | None = Field(default=None, pattern="^(pendiente|realizada|cancelada)$")
+    user_id: int | None = None
+
+
+class ProspectActivityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    prospect_id: int
+    kind: str
+    scheduled_at: datetime | None = None
+    done_at: datetime | None = None
+    observation: str | None = None
+    result: str | None = None
+    status: str
+    user_id: int | None = None
+    created_at: datetime
+
+
+class ProspectHistoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    timestamp: datetime
+    user_id: int | None = None
+    action: str
+    detail: str | None = None
+
+
+class ProspectBase(BaseModel):
+    full_name: str = Field(min_length=1, max_length=200)
+    phone: str | None = Field(default=None, max_length=40)
+    address: str | None = Field(default=None, max_length=255)
+    marital_status: str | None = Field(default=None, max_length=30)
+    knows_brand: bool | None = None
+    notes: str | None = Field(default=None, max_length=500)
+    status: str | None = None
+    commercial_status: str | None = None
+    rating: int = Field(default=3, ge=1, le=5)
+    stage_slug: str | None = None
+    owner_id: int | None = None
+    has_budget: str | None = Field(default=None, pattern="^(si|no|desconocido)$")
+    is_decision_maker: str | None = Field(default=None, pattern="^(si|no|debe_consultar)$")
+    close_probability: int = Field(default=0, ge=0, le=100)
+    monthly_value: float = 0
+    setup_value: float = 0
+    interested_products: list[str] = []
+    lost_reason: str | None = None
+    lost_reason_detail: str | None = None
+    summary: str | None = None
+    next_followup_at: datetime | None = None
+
+
+class ProspectCreate(ProspectBase):
+    pass
+
+
+class ProspectUpdate(BaseModel):
+    full_name: str | None = Field(default=None, min_length=1, max_length=200)
+    phone: str | None = Field(default=None, max_length=40)
+    address: str | None = Field(default=None, max_length=255)
+    marital_status: str | None = Field(default=None, max_length=30)
+    knows_brand: bool | None = None
+    notes: str | None = Field(default=None, max_length=500)
+    status: str | None = None
+    commercial_status: str | None = None
+    rating: int | None = Field(default=None, ge=1, le=5)
+    stage_slug: str | None = None
+    owner_id: int | None = None
+    has_budget: str | None = Field(default=None, pattern="^(si|no|desconocido)$")
+    is_decision_maker: str | None = Field(default=None, pattern="^(si|no|debe_consultar)$")
+    close_probability: int | None = Field(default=None, ge=0, le=100)
+    monthly_value: float | None = None
+    setup_value: float | None = None
+    interested_products: list[str] | None = None
+    lost_reason: str | None = None
+    lost_reason_detail: str | None = None
+    summary: str | None = None
+    next_followup_at: datetime | None = None
+
+
+class ProspectOut(ProspectBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    owner_id: int | None = None
+    created_by: int | None = None
+    converted_at: datetime | None = None
+    converted_by: int | None = None
+    created_at: datetime
+    updated_at: datetime
+    opportunity_value: float = 0
+    weighted_value: float = 0
+
+
+class ProspectMove(BaseModel):
+    stage_slug: str = Field(min_length=1, max_length=40)
+    position: int | None = None
+
+
+class ConvertProspectIn(BaseModel):
+    note: str | None = None
+
+
+class OpportunitySummary(BaseModel):
+    total_value: float
+    weighted_value: float
+    pipeline_by_stage: list[dict] = []
+    by_status: list[dict] = []
+
+
+# ===================== CITAS, RECORDATORIOS Y NOTIFICACIONES =====================
+
+APPOINTMENT_STATUSES = "programada|confirmada|en_proceso|completada|cancelada|reagendada"
+
+
+class AppointmentReminderOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    minutes_before: int
+    fire_at: datetime
+    sent: bool
+    sent_at: datetime | None = None
+
+
+class AppointmentCreate(BaseModel):
+    prospect_id: int
+    start_at: datetime
+    end_at: datetime | None = None
+    user_id: int | None = None
+    address: str | None = None
+    phone: str | None = None
+    observation: str | None = None
+    status: str | None = Field(default=None, pattern=f"^({APPOINTMENT_STATUSES})$")
+    reminder_minutes: list[int] = []
+    reminder_minutes_single: int | None = Field(default=None, ge=1, le=1440)
+
+
+class AppointmentUpdate(BaseModel):
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    user_id: int | None = None
+    address: str | None = None
+    phone: str | None = None
+    observation: str | None = None
+    status: str | None = Field(default=None, pattern=f"^({APPOINTMENT_STATUSES})$")
+    reminder_minutes: list[int] | None = None
+    reschedule: bool = False
+
+
+class AppointmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    prospect_id: int
+    prospect_name: str | None = None
+    start_at: datetime
+    end_at: datetime | None = None
+    user_id: int | None = None
+    address: str | None = None
+    phone: str | None = None
+    observation: str | None = None
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class NotificationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    kind: str
+    title: str
+    body: str | None = None
+    entity: str | None = None
+    entity_id: int | None = None
+    read: bool
+    created_at: datetime
+
+
+# ===================== CIERRE DE VISITAS =====================
+
+
+class AppointmentClosureCreate(BaseModel):
+    visit_date: date | None = None
+    arrival_time: str | None = Field(default=None, max_length=8)
+    departure_time: str | None = Field(default=None, max_length=8)
+    result: str = Field(min_length=1, max_length=40)
+    result_detail: str = Field(min_length=1, max_length=1000)
+    markers: list[str] = []
+    interest_level: int = Field(default=3, ge=1, le=5)
+    demo_done: bool = False
+    demo_description: str | None = None
+    interest_products: list[str] = []
+    delivered_info: list[str] = []
+    commercial_status: str | None = None
+    next_followup_at: datetime | None = None
+    next_followup_kind: str | None = None
+    next_followup_observation: str | None = None
+    convert: bool = False
+
+
+class AppointmentClosureOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    appointment_id: int
+    prospect_id: int
+    visit_date: date
+    arrival_time: str | None = None
+    departure_time: str | None = None
+    total_minutes: int | None = None
+    user_id: int | None = None
+    result: str
+    result_detail: str
+    markers: list[str] = []
+    interest_level: int
+    demo_done: bool
+    demo_description: str | None = None
+    interest_products: list[str] = []
+    delivered_info: list[str] = []
+    commercial_status: str | None = None
+    created_at: datetime
+
+
+class CommercialDashboardOut(BaseModel):
+    total_prospects: int
+    converted: int
+    conversion_rate: float
+    active_pipeline_value: float
+    weighted_value: float
+    appointments_today: int
+    appointments_week: int
+    pending_followups: int
+    by_status: list[dict] = []
+    by_stage: list[dict] = []
+    by_month: list[dict] = []
+    top_products: list[dict] = []
+    lost_reasons: list[dict] = []
