@@ -603,6 +603,11 @@ export async function closeCaptureSession(id) {
   return data
 }
 
+export async function reopenCaptureSession(id) {
+  const { data } = await api.post(`/capture/sessions/${id}/reopen`)
+  return data
+}
+
 export async function getCaptureEntries(params = {}) {
   const { data } = await api.get('/capture/entries', { params })
   return data

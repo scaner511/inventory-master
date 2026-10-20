@@ -14,6 +14,7 @@ import {
   getCaptureSessions,
   startCaptureSession,
   closeCaptureSession,
+  reopenCaptureSession,
   generateCaptureLink,
   getUsers,
 } from '../api/index.js'
@@ -109,6 +110,10 @@ function SessionTab({ user }) {
   }, [])
 
   const start = async () => {
+    if (!form.user_id && !form.vendor_name.trim()) {
+      toast.error('Elige al vendedor de la jornada')
+      return
+    }
     try {
       const payload = {
         user_id: form.user_id ? Number(form.user_id) : null,
@@ -137,9 +142,24 @@ function SessionTab({ user }) {
     }
   }
 
-  const openTablet = async () => {
-    const vendorId = active?.session?.user_id
-    if (!vendorId) return
+  const reopen = async (id) => {
+    try {
+      const res = await reopenCaptureSession(id)
+      toast.success('Jornada reabierta')
+      setActive({ session: res })
+      refresh()
+    } catch {
+      /* noop */
+    }
+  }
+
+  const openTablet = async (session) => {
+    const target = session || active?.session
+    const vendorId = target?.user_id
+    if (!vendorId) {
+      toast.error('Esta jornada no tiene un vendedor asignado')
+      return
+    }
     try {
       const { capture_token } = await generateCaptureLink(vendorId)
       window.open(`/captacion/tablet?token=${capture_token}`, '_blank')
@@ -148,9 +168,13 @@ function SessionTab({ user }) {
     }
   }
 
-  const copyTabletLink = async () => {
-    const vendorId = active?.session?.user_id
-    if (!vendorId) return
+  const copyTabletLink = async (session) => {
+    const target = session || active?.session
+    const vendorId = target?.user_id
+    if (!vendorId) {
+      toast.error('Esta jornada no tiene un vendedor asignado')
+      return
+    }
     try {
       const { capture_token } = await generateCaptureLink(vendorId)
       await navigator.clipboard?.writeText(`${window.location.origin}/captacion/tablet?token=${capture_token}`)
@@ -236,17 +260,19 @@ function SessionTab({ user }) {
         <div className="rounded-xl border border-emerald-700/50 bg-emerald-900/10 p-4">
           <p className="text-sm font-semibold text-emerald-300">Jornada activa</p>
           <p className="mt-1 text-xs text-slate-400">
-            El vendedor tiene un enlace fijo para esta jornada (y las siguientes). Ábrelo o cópialo:
+            El enlace es exclusivo de este vendedor. Mientras la jornada esté abierta, la tablet
+            registra participaciones. Al finalizarla, la tablet pierde el acceso; puedes reabrirla
+            después reanudando la misma jornada (misma campaña y ubicación, sin reconfigurar).
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
-              onClick={openTablet}
+              onClick={() => openTablet(active?.session)}
               className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
             >
               Abrir tablet
             </button>
             <button
-              onClick={copyTabletLink}
+              onClick={() => copyTabletLink(active?.session)}
               className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800"
             >
               Copiar enlace fijo
@@ -293,12 +319,35 @@ function SessionTab({ user }) {
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right">
-                  {s.status === 'abierta' && (
+                  {s.status === 'abierta' ? (
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => openTablet(s)}
+                        className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
+                        title="Abrir la tablet de este vendedor"
+                      >
+                        Abrir tablet
+                      </button>
+                      <button
+                        onClick={() => copyTabletLink(s)}
+                        className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800"
+                      >
+                        Copiar enlace
+                      </button>
+                      <button
+                        onClick={() => close(s.id)}
+                        className="rounded-lg border border-red-700/50 px-3 py-1 text-xs font-semibold text-red-400 hover:bg-red-900/20"
+                      >
+                        Finalizar
+                      </button>
+                    </div>
+                  ) : (
                     <button
-                      onClick={() => close(s.id)}
-                      className="rounded-lg border border-red-700/50 px-3 py-1 text-xs font-semibold text-red-400 hover:bg-red-900/20"
+                      onClick={() => reopen(s.id)}
+                      className="rounded-lg border border-emerald-700/50 px-3 py-1 text-xs font-semibold text-emerald-400 hover:bg-emerald-900/20"
+                      title="Reanudar esta misma jornada con su configuración"
                     >
-                      Finalizar
+                      Reabrir
                     </button>
                   )}
                 </td>

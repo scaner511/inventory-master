@@ -44,18 +44,22 @@ function Wheel({ segments, rotation, spinning, size = 320 }) {
     const rad = (mid * Math.PI) / 180
     const x = r + labelRadius * Math.cos(rad)
     const y = r + labelRadius * Math.sin(rad)
+    // Alineación radial: el texto se orienta a lo largo del radio del segmento
+    // para que quede centrado y legible (antes quedaba horizontal y desfasado).
+    const flip = mid > 90 && mid < 270
     return (
       <text
         key={`lbl-${s.id ?? i}`}
         x={x}
         y={y}
         fill="#0b1220"
-        fontSize={Math.max(10, Math.min(16, 140 / n))}
+        fontSize={Math.max(9, Math.min(15, 150 / n))}
         fontWeight="700"
-        textAnchor="middle"
+        textAnchor={flip ? 'end' : 'start'}
         dominantBaseline="middle"
+        transform={`rotate(${mid} ${x} ${y})${flip ? ` rotate(180 ${x} ${y})` : ''}`}
       >
-        {s.label}
+        {String(s.label).slice(0, 18)}
       </text>
     )
   })
@@ -85,8 +89,51 @@ function Wheel({ segments, rotation, spinning, size = 320 }) {
   )
 }
 
-export default function CapturePublic() {
-  const [params] = useSearchParams()
+/* Lluvia de confeti simple (sin dependencias) que se muestra al ganar un premio. */
+function Confetti({ count = 90 }) {
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: count }, (_, i) => ({
+        id: i,
+        left: Math.random() * 100,
+        delay: Math.random() * 0.8,
+        duration: 2.6 + Math.random() * 1.6,
+        size: 7 + Math.random() * 9,
+        color: COLOR_FALLBACK[i % COLOR_FALLBACK.length],
+        rotate: Math.random() * 360,
+        round: Math.random() > 0.6,
+      })),
+    [count],
+  )
+  return (
+    <div className="pointer-events-none fixed inset-0 z-50 overflow-hidden">
+      {pieces.map((p) => (
+        <span
+          key={p.id}
+          style={{
+            position: 'absolute',
+            top: '-12vh',
+            left: `${p.left}%`,
+            width: p.size,
+            height: p.size * (p.round ? 1 : 0.5),
+            background: p.color,
+            borderRadius: p.round ? '50%' : '2px',
+            transform: `rotate(${p.rotate}deg)`,
+            animation: `confetti-fall ${p.duration}s linear ${p.delay}s forwards`,
+          }}
+        />
+      ))}
+      <style>{`
+        @keyframes confetti-fall {
+          0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(115vh) rotate(720deg); opacity: 0.9; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+export default function CapturePublic() {  const [params] = useSearchParams()
   const token = params.get('token') || getCaptureToken()
 
   const [info, setInfo] = useState(null)
@@ -99,6 +146,7 @@ export default function CapturePublic() {
   const [duplicate, setDuplicate] = useState(null)
   const [saving, setSaving] = useState(false)
   const [campaigns, setCampaigns] = useState([])
+  const [celebrate, setCelebrate] = useState(false)
   const rotationRef = useRef(0)
 
   const [form, setForm] = useState({
@@ -106,6 +154,7 @@ export default function CapturePublic() {
     phone: '',
     address: '',
     marital_status: '',
+    occupation: '',
     knows_brand: '',
     notes: '',
   })
@@ -159,6 +208,7 @@ export default function CapturePublic() {
       setTimeout(() => {
         setSpinning(false)
         setPhase('form')
+        if (res.prize && !res.prize.is_no_prize) setCelebrate(true)
       }, 4200)
     } catch {
       /* noop */
@@ -188,6 +238,7 @@ export default function CapturePublic() {
           phone: form.phone,
           address: form.address || null,
           marital_status: form.marital_status || null,
+          occupation: form.occupation || null,
           knows_brand: form.knows_brand === '' ? null : form.knows_brand === 'si',
           notes: form.notes || null,
           prize_id: prize?.id || null,
@@ -210,7 +261,8 @@ export default function CapturePublic() {
     setPhase('idle')
     setPrize(null)
     setDuplicate(null)
-    setForm({ full_name: '', phone: '', address: '', marital_status: '', knows_brand: '', notes: '' })
+    setCelebrate(false)
+    setForm({ full_name: '', phone: '', address: '', marital_status: '', occupation: '', knows_brand: '', notes: '' })
   }
 
   if (error) {
@@ -260,6 +312,7 @@ export default function CapturePublic() {
       </header>
 
       <div className="mx-auto flex max-w-4xl flex-col items-center gap-6">
+        {phase === 'form' && celebrate && <Confetti />}
         {phase === 'idle' && (
           <>
             <Wheel segments={segments} rotation={rotation} spinning={spinning} />
@@ -276,11 +329,22 @@ export default function CapturePublic() {
         {phase === 'form' && (
           <div className="w-full max-w-xl space-y-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
             {prize && (
-              <div className="rounded-xl border border-amber-600/40 bg-amber-900/10 p-4 text-center">
+              <div
+                className={`rounded-xl border p-4 text-center ${
+                  celebrate
+                    ? 'animate-pulse border-amber-400/60 bg-amber-900/20'
+                    : 'border-slate-700/60 bg-slate-800/40'
+                }`}
+              >
                 <p className="text-xs uppercase tracking-wide text-amber-300">Resultado</p>
-                <p className="text-xl font-extrabold text-amber-200">
-                  {prize.is_no_prize ? info.no_prize_message : `¡Ganaste: ${prize.name}!`}
+                <p className="text-2xl font-extrabold text-amber-200">
+                  {prize.is_no_prize ? info.no_prize_message : `🎉 ¡Ganaste: ${prize.name}!`}
                 </p>
+                {!prize.is_no_prize && (
+                  <p className="mt-2 text-sm text-slate-300">
+                    Completa tus datos para entregarte tu premio.
+                  </p>
+                )}
               </div>
             )}
 
@@ -313,6 +377,14 @@ export default function CapturePublic() {
               </PubField>
               <PubField label="Estado civil">
                 <input className={PUBINPUT} value={form.marital_status} onChange={(e) => setForm({ ...form, marital_status: e.target.value })} />
+              </PubField>
+              <PubField label="¿A qué se dedica?">
+                <input
+                  className={PUBINPUT}
+                  value={form.occupation}
+                  onChange={(e) => setForm({ ...form, occupation: e.target.value })}
+                  placeholder="Ej. Comerciante, empleado, ama de casa…"
+                />
               </PubField>
               <PubField label="¿Conoce la marca?">
                 <select className={PUBINPUT} value={form.knows_brand} onChange={(e) => setForm({ ...form, knows_brand: e.target.value })}>

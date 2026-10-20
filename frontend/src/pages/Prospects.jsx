@@ -73,7 +73,7 @@ function Stars({ value, onChange, readOnly = false }) {
 }
 
 const EMPTY_FORM = {
-  full_name: '', phone: '', address: '', marital_status: '', knows_brand: '',
+  full_name: '', phone: '', address: '', marital_status: '', occupation: '', knows_brand: '',
   notes: '', status: 'nuevo', rating: 3, stage_slug: 'nuevo',
   has_budget: '', is_decision_maker: '', close_probability: 0,
   monthly_value: '', setup_value: '', interested_products: [],
@@ -150,7 +150,7 @@ export default function Prospects() {
     setEditing(p)
     setForm({
       full_name: p.full_name, phone: p.phone || '', address: p.address || '',
-      marital_status: p.marital_status || '', knows_brand: p.knows_brand === true ? 'si' : p.knows_brand === false ? 'no' : '',
+      marital_status: p.marital_status || '', occupation: p.occupation || '', knows_brand: p.knows_brand === true ? 'si' : p.knows_brand === false ? 'no' : '',
       notes: p.notes || '', status: p.status, rating: p.rating, stage_slug: p.stage_slug,
       has_budget: p.has_budget || '', is_decision_maker: p.is_decision_maker || '',
       close_probability: p.close_probability, monthly_value: p.monthly_value || '',
@@ -167,6 +167,7 @@ export default function Prospects() {
       phone: form.phone.trim() || null,
       address: form.address.trim() || null,
       marital_status: form.marital_status.trim() || null,
+      occupation: form.occupation.trim() || null,
       knows_brand: form.knows_brand === 'si' ? true : form.knows_brand === 'no' ? false : null,
       notes: form.notes.trim() || null,
       status: form.status,
@@ -496,6 +497,13 @@ export default function Prospects() {
                 <option value="viudo">Viudo(a)</option>
               </Select>
             </Field>
+            <Field label="¿A qué se dedica?">
+              <Input
+                value={form.occupation}
+                onChange={(e) => setForm({ ...form, occupation: e.target.value })}
+                placeholder="Ej. Comerciante, empleado…"
+              />
+            </Field>
             <Field label="¿Conoce la marca?">
               <Select value={form.knows_brand} onChange={(e) => setForm({ ...form, knows_brand: e.target.value })}>
                 <option value="">—</option>
@@ -592,6 +600,7 @@ export default function Prospects() {
               <div><span className="text-slate-500">Teléfono:</span> {detail.phone || '—'}</div>
               <div><span className="text-slate-500">Dirección:</span> {detail.address || '—'}</div>
               <div><span className="text-slate-500">Estado civil:</span> {detail.marital_status || '—'}</div>
+              <div><span className="text-slate-500">¿A qué se dedica?:</span> {detail.occupation || '—'}</div>
               <div><span className="text-slate-500">Conoce marca:</span> {detail.knows_brand === true ? 'Sí' : detail.knows_brand === false ? 'No' : '—'}</div>
               <div><span className="text-slate-500">Oportunidad:</span> {formatMoney(detail.opportunity_value)}</div>
               <div><span className="text-slate-500">Probabilidad:</span> {detail.close_probability}%</div>

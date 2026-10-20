@@ -360,6 +360,42 @@ def close_session(
     return session
 
 
+@router.post("/sessions/{session_id}/reopen", response_model=CaptureSessionOut)
+def reopen_session(
+    session_id: int,
+    request: Request,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    """Reabre una jornada cerrada reanudándola con su configuración original.
+
+    Al reabrir, la tablet del vendedor vuelve a funcionar con la MISMA jornada
+    (misma campaña, ubicación y nombre de vendedor), sin necesidad de configurar
+    nada de nuevo.
+    """
+    session = (
+        db.query(PublicCaptureSession)
+        .filter(
+            PublicCaptureSession.id == session_id,
+            PublicCaptureSession.tenant_id == user.tenant_id,
+        )
+        .first()
+    )
+    if session is None:
+        raise HTTPException(status_code=404, detail="Jornada no encontrada")
+    session.status = "abierta"
+    session.closed_at = None
+    db.commit()
+    db.refresh(session)
+    services.capture_history(
+        db, tenant_id=user.tenant_id, action="JORNADA_REABIERTA",
+        detail=session.campaign_name, session_id=session.id,
+        user_id=user.id, user_name=_user_display(user), ip=_client_ip(request),
+    )
+    db.commit()
+    return session
+
+
 # --------------------------------------------------------------------------- #
 # Participaciones / auditoría
 # --------------------------------------------------------------------------- #

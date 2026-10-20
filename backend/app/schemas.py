@@ -604,6 +604,7 @@ class ProspectBase(BaseModel):
     phone: str | None = Field(default=None, max_length=40)
     address: str | None = Field(default=None, max_length=255)
     marital_status: str | None = Field(default=None, max_length=30)
+    occupation: str | None = Field(default=None, max_length=120)
     knows_brand: bool | None = None
     notes: str | None = Field(default=None, max_length=500)
     status: str | None = None
@@ -649,6 +650,7 @@ class ProspectUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=40)
     address: str | None = Field(default=None, max_length=255)
     marital_status: str | None = Field(default=None, max_length=30)
+    occupation: str | None = Field(default=None, max_length=120)
     knows_brand: bool | None = None
     notes: str | None = Field(default=None, max_length=500)
     status: str | None = None
@@ -1068,6 +1070,7 @@ class CaptureRegisterIn(BaseModel):
     phone: str = Field(min_length=3, max_length=40)
     address: str | None = Field(default=None, max_length=255)
     marital_status: str | None = Field(default=None, max_length=30)
+    occupation: str | None = Field(default=None, max_length=120)
     knows_brand: bool | None = None
     notes: str | None = Field(default=None, max_length=500)
     prize_id: int | None = None

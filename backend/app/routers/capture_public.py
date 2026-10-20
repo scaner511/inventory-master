@@ -9,8 +9,6 @@ vendedor (``users.capture_token``). Ese enlace no cambia entre jornadas: al
 abrirse se REUTILIZA la jornada abierta del vendedor o se CREA una nueva de
 forma automática (sin botón "INICIAR JORNADA" en el celular).
 """
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -35,6 +33,12 @@ def _resolve_session(
 ):
     """Resuelve (vendedor, jornada) a partir del token FIJO de la tablet.
 
+    El enlace es único por vendedor. La tablet SOLO funciona mientras la última
+    jornada de ese vendedor esté ABIERTA: el administrador la inicia y la cierra
+    desde el panel. Si está cerrada (o el vendedor no tiene jornada), se niega el
+    acceso (403) hasta que el administrador la reabra; al reabrir se reanuda la
+    MISMA jornada con su configuración original (sin reconfigurar).
+
     Devuelve un generador que entrega (tenant_db, session). El tenant_db se
     cierra al finalizar la petición.
     """
@@ -56,7 +60,9 @@ def _resolve_session(
     if tenant_id is None:
         raise HTTPException(status_code=401, detail="Enlace de captación inválido")
 
-    # 2) Reutiliza la jornada abierta del vendedor o crea una nueva.
+    # 2) Resuelve la jornada MÁS RECIENTE del vendedor. No se crea sola: eso lo
+    #    hace el administrador al iniciar la jornada. Si la última está cerrada,
+    #    la tablet no tiene acceso.
     tdb = get_tenant_session(tenant_id)
     try:
         session = (
@@ -64,24 +70,21 @@ def _resolve_session(
             .filter(
                 PublicCaptureSession.tenant_id == tenant_id,
                 PublicCaptureSession.user_id == vendor_id,
-                PublicCaptureSession.status == "abierta",
             )
             .order_by(PublicCaptureSession.started_at.desc())
             .first()
         )
         if session is None:
-            session = PublicCaptureSession(
-                tenant_id=tenant_id,
-                user_id=vendor_id,
-                user_name=vendor_name,
-                status="abierta",
-                started_at=datetime.utcnow(),
-                created_by=vendor_id,
+            raise HTTPException(
+                status_code=403,
+                detail="Aún no hay una jornada de captación. Pídele a tu administrador que la inicie.",
             )
-            tdb.add(session)
-            tdb.commit()
-            tdb.refresh(session)
-        elif not session.user_name:
+        if session.status != "abierta":
+            raise HTTPException(
+                status_code=403,
+                detail="La jornada de captación está cerrada. Pídele a tu administrador que la reabra.",
+            )
+        if not session.user_name:
             session.user_name = vendor_name
             tdb.commit()
             tdb.refresh(session)
