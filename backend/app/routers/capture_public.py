@@ -113,6 +113,7 @@ def public_session(ctx=Depends(_resolve_session)):
         location=session.location,
         duplicate_action=cfg.duplicate_action,
         no_prize_message=cfg.no_prize_message,
+        segments=services.wheel_segments(db, session.tenant_id),
     )
 
 
@@ -163,6 +164,7 @@ def public_select_campaign(
         location=session.location,
         duplicate_action=cfg.duplicate_action,
         no_prize_message=cfg.no_prize_message,
+        segments=services.wheel_segments(db, session.tenant_id),
     )
 
 

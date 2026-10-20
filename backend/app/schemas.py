@@ -1050,6 +1050,8 @@ class CapturePublicInfoOut(BaseModel):
     location: str | None = None
     duplicate_action: str
     no_prize_message: str
+    # Segmentos de la ruleta para dibujarla de inmediato (sin esperar un giro).
+    segments: list[dict] = []
 
 
 class CaptureDuplicateCheckIn(BaseModel):

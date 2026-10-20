@@ -40,13 +40,13 @@ function Wheel({ segments, rotation, spinning, size = 320 }) {
     )
   })
   const labels = segments.map((s, i) => {
-    const mid = i * seg + seg / 2 - 90
-    const rad = (mid * Math.PI) / 180
+    // Ángulo central del segmento (0° = arriba, avanza en sentido horario).
+    const mid = i * seg + seg / 2
+    const rad = ((mid - 90) * Math.PI) / 180
     const x = r + labelRadius * Math.cos(rad)
     const y = r + labelRadius * Math.sin(rad)
-    // Alineación radial: el texto se orienta a lo largo del radio del segmento
-    // para que quede centrado y legible (antes quedaba horizontal y desfasado).
-    const flip = mid > 90 && mid < 270
+    // En la mitad inferior el texto quedaría de cabeza: lo giramos 180°.
+    const upsideDown = mid > 180
     return (
       <text
         key={`lbl-${s.id ?? i}`}
@@ -55,9 +55,9 @@ function Wheel({ segments, rotation, spinning, size = 320 }) {
         fill="#0b1220"
         fontSize={Math.max(9, Math.min(15, 150 / n))}
         fontWeight="700"
-        textAnchor={flip ? 'end' : 'start'}
+        textAnchor="middle"
         dominantBaseline="middle"
-        transform={`rotate(${mid} ${x} ${y})${flip ? ` rotate(180 ${x} ${y})` : ''}`}
+        transform={`rotate(${upsideDown ? mid - 180 : mid} ${x} ${y})`}
       >
         {String(s.label).slice(0, 18)}
       </text>
@@ -171,7 +171,7 @@ export default function CapturePublic() {  const [params] = useSearchParams()
     getPublicCaptureSession(token)
       .then((data) => {
         setInfo(data)
-        setSegments(data.session ? [] : [])
+        setSegments(data.segments || [])
       })
       .catch(() => setError('Enlace inválido. Pídele a tu administrador el enlace correcto.'))
     getPublicCaptureCampaigns(token)
@@ -183,6 +183,7 @@ export default function CapturePublic() {  const [params] = useSearchParams()
     try {
       const updated = await selectPublicCampaign(campaignId || null, token)
       setInfo(updated)
+      if (updated.segments) setSegments(updated.segments)
       toast.success('Campaña actualizada')
     } catch {
       /* noop */
