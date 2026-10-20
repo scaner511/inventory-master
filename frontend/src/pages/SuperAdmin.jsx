@@ -35,6 +35,7 @@ const MODULES = [
   { key: 'calendar', label: 'Calendario' },
   { key: 'temporary_storage', label: 'Recepción de Mercancía' },
   { key: 'capture', label: 'Captación' },
+  { key: 'commercial', label: 'Dashboard Comercial' },
 ]
 
 function roleBadge(role) {

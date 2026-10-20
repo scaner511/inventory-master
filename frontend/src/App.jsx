@@ -145,7 +145,9 @@ export default function App() {
           path="/commercial"
           element={
             <LicenseGate>
-              <CommercialDashboard />
+              <ModuleGate module="commercial">
+                <CommercialDashboard />
+              </ModuleGate>
             </LicenseGate>
           }
         />
