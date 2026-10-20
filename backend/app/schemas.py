@@ -72,7 +72,19 @@ class UserOut(BaseModel):
     subscription_expires_at: date | None = None
     subscription_days_left: int | None = None
     # Módulos habilitados para este usuario (lista). Admin/superadmin = todos.
+    # mode="before": el ORM guarda ``modules`` como texto JSON (o None); aquí se
+    # normaliza a lista ANTES de la validación, para no fallar al construir
+    # UserOut desde el modelo (p. ej. en el login).
     modules: list[str] = Field(default_factory=list)
+
+    @field_validator("modules", mode="before")
+    @classmethod
+    def _normalize_modules(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return modules_from_raw(value)
+        return value
     # Enlace fijo de captación (solo se incluye en el listado de usuarios).
     capture_token: str | None = None
 
