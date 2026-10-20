@@ -20,7 +20,7 @@ function Wheel({ segments, rotation, spinning, size = 320 }) {
   const n = Math.max(1, segments.length)
   const seg = 360 / n
   const r = size / 2
-  const labelRadius = r * 0.62
+  const labelRadius = r * 0.74
   const paths = segments.map((s, i) => {
     const a0 = (i * seg - 90) * (Math.PI / 180)
     const a1 = ((i + 1) * seg - 90) * (Math.PI / 180)
