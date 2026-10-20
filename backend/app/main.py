@@ -70,6 +70,15 @@ def _migrate_accept_terms(db: Session) -> None:
     db.commit()
 
 
+def _migrate_user_modules(db: Session) -> None:
+    """Agrega la columna modules (módulos habilitados) a la tabla users."""
+    if "modules" not in _table_columns("users"):
+        db.execute(text("ALTER TABLE users ADD COLUMN modules TEXT"))
+    if "capture_token" not in _table_columns("users"):
+        db.execute(text("ALTER TABLE users ADD COLUMN capture_token VARCHAR(80)"))
+    db.commit()
+
+
 def _migrate_drive_per_tenant(db: Session) -> None:
     """Convierte drive_connection a conexión por proveedor (columna tenant_id)."""
     if "drive_connection" not in _table_names():
@@ -600,6 +609,7 @@ def init_db() -> None:
         _migrate_roles(db)
         _migrate_license_machine_code(db)
         _migrate_accept_terms(db)
+        _migrate_user_modules(db)
         _migrate_tenant_max_users(db)
         _migrate_drive_per_tenant(db)
         _migrate_user_active_session(db)

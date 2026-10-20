@@ -5,6 +5,8 @@ El Super Admin administra todos los clientes desde /api/superadmin.
 """
 from datetime import date, timedelta
 
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -18,6 +20,7 @@ from app.schemas import (
     UserCreate,
     UserOut,
     UserUpdate,
+    modules_to_raw,
     user_out,
 )
 from app.utils.security import hash_password
@@ -131,6 +134,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _user: User = D
         must_change_password=True,
         security_question=data.security_question,
         security_answer=data.security_answer,
+        modules=modules_to_raw(data.modules) if data.modules is not None else None,
         # El usuario nuevo comparte la vigencia de su cliente.
         subscription_expires_at=tenant.subscription_expires_at
         if tenant is not None and tenant.subscription_expires_at is not None
@@ -152,8 +156,14 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db), _
     if updates.get("is_active") is False:
         _ensure_admin_remains(db, user)
 
+    modules = updates.pop("modules", None)
     for field, value in updates.items():
         setattr(user, field, value)
+    # Solo los operadores ("user") tienen módulos restringidos; admin/superadmin ven todo.
+    if modules is not None and user.role == "user":
+        user.modules = modules_to_raw(modules)
+    elif user.role != "user":
+        user.modules = None
     db.commit()
     db.refresh(user)
     return _user_out_public(user)
@@ -180,3 +190,23 @@ def delete_user(user_id: int, db: Session = Depends(get_db), _user: User = Depen
     db.delete(user)
     db.commit()
     return {"message": f"Usuario '{user.username}' eliminado."}
+
+
+@router.post("/{user_id}/capture-link")
+def generate_capture_link(
+    user_id: int,
+    regenerate: bool = False,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_admin),
+):
+    """Devuelve (y crea si falta) el enlace FIJO de captación del vendedor.
+
+    El token no expira ni cambia entre jornadas; con ``regenerate=true`` se
+    invalida el enlace anterior y se emite uno nuevo.
+    """
+    user = _get_tenant_user(db, user_id, _user.tenant_id)
+    if regenerate or not user.capture_token:
+        user.capture_token = secrets.token_urlsafe(24)
+        db.commit()
+        db.refresh(user)
+    return {"capture_token": user.capture_token}

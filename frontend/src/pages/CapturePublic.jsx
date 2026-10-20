@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
   getPublicCaptureSession,
+  getPublicCaptureCampaigns,
+  selectPublicCampaign,
   publicCaptureSpin,
   publicCheckDuplicate,
   publicCaptureRegister,
@@ -74,6 +76,7 @@ export default function CapturePublic() {
   const [prize, setPrize] = useState(null)
   const [duplicate, setDuplicate] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [campaigns, setCampaigns] = useState([])
   const rotationRef = useRef(0)
 
   const [form, setForm] = useState({
@@ -99,8 +102,21 @@ export default function CapturePublic() {
         setInfo(data)
         setSegments(data.session ? [] : [])
       })
-      .catch(() => setError('Token inválido, expirado o jornada cerrada.'))
+      .catch(() => setError('Enlace inválido. Pídele a tu administrador el enlace correcto.'))
+    getPublicCaptureCampaigns(token)
+      .then(setCampaigns)
+      .catch(() => {})
   }, [token])
+
+  const chooseCampaign = async (campaignId) => {
+    try {
+      const updated = await selectPublicCampaign(campaignId || null, token)
+      setInfo(updated)
+      toast.success('Campaña actualizada')
+    } catch {
+      /* noop */
+    }
+  }
 
   const vendorLabel = useMemo(() => info?.vendor_name || 'Vendedor', [info])
 
@@ -203,6 +219,22 @@ export default function CapturePublic() {
           {vendorLabel}
           {info.location ? ` · ${info.location}` : ''}
         </p>
+        {campaigns.length > 0 && (
+          <div className="mt-3 flex justify-center">
+            <select
+              className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-100"
+              value={info.campaign?.id || ''}
+              onChange={(e) => chooseCampaign(e.target.value)}
+            >
+              <option value="">Sin campaña</option>
+              {campaigns.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </header>
 
       <div className="mx-auto flex max-w-4xl flex-col items-center gap-6">

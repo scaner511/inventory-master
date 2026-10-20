@@ -124,6 +124,18 @@ export async function createUser(payload) {
   return data
 }
 
+export async function updateUser(id, payload) {
+  const { data } = await api.put(`/users/${id}`, payload)
+  return data
+}
+
+export async function generateCaptureLink(id, regenerate = false) {
+  const { data } = await api.post(`/users/${id}/capture-link`, null, {
+    params: { regenerate },
+  })
+  return data
+}
+
 export async function deleteUser(id) {
   const { data } = await api.delete(`/users/${id}`)
   return data
@@ -632,6 +644,20 @@ function captureTokenHeaders(token) {
 
 export async function getPublicCaptureSession(token) {
   const { data } = await api.get('/capture/public/session', captureTokenHeaders(token))
+  return data
+}
+
+export async function getPublicCaptureCampaigns(token) {
+  const { data } = await api.get('/capture/public/campaigns', captureTokenHeaders(token))
+  return data
+}
+
+export async function selectPublicCampaign(campaignId, token) {
+  const { data } = await api.post(
+    '/capture/public/campaign',
+    { campaign_id: campaignId },
+    captureTokenHeaders(token),
+  )
   return data
 }
 

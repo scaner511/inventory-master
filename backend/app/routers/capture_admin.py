@@ -57,6 +57,25 @@ def _client_ip(request: Request) -> str | None:
     return None
 
 
+def _user_display(user: User) -> str:
+    """Nombre para mostrar del usuario (no hay full_name; usamos username)."""
+    return user.username
+
+
+def _platform_user_name(user_id: int) -> str | None:
+    """Nombre del usuario según la base de PLATAFORMA (users vive ahí, no en el negocio)."""
+    from app.database import SessionLocal
+
+    pdb = SessionLocal()
+    try:
+        u = pdb.get(User, user_id)
+        if u is None:
+            return None
+        return u.username
+    finally:
+        pdb.close()
+
+
 def _campaign_or_404(db: Session, campaign_id: int, tenant_id: int) -> CaptureCampaign:
     c = (
         db.query(CaptureCampaign)
@@ -109,7 +128,7 @@ def create_campaign(
     db.refresh(obj)
     services.capture_history(
         db, tenant_id=user.tenant_id, action="CAMPAÑA_CREADA",
-        detail=obj.name, user_id=user.id, user_name=user.full_name,
+        detail=obj.name, user_id=user.id, user_name=_user_display(user),
     )
     db.commit()
     return obj
@@ -133,7 +152,7 @@ def update_campaign(
         detail = f"{obj.name}: estado {before} -> {obj.status}"
     services.capture_history(
         db, tenant_id=user.tenant_id, action="CAMPAÑA_MODIFICADA",
-        detail=detail, user_id=user.id, user_name=user.full_name,
+        detail=detail, user_id=user.id, user_name=_user_display(user),
     )
     db.commit()
     return obj
@@ -150,7 +169,7 @@ def delete_campaign(
     db.delete(obj)
     services.capture_history(
         db, tenant_id=user.tenant_id, action="CAMPAÑA_ELIMINADA",
-        detail=name, user_id=user.id, user_name=user.full_name,
+        detail=name, user_id=user.id, user_name=_user_display(user),
     )
     db.commit()
 
@@ -183,7 +202,7 @@ def create_prize(
     db.refresh(obj)
     services.capture_history(
         db, tenant_id=user.tenant_id, action="PREMIO_CREADO",
-        detail=obj.name, user_id=user.id, user_name=user.full_name,
+        detail=obj.name, user_id=user.id, user_name=_user_display(user),
     )
     db.commit()
     return obj
@@ -203,7 +222,7 @@ def update_prize(
     db.refresh(obj)
     services.capture_history(
         db, tenant_id=user.tenant_id, action="PREMIO_MODIFICADO",
-        detail=obj.name, user_id=user.id, user_name=user.full_name,
+        detail=obj.name, user_id=user.id, user_name=_user_display(user),
     )
     db.commit()
     return obj
@@ -220,7 +239,7 @@ def delete_prize(
     db.delete(obj)
     services.capture_history(
         db, tenant_id=user.tenant_id, action="PREMIO_ELIMINADO",
-        detail=name, user_id=user.id, user_name=user.full_name,
+        detail=name, user_id=user.id, user_name=_user_display(user),
     )
     db.commit()
 
@@ -247,7 +266,7 @@ def update_config(
     db.refresh(cfg)
     services.capture_history(
         db, tenant_id=user.tenant_id, action="CONFIGURACION_MODIFICADA",
-        detail=f"Duplicados: {cfg.duplicate_action}", user_id=user.id, user_name=user.full_name,
+        detail=f"Duplicados: {cfg.duplicate_action}", user_id=user.id, user_name=_user_display(user),
     )
     db.commit()
     return cfg
@@ -277,10 +296,14 @@ def start_session(
     user: User = Depends(get_current_user),
 ):
     vendor_id = data.user_id or user.id
-    vendor_name = user.full_name if vendor_id == user.id else None
-    if vendor_name is None:
-        target = db.get(User, vendor_id) if hasattr(db, "get") else None
-        vendor_name = target.full_name if target else None
+    # Nombre de vendedor: manual (si se escribió), el del usuario elegido desde
+    # la plataforma, o el del usuario autenticado.
+    if data.vendor_name and data.vendor_name.strip():
+        vendor_name = data.vendor_name.strip()
+    elif vendor_id == user.id:
+        vendor_name = _user_display(user)
+    else:
+        vendor_name = _platform_user_name(vendor_id) or _user_display(user)
     campaign = None
     if data.campaign_id:
         campaign = _campaign_or_404(db, data.campaign_id, user.tenant_id)
@@ -299,7 +322,7 @@ def start_session(
     services.capture_history(
         db, tenant_id=user.tenant_id, action="JORNADA_INICIADA",
         detail=f"Vendedor: {vendor_name or ''} · Campaña: {campaign.name if campaign else 'N/A'}",
-        session_id=session.id, user_id=user.id, user_name=user.full_name,
+        session_id=session.id, user_id=user.id, user_name=_user_display(user),
         ip=_client_ip(request),
     )
     db.commit()
@@ -331,7 +354,7 @@ def close_session(
     services.capture_history(
         db, tenant_id=user.tenant_id, action="JORNADA_FINALIZADA",
         detail=session.campaign_name, session_id=session.id,
-        user_id=user.id, user_name=user.full_name, ip=_client_ip(request),
+        user_id=user.id, user_name=_user_display(user), ip=_client_ip(request),
     )
     db.commit()
     return session

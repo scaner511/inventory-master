@@ -14,6 +14,36 @@ def _utc_iso(dt: datetime | None) -> str | None:
         return None
     return dt.isoformat() + "Z" if dt.tzinfo is None else dt.isoformat()
 
+
+# Módulos que un administrador puede habilitar/deshabilitar por usuario.
+ALLOWED_MODULES = ("capture", "calendar", "temporary_storage", "prospects")
+
+
+def modules_from_raw(raw: str | None) -> list[str]:
+    """Convierte el valor almacenado (JSON o separado por comas) en lista."""
+    import json
+
+    if not raw:
+        return list(ALLOWED_MODULES)
+    raw = raw.strip()
+    if raw.startswith("["):
+        try:
+            values = json.loads(raw)
+            return [str(v) for v in values if str(v) in ALLOWED_MODULES]
+        except Exception:
+            return list(ALLOWED_MODULES)
+    return [v for v in (p.strip() for p in raw.split(",")) if v in ALLOWED_MODULES]
+
+
+def modules_to_raw(values: list[str] | None) -> str | None:
+    """Serializa la lista de módulos para guardarla en la columna."""
+    import json
+
+    if values is None:
+        return None
+    clean = [v for v in values if v in ALLOWED_MODULES]
+    return json.dumps(clean)
+
 # ===================== AUTH =====================
 
 
@@ -41,6 +71,10 @@ class UserOut(BaseModel):
     # el Super Admin va a None).
     subscription_expires_at: date | None = None
     subscription_days_left: int | None = None
+    # Módulos habilitados para este usuario (lista). Admin/superadmin = todos.
+    modules: list[str] = Field(default_factory=list)
+    # Enlace fijo de captación (solo se incluye en el listado de usuarios).
+    capture_token: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -52,6 +86,7 @@ class TokenResponse(BaseModel):
 def user_out(user) -> UserOut:
     """Construye UserOut rellenando el nombre del tenant si existe."""
     out = UserOut.model_validate(user)
+    out.modules = list(ALLOWED_MODULES) if user.role in ("admin", "superadmin") else modules_from_raw(user.modules)
     if user.tenant_id is not None:
         tenant = getattr(user, "tenant", None)
         out.tenant_name = tenant.name if tenant is not None else None
@@ -84,6 +119,8 @@ class UserCreate(BaseModel):
     role: str = Field(default="user", pattern="^(admin|user)$")
     security_question: str | None = None
     security_answer: str | None = None
+    # Módulos habilitados (solo aplica a rol "user"). None = todos.
+    modules: list[str] | None = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -95,6 +132,8 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     role: str | None = Field(default=None, pattern="^(admin|user)$")
     is_active: bool | None = None
+    # Módulos habilitados (solo aplica a rol "user"). None = no modificar.
+    modules: list[str] | None = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -904,6 +943,7 @@ class CaptureConfigUpdate(BaseModel):
 
 class CaptureSessionCreate(BaseModel):
     user_id: int | None = None
+    vendor_name: str | None = Field(default=None, max_length=80)
     campaign_id: int | None = None
     location: str | None = Field(default=None, max_length=180)
     observations: str | None = None

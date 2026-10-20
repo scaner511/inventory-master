@@ -83,6 +83,12 @@ class User(Base):
     # Sesión única: sólo un equipo puede tener la sesión activa a la vez.
     active_session: Mapped[str | None] = mapped_column(String(64), nullable=True)
     session_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Módulos habilitados por el administrador (JSON serializado). NULL = todos.
+    # Claves válidas: capture, calendar, temporary_storage, prospects.
+    modules: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Token FIJO de captación por vendedor: enlace reutilizable de la tablet que
+    # no cambia entre jornadas (NULL = aún no generado).
+    capture_token: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
 
     tenant: Mapped["Tenant | None"] = relationship(back_populates="users")
 

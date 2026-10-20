@@ -7,6 +7,7 @@ import {
   createUser,
   deleteUser,
   disconnectDrive,
+  generateCaptureLink,
   getDriveStatus,
   getLogoUrl,
   getSettings,
@@ -21,6 +22,7 @@ import {
   setSecurityQuestion,
   testDriveConnection,
   updateSettings,
+  updateUser,
   uploadBackupToDrive,
 } from '../api/index.js'
 import { api, openAuthenticatedUrl } from '../api/client.js'
@@ -35,6 +37,14 @@ const TABS = [
   { id: 'backups', label: '💾 Backups' },
   { id: 'terms', label: '⚖️ Términos' },
   { id: 'account', label: '🔑 Mi cuenta' },
+]
+
+// Módulos que el administrador puede habilitar por usuario (rol Operador).
+export const MODULES = [
+  { key: 'prospects', label: 'Prospectos' },
+  { key: 'calendar', label: 'Calendario' },
+  { key: 'temporary_storage', label: 'Recepción de Mercancía' },
+  { key: 'capture', label: 'Captación' },
 ]
 
 export default function Admin() {
@@ -97,6 +107,8 @@ function UsersTab() {
   const [saving, setSaving] = useState(false)
   const [resetTarget, setResetTarget] = useState(null)
   const [resetPass, setResetPass] = useState('')
+  const [modulesTarget, setModulesTarget] = useState(null)
+  const [modulesDraft, setModulesDraft] = useState([])
 
   const load = useCallback(async () => {
     try {
@@ -156,6 +168,48 @@ function UsersTab() {
     }
   }
 
+  function openModules(u) {
+    setModulesTarget(u)
+    setModulesDraft(Array.isArray(u.modules) ? u.modules : MODULES.map((m) => m.key))
+  }
+
+  function toggleModule(key) {
+    setModulesDraft((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    )
+  }
+
+  async function handleSaveModules() {
+    if (!modulesTarget) return
+    setSaving(true)
+    try {
+      await updateUser(modulesTarget.id, { modules: modulesDraft })
+      toast.success(`Módulos de ${modulesTarget.username} actualizados`)
+      setModulesTarget(null)
+      load()
+    } catch {
+      /* interceptor */
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleCaptureLink(u) {
+    try {
+      const { capture_token } = await generateCaptureLink(u.id)
+      const url = `${window.location.origin}/captacion/tablet?token=${capture_token}`
+      try {
+        await navigator.clipboard.writeText(url)
+        toast.success(`Enlace de captación de ${u.username} copiado`)
+      } catch {
+        window.prompt(`Enlace de captación de ${u.username}`, url)
+      }
+      load()
+    } catch {
+      /* interceptor */
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -174,6 +228,7 @@ function UsersTab() {
             { key: 'role', label: 'Rol', align: 'center' },
             { key: 'active', label: 'Activo', align: 'center' },
             { key: 'mustChange', label: 'Contraseña', align: 'center' },
+            { key: 'modules', label: 'Módulos', align: 'center' },
             { key: 'created', label: 'Creado' },
             { key: 'actions', label: 'Acciones', align: 'center' },
           ]}
@@ -198,9 +253,29 @@ function UsersTab() {
                   <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-bold text-emerald-400">✓ Actualizada</span>
                 )}
               </td>
+              <td className="px-4 py-3 text-center">
+                {u.role === 'user' ? (
+                  <button
+                    onClick={() => openModules(u)}
+                    className="rounded-lg bg-blue-500/10 px-2.5 py-1 text-xs font-semibold text-blue-400 transition hover:bg-blue-500/20"
+                    title="Elegir módulos habilitados"
+                  >
+                    {(Array.isArray(u.modules) ? u.modules : MODULES.map((m) => m.key)).length}/{MODULES.length} ▸
+                  </button>
+                ) : (
+                  <span className="text-xs text-slate-500">Todos</span>
+                )}
+              </td>
               <td className="px-4 py-3 text-xs text-slate-400">{new Date(u.created_at).toLocaleDateString()}</td>
               <td className="px-4 py-3 text-center">
                 <div className="flex justify-center gap-1">
+                  <button
+                    onClick={() => handleCaptureLink(u)}
+                    className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400 transition hover:bg-emerald-500/20"
+                    title="Copiar enlace fijo de captación"
+                  >
+                    🔗
+                  </button>
                   <button
                     onClick={() => {
                       setResetTarget(u)
@@ -279,6 +354,38 @@ function UsersTab() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={Boolean(modulesTarget)} onClose={() => setModulesTarget(null)} title="Módulos del usuario">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-300">
+            Elige qué módulos verá <span className="font-bold">{modulesTarget?.username}</span>:
+          </p>
+          <div className="space-y-2">
+            {MODULES.map((m) => (
+              <label key={m.key} className="flex items-center gap-3 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={modulesDraft.includes(m.key)}
+                  onChange={() => toggleModule(m.key)}
+                  className="h-4 w-4"
+                />
+                {m.label}
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500">
+            Desmarcar un módulo lo oculta del menú y bloquea su acceso para este usuario.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setModulesTarget(null)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveModules} disabled={saving}>
+              Guardar
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   )

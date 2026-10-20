@@ -14,6 +14,7 @@ import {
   getCaptureSessions,
   startCaptureSession,
   closeCaptureSession,
+  generateCaptureLink,
   getUsers,
 } from '../api/index.js'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -89,7 +90,7 @@ function SessionTab({ user }) {
   const [users, setUsers] = useState([])
   const [campaigns, setCampaigns] = useState([])
   const [sessions, setSessions] = useState([])
-  const [form, setForm] = useState({ user_id: '', campaign_id: '', location: '', observations: '' })
+  const [form, setForm] = useState({ user_id: '', vendor_name: '', campaign_id: '', location: '', observations: '' })
   const [active, setActive] = useState(null) // { session, session_token }
   const [loading, setLoading] = useState(true)
 
@@ -111,6 +112,7 @@ function SessionTab({ user }) {
     try {
       const payload = {
         user_id: form.user_id ? Number(form.user_id) : null,
+        vendor_name: form.vendor_name || null,
         campaign_id: form.campaign_id ? Number(form.campaign_id) : null,
         location: form.location || null,
         observations: form.observations || null,
@@ -135,9 +137,27 @@ function SessionTab({ user }) {
     }
   }
 
-  const openTablet = () => {
-    if (!active?.session_token) return
-    window.open(`/captacion/tablet?token=${active.session_token}`, '_blank')
+  const openTablet = async () => {
+    const vendorId = active?.session?.user_id
+    if (!vendorId) return
+    try {
+      const { capture_token } = await generateCaptureLink(vendorId)
+      window.open(`/captacion/tablet?token=${capture_token}`, '_blank')
+    } catch {
+      /* noop */
+    }
+  }
+
+  const copyTabletLink = async () => {
+    const vendorId = active?.session?.user_id
+    if (!vendorId) return
+    try {
+      const { capture_token } = await generateCaptureLink(vendorId)
+      await navigator.clipboard?.writeText(`${window.location.origin}/captacion/tablet?token=${capture_token}`)
+      toast.success('Enlace copiado')
+    } catch {
+      /* noop */
+    }
   }
 
   if (loading) return <p className="py-6 text-sm text-slate-400">Cargando…</p>
@@ -157,10 +177,19 @@ function SessionTab({ user }) {
               <option value="">Yo ({user?.username})</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.full_name || u.username}
+                  {u.username}
                 </option>
               ))}
             </select>
+          </label>
+          <label className="text-xs text-slate-400">
+            Nombre del vendedor (manual, opcional)
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+              value={form.vendor_name}
+              onChange={(e) => setForm({ ...form, vendor_name: e.target.value })}
+              placeholder="Si lo dejas vacío, se usa el usuario elegido"
+            />
           </label>
           <label className="text-xs text-slate-400">
             Campaña activa
@@ -203,16 +232,13 @@ function SessionTab({ user }) {
         </button>
       </div>
 
-      {active?.session_token && (
+      {active?.session && (
         <div className="rounded-xl border border-emerald-700/50 bg-emerald-900/10 p-4">
           <p className="text-sm font-semibold text-emerald-300">Jornada activa</p>
           <p className="mt-1 text-xs text-slate-400">
-            Abre la tablet en esta URL para captar prospectos:
+            El vendedor tiene un enlace fijo para esta jornada (y las siguientes). Ábrelo o cópialo:
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <code className="rounded bg-slate-800 px-2 py-1 text-xs text-slate-200">
-              /captacion/tablet?token={active.session_token.slice(0, 12)}…
-            </code>
             <button
               onClick={openTablet}
               className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
@@ -220,13 +246,10 @@ function SessionTab({ user }) {
               Abrir tablet
             </button>
             <button
-              onClick={() => {
-                navigator.clipboard?.writeText(`${window.location.origin}/captacion/tablet?token=${active.session_token}`)
-                toast.success('Enlace copiado')
-              }}
+              onClick={copyTabletLink}
               className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800"
             >
-              Copiar enlace
+              Copiar enlace fijo
             </button>
           </div>
         </div>

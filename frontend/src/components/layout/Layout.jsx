@@ -7,12 +7,12 @@ import NotificationBell from './NotificationBell.jsx'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: 'M3 13l9-9 9 9M5 10v10h14V10' },
-  { to: '/temporary-storage', label: 'Recepción Mercancía', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
-  { to: '/prospects', label: 'Prospectos', icon: 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-2.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3 3 3 0 013 3z' },
-  { to: '/calendar', label: 'Calendario', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+  { to: '/temporary-storage', label: 'Recepción Mercancía', module: 'temporary_storage', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
+  { to: '/prospects', label: 'Prospectos', module: 'prospects', icon: 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-2.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3 3 3 0 013 3z' },
+  { to: '/calendar', label: 'Calendario', module: 'calendar', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
   { to: '/commercial', label: 'Dashboard Comercial', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2' },
-  { to: '/captacion', label: 'Captación', icon: 'M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7' },
-  { to: '/captacion/dashboard', label: 'Dashboard Captación', icon: 'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z' },
+  { to: '/captacion', label: 'Captación', module: 'capture', icon: 'M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7' },
+  { to: '/captacion/dashboard', label: 'Dashboard Captación', module: 'capture', icon: 'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z' },
   { to: '/loans', label: 'PrAcstamos', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
   { to: '/history', label: 'Historial', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', adminOnly: true },
   { to: '/admin', label: 'Panel Admin', icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z', adminOnly: true },
@@ -136,6 +136,10 @@ function SidebarContent({ user, logoUrl, onNavigate }) {
         {NAV.filter((item) => {
           if (item.superadminOnly) return user?.role === 'superadmin'
           if (item.adminOnly) return user?.role === 'admin'
+          // Módulos restringidos: admin/superadmin ven todo; operador solo lo habilitado.
+          if (item.module && user?.role === 'user') {
+            return Array.isArray(user.modules) && user.modules.includes(item.module)
+          }
           return true
         }).map((item) => (
           <NavLink

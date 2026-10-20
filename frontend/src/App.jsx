@@ -53,6 +53,14 @@ function LicenseGate({ children }) {
   return children
 }
 
+function ModuleGate({ module, children }) {
+  const { user } = useAuth()
+  if (user?.role === 'user' && Array.isArray(user.modules) && !user.modules.includes(module)) {
+    return <Navigate to="/" replace />
+  }
+  return children
+}
+
 export function FullLoader() {
   return (
     <div className="flex h-screen items-center justify-center bg-[#0b1220]">
@@ -103,7 +111,9 @@ export default function App() {
           path="/temporary-storage"
           element={
             <LicenseGate>
-              <TemporaryStorage />
+              <ModuleGate module="temporary_storage">
+                <TemporaryStorage />
+              </ModuleGate>
             </LicenseGate>
           }
         />
@@ -111,7 +121,9 @@ export default function App() {
           path="/prospects"
           element={
             <LicenseGate>
-              <Prospects />
+              <ModuleGate module="prospects">
+                <Prospects />
+              </ModuleGate>
             </LicenseGate>
           }
         />
@@ -119,7 +131,9 @@ export default function App() {
           path="/calendar"
           element={
             <LicenseGate>
-              <Calendar />
+              <ModuleGate module="calendar">
+                <Calendar />
+              </ModuleGate>
             </LicenseGate>
           }
         />
@@ -135,7 +149,9 @@ export default function App() {
           path="/captacion"
           element={
             <LicenseGate>
-              <CaptureAdmin />
+              <ModuleGate module="capture">
+                <CaptureAdmin />
+              </ModuleGate>
             </LicenseGate>
           }
         />
@@ -143,7 +159,9 @@ export default function App() {
           path="/captacion/dashboard"
           element={
             <LicenseGate>
-              <CaptureDashboard />
+              <ModuleGate module="capture">
+                <CaptureDashboard />
+              </ModuleGate>
             </LicenseGate>
           }
         />
