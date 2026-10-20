@@ -42,22 +42,46 @@ function Wheel({ segments, rotation, spinning, size = 320 }) {
   const labels = segments.map((s, i) => {
     // Ángulo central del segmento (0° = arriba, avanza en sentido horario).
     const mid = i * seg + seg / 2
+    const fontSize = Math.max(11, Math.min(17, 160 / n))
+    // Partimos la etiqueta en 2 líneas (por el espacio más cercano al centro)
+    // para que no se desfase; usamos <tspan> como salto de línea.
+    const words = String(s.label).split(/\s+/).filter(Boolean)
+    let lines = [String(s.label)]
+    if (words.length > 1) {
+      let best = 1
+      let bestDiff = Infinity
+      for (let k = 1; k < words.length; k++) {
+        const left = words.slice(0, k).join(' ').length
+        const right = words.slice(k).join(' ').length
+        const diff = Math.abs(left - right)
+        if (diff < bestDiff) {
+          bestDiff = diff
+          best = k
+        }
+      }
+      lines = [words.slice(0, best).join(' '), words.slice(best).join(' ')]
+    }
     // Colocamos el texto sobre la línea radial del segmento (eje vertical) y
     // giramos todo alrededor del CENTRO de la rueda: así queda totalmente
     // alineado con el radio y centrado, sin desfases.
+    const lineHeight = fontSize * 1.05
+    const startY = r - labelRadius - ((lines.length - 1) * lineHeight) / 2
     return (
       <text
         key={`lbl-${s.id ?? i}`}
         x={r}
-        y={r - labelRadius}
         fill="#0b1220"
-        fontSize={Math.max(8, Math.min(13, 120 / n))}
-        fontWeight="700"
+        fontSize={fontSize}
+        fontWeight="800"
         textAnchor="middle"
         dominantBaseline="middle"
         transform={`rotate(${mid} ${r} ${r})`}
       >
-        {String(s.label).slice(0, 16)}
+        {lines.map((ln, li) => (
+          <tspan key={li} x={r} y={startY + li * lineHeight}>
+            {ln.slice(0, 16)}
+          </tspan>
+        ))}
       </text>
     )
   })
