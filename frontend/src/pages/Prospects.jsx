@@ -545,12 +545,6 @@ export default function Prospects() {
                 <option value="debe_consultar">Debe consultar</option>
               </Select>
             </Field>
-            <Field label="Valor mensual (USD)">
-              <Input type="number" min="0" step="0.01" value={form.monthly_value} onChange={(e) => setForm({ ...form, monthly_value: e.target.value })} />
-            </Field>
-            <Field label="Valor instalación (USD)">
-              <Input type="number" min="0" step="0.01" value={form.setup_value} onChange={(e) => setForm({ ...form, setup_value: e.target.value })} />
-            </Field>
           </div>
 
           <Field label={`Probabilidad de cierre: ${form.close_probability}%`}>
