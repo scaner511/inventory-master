@@ -602,6 +602,23 @@ class ProspectBase(BaseModel):
     summary: str | None = None
     next_followup_at: datetime | None = None
 
+    @field_validator("interested_products", mode="before")
+    @classmethod
+    def _normalize_products(cls, value):
+        # El ORM guarda la lista como texto JSON (o None). Se normaliza ANTES de
+        # validar para no fallar al construir ProspectOut desde el modelo.
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            import json
+
+            try:
+                val = json.loads(value)
+                return val if isinstance(val, list) else []
+            except (ValueError, TypeError):
+                return []
+        return value
+
 
 class ProspectCreate(ProspectBase):
     pass

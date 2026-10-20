@@ -20,6 +20,7 @@ function Wheel({ segments, rotation, spinning, size = 320 }) {
   const n = Math.max(1, segments.length)
   const seg = 360 / n
   const r = size / 2
+  const labelRadius = r * 0.62
   const paths = segments.map((s, i) => {
     const a0 = (i * seg - 90) * (Math.PI / 180)
     const a1 = ((i + 1) * seg - 90) * (Math.PI / 180)
@@ -38,6 +39,26 @@ function Wheel({ segments, rotation, spinning, size = 320 }) {
       />
     )
   })
+  const labels = segments.map((s, i) => {
+    const mid = i * seg + seg / 2 - 90
+    const rad = (mid * Math.PI) / 180
+    const x = r + labelRadius * Math.cos(rad)
+    const y = r + labelRadius * Math.sin(rad)
+    return (
+      <text
+        key={`lbl-${s.id ?? i}`}
+        x={x}
+        y={y}
+        fill="#0b1220"
+        fontSize={Math.max(10, Math.min(16, 140 / n))}
+        fontWeight="700"
+        textAnchor="middle"
+        dominantBaseline="middle"
+      >
+        {s.label}
+      </text>
+    )
+  })
   return (
     <div className="relative" style={{ width: size, height: size }}>
       <div
@@ -49,6 +70,7 @@ function Wheel({ segments, rotation, spinning, size = 320 }) {
       >
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
           {paths}
+          {labels}
         </svg>
       </div>
       <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
@@ -94,7 +116,7 @@ export default function CapturePublic() {
 
   useEffect(() => {
     if (!token) {
-      setError('Falta el token de jornada.')
+      setError('Falta el código del sorteo.')
       return
     }
     getPublicCaptureSession(token)
@@ -176,7 +198,7 @@ export default function CapturePublic() {
       setPhase('done')
     } catch (e) {
       if (e?.response?.status === 409) {
-        toast.error('Este prospecto ya se encuentra registrado.')
+        toast.error('Esta persona ya fue registrada.')
       }
       /* el interceptor muestra el error */
     } finally {
@@ -195,7 +217,7 @@ export default function CapturePublic() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0b1220] p-6">
         <div className="max-w-md rounded-2xl border border-red-700/50 bg-red-900/10 p-8 text-center">
-          <p className="text-lg font-bold text-red-300">No se pudo abrir la captación</p>
+          <p className="text-lg font-bold text-red-300">No se pudo abrir el sorteo</p>
           <p className="mt-2 text-sm text-slate-400">{error}</p>
         </div>
       </div>
@@ -213,8 +235,8 @@ export default function CapturePublic() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0b1220] to-[#0a1a35] p-4 text-slate-100 md:p-8">
       <header className="mx-auto mb-6 max-w-4xl text-center">
-        <p className="text-xs uppercase tracking-widest text-blue-400">Captación Presencial</p>
-        <h1 className="text-2xl font-extrabold md:text-3xl">{info.campaign?.name || 'Jornada de captación'}</h1>
+        <p className="text-xs uppercase tracking-widest text-blue-400">Sorteo gratis</p>
+        <h1 className="text-2xl font-extrabold md:text-3xl">{info.campaign?.name || '¡Gira la ruleta y gana!'}</h1>
         <p className="mt-1 text-sm text-slate-400">
           {vendorLabel}
           {info.location ? ` · ${info.location}` : ''}
@@ -265,10 +287,7 @@ export default function CapturePublic() {
             {duplicate?.exists && (
               <div className="rounded-xl border border-amber-600/40 bg-amber-900/10 p-4">
                 <p className="text-sm font-semibold text-amber-300">
-                  Este prospecto ya se encuentra registrado.
-                </p>
-                <p className="text-xs text-slate-400">
-                  {duplicate.prospect_name} · acción configurada: {duplicate.action}
+                  Ya registramos a esta persona anteriormente.
                 </p>
               </div>
             )}
@@ -342,7 +361,7 @@ export default function CapturePublic() {
                 disabled={saving}
                 className="w-full rounded-xl bg-emerald-600 py-4 text-lg font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
-                {saving ? 'Guardando…' : 'GUARDAR PROSPECTO'}
+                {saving ? 'Guardando…' : 'GUARDAR'}
               </button>
             )}
           </div>
@@ -352,12 +371,12 @@ export default function CapturePublic() {
           <div className="w-full max-w-md space-y-4 rounded-2xl border border-emerald-600/40 bg-emerald-900/10 p-8 text-center">
             <p className="text-4xl">✅</p>
             <p className="text-xl font-extrabold text-emerald-300">¡Registro exitoso!</p>
-            <p className="text-sm text-slate-400">El prospecto fue enviado al CRM comercial.</p>
+            <p className="text-sm text-slate-400">¡Gracias por participar! Nos pondremos en contacto contigo.</p>
             <button
               onClick={reset}
               className="mt-2 w-full rounded-xl bg-blue-600 py-3 font-semibold text-white hover:bg-blue-700"
             >
-              Captar otro prospecto
+              Participar de nuevo
             </button>
           </div>
         )}
