@@ -521,3 +521,135 @@ export async function superadminDeleteUser(id) {
   const { data } = await api.delete(`/superadmin/users/${id}`)
   return data
 }
+
+// ===================== CAPTACIÓN PÚBLICA DE PROSPECTOS =====================
+
+export async function getCaptureCampaigns({ status = '' } = {}) {
+  const params = {}
+  if (status) params.status = status
+  const { data } = await api.get('/capture/campaigns', { params })
+  return data
+}
+
+export async function createCaptureCampaign(payload) {
+  const { data } = await api.post('/capture/campaigns', payload)
+  return data
+}
+
+export async function updateCaptureCampaign(id, payload) {
+  const { data } = await api.put(`/capture/campaigns/${id}`, payload)
+  return data
+}
+
+export async function deleteCaptureCampaign(id) {
+  const { data } = await api.delete(`/capture/campaigns/${id}`)
+  return data
+}
+
+export async function getCapturePrizes() {
+  const { data } = await api.get('/capture/prizes')
+  return data
+}
+
+export async function createCapturePrize(payload) {
+  const { data } = await api.post('/capture/prizes', payload)
+  return data
+}
+
+export async function updateCapturePrize(id, payload) {
+  const { data } = await api.put(`/capture/prizes/${id}`, payload)
+  return data
+}
+
+export async function deleteCapturePrize(id) {
+  const { data } = await api.delete(`/capture/prizes/${id}`)
+  return data
+}
+
+export async function getCaptureConfig() {
+  const { data } = await api.get('/capture/config')
+  return data
+}
+
+export async function updateCaptureConfig(payload) {
+  const { data } = await api.put('/capture/config', payload)
+  return data
+}
+
+export async function getCaptureSessions() {
+  const { data } = await api.get('/capture/sessions')
+  return data
+}
+
+export async function startCaptureSession(payload) {
+  const { data } = await api.post('/capture/sessions', payload)
+  return data
+}
+
+export async function closeCaptureSession(id) {
+  const { data } = await api.post(`/capture/sessions/${id}/close`)
+  return data
+}
+
+export async function getCaptureEntries(params = {}) {
+  const { data } = await api.get('/capture/entries', { params })
+  return data
+}
+
+export async function getCaptureHistory(params = {}) {
+  const { data } = await api.get('/capture/history', { params })
+  return data
+}
+
+export async function getCaptureDashboard({ days = 30 } = {}) {
+  const { data } = await api.get('/capture/dashboard', { params: { days } })
+  return data
+}
+
+export function captureExportUrl(kind) {
+  // kind: 'excel' | 'csv' | 'pdf'
+  return `${API_BASE}/capture/export/${kind}`
+}
+
+// --- Endpoints públicos (tablet) con token de jornada --------------------
+const CAPTURE_TOKEN_KEY = 'im_capture_token'
+
+export function setCaptureToken(token) {
+  if (token) localStorage.setItem(CAPTURE_TOKEN_KEY, token)
+}
+
+export function getCaptureToken() {
+  return localStorage.getItem(CAPTURE_TOKEN_KEY)
+}
+
+export function clearCaptureToken() {
+  localStorage.removeItem(CAPTURE_TOKEN_KEY)
+}
+
+function captureTokenHeaders(token) {
+  return { headers: { 'X-Capture-Token': token || getCaptureToken() || '' } }
+}
+
+export async function getPublicCaptureSession(token) {
+  const { data } = await api.get('/capture/public/session', captureTokenHeaders(token))
+  return data
+}
+
+export async function publicCaptureSpin(token) {
+  const { data } = await api.post('/capture/public/spin', {}, captureTokenHeaders(token))
+  return data
+}
+
+export async function publicCheckDuplicate(phone, token) {
+  const { data } = await api.post(
+    '/capture/public/check-duplicate',
+    { phone },
+    captureTokenHeaders(token),
+  )
+  return data
+}
+
+export async function publicCaptureRegister(payload, token) {
+  const { data } = await api.post('/capture/public/register', payload, captureTokenHeaders(token))
+  return data
+}

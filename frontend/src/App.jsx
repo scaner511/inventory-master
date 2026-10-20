@@ -9,6 +9,9 @@ import TemporaryStorage from './pages/TemporaryStorage.jsx'
 import Prospects from './pages/Prospects.jsx'
 import Calendar from './pages/Calendar.jsx'
 import CommercialDashboard from './pages/CommercialDashboard.jsx'
+import CaptureAdmin from './pages/CaptureAdmin.jsx'
+import CaptureDashboard from './pages/CaptureDashboard.jsx'
+import CapturePublic from './pages/CapturePublic.jsx'
 import History from './pages/History.jsx'
 import Admin from './pages/Admin.jsx'
 import SuperAdmin from './pages/SuperAdmin.jsx'
@@ -129,6 +132,22 @@ export default function App() {
           }
         />
         <Route
+          path="/captacion"
+          element={
+            <LicenseGate>
+              <CaptureAdmin />
+            </LicenseGate>
+          }
+        />
+        <Route
+          path="/captacion/dashboard"
+          element={
+            <LicenseGate>
+              <CaptureDashboard />
+            </LicenseGate>
+          }
+        />
+        <Route
           path="/history"
           element={
             <LicenseGate>
@@ -141,6 +160,7 @@ export default function App() {
         <Route path="/superadmin" element={<SuperAdmin />} />
         <Route path="/change-password" element={<ChangePassword />} />
       </Route>
+      <Route path="/captacion/tablet" element={<CapturePublic />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

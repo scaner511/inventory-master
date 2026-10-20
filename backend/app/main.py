@@ -20,6 +20,8 @@ from app.routers import (
     audit,
     auth,
     backup,
+    capture_admin,
+    capture_public,
     dashboard,
     license as license_router,
     loans,
@@ -938,6 +940,10 @@ app.include_router(temporary_storage.router, dependencies=business_deps)
 app.include_router(prospects.router, dependencies=business_deps)
 app.include_router(appointments.router, dependencies=business_deps)
 app.include_router(notifications_router.router, dependencies=business_deps)
+app.include_router(capture_admin.router, dependencies=business_deps)
+# El router público de captación (tablet) NO usa license/JWT: se autentica con
+# el token de jornada del propio endpoint.
+app.include_router(capture_public.router)
 app.include_router(backup.router, dependencies=business_deps)
 # El flujo OAuth de Drive lo inicia/retoma Google desde el navegador: sin
 # bloqueo de licencia ni JWT (se valida por otros medios dentro de cada ruta).

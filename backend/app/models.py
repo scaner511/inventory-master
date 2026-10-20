@@ -770,3 +770,151 @@ class Notification(BaseBusiness):
     entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+# =====================================================================
+# CAPTACIÓN PÚBLICA DE PROSPECTOS (jornadas, campañas, ruleta, premios)
+# =====================================================================
+
+# Orígenes de captación admitidos.
+CAPTURE_ORIGINS = ("captacion_presencial",)
+CAPTURE_ORIGIN_LABELS = {"captacion_presencial": "Captación Presencial"}
+
+# Estados de una jornada de captación.
+CAPTURE_SESSION_STATUSES = ("abierta", "cerrada")
+# Estados de una campaña.
+CAPTURE_CAMPAIGN_STATUSES = ("borrador", "activa", "pausada", "finalizada")
+# Acciones (configurables) cuando el teléfono ya existe.
+DUPLICATE_ACTIONS = ("actualizar", "nueva_interaccion", "bloquear")
+
+
+class CaptureCampaign(BaseBusiness):
+    """Campaña comercial (evento, promoción, ruta) a la que se asocian captaciones."""
+
+    __tablename__ = "capture_campaigns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(150), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # borrador|activa|pausada|finalizada
+    status: Mapped[str] = mapped_column(String(20), default="activa", index=True)
+    observations: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class CapturePrize(BaseBusiness):
+    """Premio de la ruleta promocional (probabilidad, color, stock, vigencia)."""
+
+    __tablename__ = "capture_prizes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    color: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Peso relativo para el sorteo ponderado (no hace falta que sume 100).
+    probability: Mapped[int] = mapped_column(Integer, default=1)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    # stock disponible; None = ilimitado.
+    stock: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # fechas de vigencia opcionales.
+    valid_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # "sin premio" (cara de cortesía, no descuenta stock ni cuenta como entregado).
+    is_no_prize: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class PublicCaptureSession(BaseBusiness):
+    """Jornada de captación abierta por un vendedor durante un evento."""
+
+    __tablename__ = "public_capture_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # vendedor responsable de la jornada (usuario del tenant).
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    user_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    campaign_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    campaign_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    observations: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # abierta|cerrada
+    status: Mapped[str] = mapped_column(String(20), default="abierta", index=True)
+    # token efímero que usa la tablet para registrar sin exponer el JWT del usuario.
+    session_token: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CaptureEntry(BaseBusiness):
+    """Participación: un prospecto captado en una jornada, con su premio obtenido."""
+
+    __tablename__ = "capture_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    session_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    campaign_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    campaign_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    prize_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    prize_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    vendor_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    vendor_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # prospecto creado/actualizado por esta participación.
+    prospect_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    prospect_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    location: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    origin: Mapped[str] = mapped_column(String(40), default="captacion_presencial")
+    # cómo se resolvió un posible duplicado: nuevo|actualizado|nueva_interaccion
+    duplicate_action: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    entry_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class CaptureHistory(BaseBusiness):
+    """Bitácora del módulo de captación (inicio/fin de jornada, premios, cambios)."""
+
+    __tablename__ = "capture_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    session_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    entry_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(60), index=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    user_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class CaptureConfig(BaseBusiness):
+    """Configuración administrable del módulo (comportamiento global del cliente)."""
+
+    __tablename__ = "capture_statistics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # Acción ante teléfono duplicado: actualizar|nueva_interaccion|bloquear
+    duplicate_action: Mapped[str] = mapped_column(String(30), default="actualizar")
+    # Premio por defecto cuando la ruleta no tiene premios disponibles.
+    no_prize_message: Mapped[str] = mapped_column(String(180), default="Gracias por participar")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )

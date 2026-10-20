@@ -811,3 +811,243 @@ class CommercialDashboardOut(BaseModel):
     by_month: list[dict] = []
     top_products: list[dict] = []
     lost_reasons: list[dict] = []
+
+
+# ===================== CAPTACIÓN PÚBLICA DE PROSPECTOS =====================
+
+
+class CaptureCampaignBase(BaseModel):
+    name: str = Field(min_length=1, max_length=150)
+    description: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    status: str = Field(default="activa", pattern="^(borrador|activa|pausada|finalizada)$")
+    observations: str | None = None
+
+
+class CaptureCampaignCreate(CaptureCampaignBase):
+    pass
+
+
+class CaptureCampaignUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=150)
+    description: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    status: str | None = Field(default=None, pattern="^(borrador|activa|pausada|finalizada)$")
+    observations: str | None = None
+
+
+class CaptureCampaignOut(CaptureCampaignBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer("created_at", "updated_at")
+    def _ser(self, dt: datetime | None) -> str | None:
+        return _utc_iso(dt)
+
+
+class CapturePrizeBase(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    color: str | None = Field(default=None, max_length=20)
+    probability: int = Field(default=1, ge=0, le=10000)
+    is_active: bool = True
+    stock: int | None = Field(default=None, ge=0)
+    valid_from: date | None = None
+    valid_until: date | None = None
+    is_no_prize: bool = False
+
+
+class CapturePrizeCreate(CapturePrizeBase):
+    pass
+
+
+class CapturePrizeUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None
+    color: str | None = Field(default=None, max_length=20)
+    probability: int | None = Field(default=None, ge=0, le=10000)
+    is_active: bool | None = None
+    stock: int | None = Field(default=None, ge=0)
+    valid_from: date | None = None
+    valid_until: date | None = None
+    is_no_prize: bool | None = None
+
+
+class CapturePrizeOut(CapturePrizeBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer("created_at", "updated_at")
+    def _ser(self, dt: datetime | None) -> str | None:
+        return _utc_iso(dt)
+
+
+class CaptureConfigOut(BaseModel):
+    duplicate_action: str
+    no_prize_message: str
+
+
+class CaptureConfigUpdate(BaseModel):
+    duplicate_action: str | None = Field(
+        default=None, pattern="^(actualizar|nueva_interaccion|bloquear)$"
+    )
+    no_prize_message: str | None = Field(default=None, max_length=180)
+
+
+class CaptureSessionCreate(BaseModel):
+    user_id: int | None = None
+    campaign_id: int | None = None
+    location: str | None = Field(default=None, max_length=180)
+    observations: str | None = None
+
+
+class CaptureSessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int | None = None
+    user_name: str | None = None
+    campaign_id: int | None = None
+    campaign_name: str | None = None
+    location: str | None = None
+    observations: str | None = None
+    status: str
+    started_at: datetime
+    closed_at: datetime | None = None
+
+    @field_serializer("started_at", "closed_at")
+    def _ser(self, dt: datetime | None) -> str | None:
+        return _utc_iso(dt)
+
+
+class CaptureSessionStartOut(BaseModel):
+    """Respuesta al iniciar jornada: incluye el token efímero para la tablet."""
+
+    session: CaptureSessionOut
+    session_token: str
+
+
+class CapturePrizeWon(BaseModel):
+    id: int | None = None
+    name: str
+    color: str | None = None
+    is_no_prize: bool = False
+
+
+class CaptureSpinOut(BaseModel):
+    """Resultado del giro de ruleta (público)."""
+
+    prize: CapturePrizeWon
+    segments: list[dict] = []
+    wheel_index: int = 0
+
+
+class CapturePublicInfoOut(BaseModel):
+    """Datos que ve la tablet al abrir la pantalla de captación."""
+
+    session: CaptureSessionOut
+    campaign: CaptureCampaignOut | None = None
+    vendor_name: str | None = None
+    location: str | None = None
+    duplicate_action: str
+    no_prize_message: str
+
+
+class CaptureDuplicateCheckIn(BaseModel):
+    phone: str = Field(min_length=3, max_length=40)
+
+
+class CaptureDuplicateCheckOut(BaseModel):
+    exists: bool
+    prospect_id: int | None = None
+    prospect_name: str | None = None
+    action: str  # acción que aplicará el sistema según config
+
+
+class CaptureRegisterIn(BaseModel):
+    """Registro del participante desde la tablet."""
+
+    full_name: str = Field(min_length=1, max_length=200)
+    phone: str = Field(min_length=3, max_length=40)
+    address: str | None = Field(default=None, max_length=255)
+    marital_status: str | None = Field(default=None, max_length=30)
+    knows_brand: bool | None = None
+    notes: str | None = Field(default=None, max_length=500)
+    prize_id: int | None = None
+    # Para duplicados: "actualizar" | "nueva_interaccion" (según elija la tablet).
+    duplicate_choice: str | None = Field(
+        default=None, pattern="^(actualizar|nueva_interaccion|bloquear)$"
+    )
+
+
+class CaptureRegisterOut(BaseModel):
+    prospect_id: int
+    prospect_name: str
+    created: bool
+    duplicate_action: str | None = None
+    prize_name: str | None = None
+
+
+class CaptureEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    session_id: int | None = None
+    campaign_id: int | None = None
+    campaign_name: str | None = None
+    prize_name: str | None = None
+    vendor_id: int | None = None
+    vendor_name: str | None = None
+    prospect_id: int | None = None
+    prospect_name: str | None = None
+    phone: str | None = None
+    location: str | None = None
+    origin: str
+    duplicate_action: str | None = None
+    entry_date: date
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser(self, dt: datetime | None) -> str | None:
+        return _utc_iso(dt)
+
+
+class CaptureCaptureHistoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    session_id: int | None = None
+    action: str
+    detail: str | None = None
+    user_id: int | None = None
+    user_name: str | None = None
+    ip_address: str | None = None
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser(self, dt: datetime | None) -> str | None:
+        return _utc_iso(dt)
+
+
+class CaptureDashboardOut(BaseModel):
+    captured_today: int
+    captured_month: int
+    total_entries: int
+    prizes_given: int
+    sessions_count: int
+    converted: int
+    conversion_rate: float
+    by_campaign: list[dict] = []
+    by_vendor: list[dict] = []
+    by_day: list[dict] = []
+    by_prize: list[dict] = []
+    top_campaigns: list[dict] = []
+    top_vendors: list[dict] = []
