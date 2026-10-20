@@ -20,7 +20,6 @@ from app.schemas import (
     UserCreate,
     UserOut,
     UserUpdate,
-    modules_to_raw,
     user_out,
 )
 from app.utils.security import hash_password
@@ -134,7 +133,6 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _user: User = D
         must_change_password=True,
         security_question=data.security_question,
         security_answer=data.security_answer,
-        modules=modules_to_raw(data.modules) if data.modules is not None else None,
         # El usuario nuevo comparte la vigencia de su cliente.
         subscription_expires_at=tenant.subscription_expires_at
         if tenant is not None and tenant.subscription_expires_at is not None
@@ -156,14 +154,10 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db), _
     if updates.get("is_active") is False:
         _ensure_admin_remains(db, user)
 
-    modules = updates.pop("modules", None)
+    # Los módulos son del CLIENTE (tenant), no del usuario: se ignoran aquí.
+    updates.pop("modules", None)
     for field, value in updates.items():
         setattr(user, field, value)
-    # Solo los operadores ("user") tienen módulos restringidos; admin/superadmin ven todo.
-    if modules is not None and user.role == "user":
-        user.modules = modules_to_raw(modules)
-    elif user.role != "user":
-        user.modules = None
     db.commit()
     db.refresh(user)
     return _user_out_public(user)

@@ -136,9 +136,10 @@ function SidebarContent({ user, logoUrl, onNavigate }) {
         {NAV.filter((item) => {
           if (item.superadminOnly) return user?.role === 'superadmin'
           if (item.adminOnly) return user?.role === 'admin'
-          // Módulos restringidos: admin/superadmin ven todo; operador solo lo habilitado.
-          if (item.module && user?.role === 'user') {
-            return Array.isArray(user.modules) && user.modules.includes(item.module)
+          // Módulos: el super admin ve todo; admin y operador solo lo habilitado
+          // a su cliente.
+          if (item.module && user?.role !== 'superadmin') {
+            return Array.isArray(user?.modules) && user.modules.includes(item.module)
           }
           return true
         }).map((item) => (

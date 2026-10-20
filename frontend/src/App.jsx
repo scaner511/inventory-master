@@ -55,7 +55,11 @@ function LicenseGate({ children }) {
 
 function ModuleGate({ module, children }) {
   const { user } = useAuth()
-  if (user?.role === 'user' && Array.isArray(user.modules) && !user.modules.includes(module)) {
+  if (
+    user?.role !== 'superadmin' &&
+    Array.isArray(user?.modules) &&
+    !user.modules.includes(module)
+  ) {
     return <Navigate to="/" replace />
   }
   return children

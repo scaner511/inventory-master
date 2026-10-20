@@ -96,9 +96,17 @@ class TokenResponse(BaseModel):
 
 
 def user_out(user) -> UserOut:
-    """Construye UserOut rellenando el nombre del tenant si existe."""
+    """Construye UserOut rellenando el nombre del tenant y sus módulos.
+
+    Los módulos son del CLIENTE (tenant): el usuario ve los que el Super Admin
+    habilitó a su cliente. El Super Admin ve siempre todos.
+    """
     out = UserOut.model_validate(user)
-    out.modules = list(ALLOWED_MODULES) if user.role in ("admin", "superadmin") else modules_from_raw(user.modules)
+    if user.role == "superadmin":
+        out.modules = list(ALLOWED_MODULES)
+    else:
+        tenant = getattr(user, "tenant", None)
+        out.modules = modules_from_raw(getattr(tenant, "modules", None))
     if user.tenant_id is not None:
         tenant = getattr(user, "tenant", None)
         out.tenant_name = tenant.name if tenant is not None else None
@@ -131,8 +139,6 @@ class UserCreate(BaseModel):
     role: str = Field(default="user", pattern="^(admin|user)$")
     security_question: str | None = None
     security_answer: str | None = None
-    # Módulos habilitados (solo aplica a rol "user"). None = todos.
-    modules: list[str] | None = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -144,8 +150,6 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     role: str | None = Field(default=None, pattern="^(admin|user)$")
     is_active: bool | None = None
-    # Módulos habilitados (solo aplica a rol "user"). None = no modificar.
-    modules: list[str] | None = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -175,6 +179,9 @@ class TenantCreate(BaseModel):
     # NULL, se usa MAX_USERS_PER_TENANT (global). Debe ser >= 1 porque el
     # administrador siempre ocupa uno.
     max_users: int | None = Field(default=None, ge=1)
+    # Módulos habilitados al cliente (solo el Super Admin los define). Esquema
+    # separado del Super Admin, por eso no se reutiliza TenantUpdate.
+    modules: list[str] | None = None
 
     @field_validator("admin_email", mode="before")
     @classmethod
@@ -188,6 +195,8 @@ class TenantUpdate(BaseModel):
     max_users: int | None = Field(default=None, ge=1)
     # Para poder "limpiar" el límite de un proveedor (volver al global).
     clear_max_users: bool | None = None
+    # Módulos habilitados al cliente (solo el Super Admin los define).
+    modules: list[str] | None = None
 
 
 class TenantReset(BaseModel):
@@ -210,6 +219,17 @@ class TenantOut(BaseModel):
     subscription_expires_at: date | None = None
     subscription_days_left: int | None = None
     users_count: int = 0
+    # Módulos habilitados al cliente (lista). NULL/ausente = todos.
+    modules: list[str] = Field(default_factory=list)
+
+    @field_validator("modules", mode="before")
+    @classmethod
+    def _normalize_tenant_modules(cls, value):
+        if value is None:
+            return list(ALLOWED_MODULES)
+        if isinstance(value, str):
+            return modules_from_raw(value)
+        return value
 
 
 class TenantUserCreate(BaseModel):

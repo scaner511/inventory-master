@@ -29,6 +29,14 @@ const TABS = [
   { id: 'account', label: '🔑 Mi cuenta' },
 ]
 
+// Módulos que el Super Admin habilita por cliente. Sin selección = todos.
+const MODULES = [
+  { key: 'prospects', label: 'Prospectos' },
+  { key: 'calendar', label: 'Calendario' },
+  { key: 'temporary_storage', label: 'Recepción de Mercancía' },
+  { key: 'capture', label: 'Captación' },
+]
+
 function roleBadge(role) {
   if (role === 'superadmin') return <span className="rounded-full bg-purple-500/10 px-2.5 py-0.5 text-xs font-bold text-purple-400">Super Admin</span>
   if (role === 'admin') return <span className="rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-bold text-blue-400">Administrador</span>
@@ -45,7 +53,7 @@ function TenantsTab() {
   const [tenants, setTenants] = useState([])
   const [editOpen, setEditOpen] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '' })
+  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: [] })
   const [saving, setSaving] = useState(false)
   const [usersOpen, setUsersOpen] = useState(null)
   const [tenantUsers, setTenantUsers] = useState([])
@@ -80,6 +88,7 @@ function TenantsTab() {
         await updateTenant(editing.id, {
           name: form.name,
           max_users: form.max_users === '' ? null : Number(form.max_users),
+          modules: form.modules,
         })
         toast.success('Cliente actualizado')
       } else {
@@ -89,6 +98,7 @@ function TenantsTab() {
           admin_password: form.admin_password,
           admin_email: form.admin_email,
           max_users: form.max_users === '' ? null : Number(form.max_users),
+          modules: form.modules,
         })
         toast.success('Cliente creado')
       }
@@ -109,14 +119,24 @@ function TenantsTab() {
       admin_password: '',
       admin_email: '',
       max_users: t.max_users ? String(t.max_users) : '',
+      modules: Array.isArray(t.modules) ? t.modules : MODULES.map((m) => m.key),
     })
     setEditOpen(true)
   }
 
   function openCreate() {
     setEditing(null)
-    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '' })
+    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: MODULES.map((m) => m.key) })
     setEditOpen(true)
+  }
+
+  function toggleModule(key) {
+    setForm((prev) => ({
+      ...prev,
+      modules: prev.modules.includes(key)
+        ? prev.modules.filter((k) => k !== key)
+        : [...prev.modules, key],
+    }))
   }
 
   async function handleToggleActive(t) {
@@ -265,6 +285,7 @@ function TenantsTab() {
             { key: 'limit', label: 'Límite', align: 'center' },
             { key: 'active', label: 'Activo', align: 'center' },
             { key: 'license', label: 'Licencia', align: 'center' },
+            { key: 'modules', label: 'Módulos', align: 'center' },
             { key: 'created', label: 'Creado' },
             { key: 'actions', label: 'Acciones', align: 'center' },
           ]}
@@ -297,6 +318,15 @@ function TenantsTab() {
                     {t.subscription_days_left} día(s)
                   </span>
                 )}
+              </td>
+              <td className="px-4 py-3 text-center">
+                <button
+                  onClick={() => openEdit(t)}
+                  className="rounded-lg bg-indigo-500/10 px-2.5 py-1 text-xs font-semibold text-indigo-400 transition hover:bg-indigo-500/20"
+                  title="Elegir módulos habilitados"
+                >
+                  {(Array.isArray(t.modules) ? t.modules : MODULES.map((m) => m.key)).length}/{MODULES.length} ▸
+                </button>
               </td>
               <td className="px-4 py-3 text-xs text-slate-400">{new Date(t.created_at).toLocaleDateString()}</td>
               <td className="px-4 py-3 text-center">
@@ -369,8 +399,7 @@ function TenantsTab() {
           </Field>
           {!editing && (
             <>
-              <Field label="Usuario administrador" hint="Primer usuario del cliente (rol Administrador)">
-                <Input value={form.admin_username} onChange={(e) => setForm({ ...form, admin_username: e.target.value })} placeholder="Ej: juan_admin" required />
+              <Field label="Usuario administrador" hint="Primer usuario del cliente (rol Administrador)">                <Input value={form.admin_username} onChange={(e) => setForm({ ...form, admin_username: e.target.value })} placeholder="Ej: juan_admin" required />
               </Field>
               <Field label="Email del administrador" hint="Opcional">
                 <Input type="email" value={form.admin_email} onChange={(e) => setForm({ ...form, admin_email: e.target.value })} placeholder="admin@cliente.com" />
@@ -381,6 +410,21 @@ function TenantsTab() {
               <p className="text-xs text-slate-500">El administrador deberá cambiar su contraseña en el primer inicio de sesión.</p>
             </>
           )}
+          <Field label="Módulos habilitados" hint="Lo que verán y podrán usar el administrador y los operadores de este cliente">
+            <div className="space-y-2">
+              {MODULES.map((m) => (
+                <label key={m.key} className="flex items-center gap-3 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={form.modules.includes(m.key)}
+                    onChange={() => toggleModule(m.key)}
+                    className="h-4 w-4"
+                  />
+                  {m.label}
+                </label>
+              ))}
+            </div>
+          </Field>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setEditOpen(false)}>
               Cancelar

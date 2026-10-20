@@ -38,6 +38,7 @@ from app.schemas import (
     TenantUserCreate,
     UserOut,
     UserUpdate,
+    modules_to_raw,
     user_out,
 )
 from app.utils.platform_audit import record_platform_audit
@@ -171,6 +172,7 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
     tenant = Tenant(
         name=data.name,
         max_users=data.max_users,
+        modules=modules_to_raw(data.modules),
         database_name=database_name,
         subscription_expires_at=start,
     )
@@ -215,6 +217,8 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
         tenant.name = data.name
     if data.is_active is not None:
         tenant.is_active = data.is_active
+    if "modules" in (data.model_fields_set or set()):
+        tenant.modules = modules_to_raw(data.modules)
     if data.clear_max_users:
         # Volver al límite global (NULL).
         if tenant.max_users and _tenant_users_count(db, tenant_id) > settings.max_users_per_tenant:

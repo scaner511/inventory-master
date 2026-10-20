@@ -52,6 +52,10 @@ class Tenant(Base):
     # Licencia del cliente (30 días renovables). Fuente de verdad: los usuarios
     # del cliente heredan este vencimiento. Solo el Super Admin la ve.
     subscription_expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Módulos habilitados al CLIENTE (JSON serializado). NULL = todos.
+    # Los habilita el Super Admin; el cliente (admin y operador) solo ve/usará
+    # los módulos aquí listados. Claves válidas definidas en schemas.ALLOWED_MODULES.
+    modules: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

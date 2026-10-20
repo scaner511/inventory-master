@@ -104,6 +104,23 @@ def _migrate_user_modules(db: Session) -> None:
         db.commit()
 
 
+def _migrate_tenant_modules(db: Session) -> None:
+    """Agrega la columna modules a la tabla tenants (módulos por cliente).
+
+    Cada ALTER se commitea de inmediato para no dejar una transacción abierta
+    sosteniendo un lock sobre ``tenants``.
+    """
+    if not _table_columns("tenants"):
+        return
+    if engine.dialect.name == "postgresql":
+        db.execute(text("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS modules TEXT"))
+        db.commit()
+        return
+    if "modules" not in _table_columns("tenants"):
+        db.execute(text("ALTER TABLE tenants ADD COLUMN modules TEXT"))
+        db.commit()
+
+
 def _migrate_drive_per_tenant(db: Session) -> None:
     """Convierte drive_connection a conexión por proveedor (columna tenant_id)."""
     if "drive_connection" not in _table_names():
@@ -635,6 +652,7 @@ def init_db() -> None:
         _migrate_license_machine_code(db)
         _migrate_accept_terms(db)
         _migrate_user_modules(db)
+        _migrate_tenant_modules(db)
         _migrate_tenant_max_users(db)
         _migrate_drive_per_tenant(db)
         _migrate_user_active_session(db)
