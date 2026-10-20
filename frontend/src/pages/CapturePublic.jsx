@@ -9,6 +9,7 @@ import {
   publicCheckDuplicate,
   publicCaptureRegister,
   setCaptureToken,
+  getPublicCaptureLogoUrl,
 } from '../api/index.js'
 import { getCaptureToken } from '../api/index.js'
 
@@ -310,6 +311,16 @@ export default function CapturePublic() {  const [params] = useSearchParams()
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0b1220] to-[#0a1a35] p-4 text-slate-100 md:p-8">
       <header className="mx-auto mb-6 max-w-4xl text-center">
+        {info.logo_url && (
+          <img
+            src={getPublicCaptureLogoUrl(token)}
+            alt={info.company_name || 'Logo'}
+            className="mx-auto mb-3 h-20 w-auto max-w-[240px] object-contain"
+          />
+        )}
+        {info.company_name && (
+          <p className="mb-1 text-lg font-bold text-white">{info.company_name}</p>
+        )}
         <p className="text-xs uppercase tracking-widest text-blue-400">Sorteo gratis</p>
         <h1 className="text-2xl font-extrabold md:text-3xl">{info.campaign?.name || '¡Gira la ruleta y gana!'}</h1>
         <p className="mt-1 text-sm text-slate-400">

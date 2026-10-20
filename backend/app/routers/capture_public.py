@@ -10,10 +10,12 @@ abrirse se REUTILIZA la jornada abierta del vendedor o se CREA una nueva de
 forma automática (sin botón "INICIAR JORNADA" en el celular).
 """
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import FileResponse
+from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_tenant_session
-from app.models import CaptureCampaign, CapturePrize, PublicCaptureSession, User
+from app.models import CaptureCampaign, CapturePrize, PublicCaptureSession, Setting, User
 from app.schemas import (
     CaptureCampaignOut,
     CaptureDuplicateCheckIn,
@@ -30,6 +32,7 @@ router = APIRouter(prefix="/api/capture/public", tags=["capture-public"])
 
 def _resolve_session(
     x_capture_token: str | None = Header(default=None, alias="X-Capture-Token"),
+    token: str | None = None,
 ):
     """Resuelve (vendedor, jornada) a partir del token FIJO de la tablet.
 
@@ -42,13 +45,16 @@ def _resolve_session(
     Devuelve un generador que entrega (tenant_db, session). El tenant_db se
     cierra al finalizar la petición.
     """
-    if not x_capture_token:
+    # El token puede venir en el header (llamadas API normales) o como query
+    # `?token=` (p. ej. al cargar el logo en un <img>, que no envía headers).
+    capture_token = x_capture_token or token
+    if not capture_token:
         raise HTTPException(status_code=401, detail="Token de captación requerido")
 
     # 1) El token pertenece a un usuario/vendedor (tabla de plataforma).
     pdb: Session = SessionLocal()
     try:
-        vendor = pdb.query(User).filter(User.capture_token == x_capture_token).first()
+        vendor = pdb.query(User).filter(User.capture_token == capture_token).first()
         if vendor is None or not vendor.is_active:
             raise HTTPException(status_code=401, detail="Enlace de captación inválido")
         tenant_id = vendor.tenant_id
@@ -97,6 +103,19 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
+def _company_info(db: Session, tenant_id: int) -> dict:
+    """Nombre y logo del cliente para mostrarlos en la tablet del sorteo."""
+    setting = (
+        db.query(Setting).filter(Setting.tenant_id == tenant_id).order_by(Setting.id).first()
+    )
+    if not setting:
+        return {"company_name": None, "logo_url": None}
+    return {
+        "company_name": setting.company_name,
+        "logo_url": "/api/capture/public/logo" if setting.logo_path else None,
+    }
+
+
 @router.get("/session", response_model=CapturePublicInfoOut)
 def public_session(ctx=Depends(_resolve_session)):
     db, session = ctx
@@ -114,7 +133,20 @@ def public_session(ctx=Depends(_resolve_session)):
         duplicate_action=cfg.duplicate_action,
         no_prize_message=cfg.no_prize_message,
         segments=services.wheel_segments(db, session.tenant_id),
+        **_company_info(db, session.tenant_id),
     )
+
+
+@router.get("/logo")
+def public_logo(ctx=Depends(_resolve_session)):
+    """Sirve el logo del cliente para la tablet (autenticado con el token fijo)."""
+    db, session = ctx
+    setting = (
+        db.query(Setting).filter(Setting.tenant_id == session.tenant_id).order_by(Setting.id).first()
+    )
+    if not setting or not setting.logo_path or not Path(setting.logo_path).exists():
+        raise HTTPException(status_code=404, detail="No hay logo configurado")
+    return FileResponse(setting.logo_path)
 
 
 @router.get("/campaigns", response_model=list[CaptureCampaignOut])
@@ -165,6 +197,7 @@ def public_select_campaign(
         duplicate_action=cfg.duplicate_action,
         no_prize_message=cfg.no_prize_message,
         segments=services.wheel_segments(db, session.tenant_id),
+        **_company_info(db, session.tenant_id),
     )
 
 

@@ -1054,6 +1054,9 @@ class CapturePublicInfoOut(BaseModel):
     no_prize_message: str
     # Segmentos de la ruleta para dibujarla de inmediato (sin esperar un giro).
     segments: list[dict] = []
+    # Identidad del cliente (para mostrar su logo/nombre en la tablet).
+    company_name: str | None = None
+    logo_url: str | None = None
 
 
 class CaptureDuplicateCheckIn(BaseModel):

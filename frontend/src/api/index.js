@@ -652,6 +652,10 @@ export async function getPublicCaptureSession(token) {
   return data
 }
 
+export function getPublicCaptureLogoUrl(token) {
+  return `${API_BASE}/capture/public/logo?token=${encodeURIComponent(token || getCaptureToken() || '')}`
+}
+
 export async function getPublicCaptureCampaigns(token) {
   const { data } = await api.get('/capture/public/campaigns', captureTokenHeaders(token))
   return data
