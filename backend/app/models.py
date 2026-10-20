@@ -544,6 +544,8 @@ class Prospect(BaseBusiness):
     marital_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     # A qué se dedica / ocupación del prospecto.
     occupation: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Nombre de quien prospectó a la persona (vendedor/promotor).
+    prospector_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     knows_brand: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # Notas rápidas de la ficha (máx. 500); el historial detallado va en prospect_notes.
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)

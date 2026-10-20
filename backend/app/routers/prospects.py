@@ -285,6 +285,7 @@ def create_prospect(
         address=(data.address or "").strip() or None,
         marital_status=(data.marital_status or "").strip() or None,
         occupation=(data.occupation or "").strip() or None,
+        prospector_name=(data.prospector_name or "").strip() or None,
         knows_brand=data.knows_brand,
         notes=(data.notes or "").strip() or None,
         status=status,
@@ -355,7 +356,7 @@ def update_prospect(
 
     changed = []
     for field in (
-        "full_name", "phone", "address", "marital_status", "occupation", "knows_brand", "notes",
+        "full_name", "phone", "address", "marital_status", "occupation", "prospector_name", "knows_brand", "notes",
         "status", "commercial_status", "rating", "stage_slug", "owner_id",
         "has_budget", "is_decision_maker", "close_probability", "monthly_value",
         "setup_value", "lost_reason", "lost_reason_detail", "summary", "next_followup_at",
@@ -832,6 +833,7 @@ def export_excel(db: Session = Depends(get_tenant_db), user: User = Depends(get_
                 "Dirección": p.address or "",
                 "Estado civil": p.marital_status or "",
                 "Ocupación": p.occupation or "",
+                "Prospectado por": p.prospector_name or "",
                 "Conoce marca": "Sí" if p.knows_brand else ("No" if p.knows_brand is False else ""),
                 "Estado": STATUS_LABELS.get(p.status, p.status),
                 "Calificación": p.rating,
@@ -844,7 +846,7 @@ def export_excel(db: Session = Depends(get_tenant_db), user: User = Depends(get_
             }
         )
     columns = [
-        "Nombre", "Teléfono", "Dirección", "Estado civil", "Ocupación", "Conoce marca", "Estado",
+        "Nombre", "Teléfono", "Dirección", "Estado civil", "Ocupación", "Prospectado por", "Conoce marca", "Estado",
         "Calificación", "Etapa", "Probabilidad %", "Valor potencial", "Valor ponderado",
         "Notas", "Creado",
     ]

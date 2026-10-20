@@ -205,6 +205,8 @@ def register_prospect(
                 prospect.marital_status = data.marital_status.strip()
             if data.occupation:
                 prospect.occupation = data.occupation.strip()
+            if vendor_name:
+                prospect.prospector_name = vendor_name.strip()
             if data.knows_brand is not None:
                 prospect.knows_brand = data.knows_brand
             _prospect_history(
@@ -237,6 +239,7 @@ def register_prospect(
             address=(data.address or "").strip() or None,
             marital_status=(data.marital_status or "").strip() or None,
             occupation=(data.occupation or "").strip() or None,
+            prospector_name=(vendor_name or "").strip() or None,
             knows_brand=data.knows_brand,
             notes=notes,
             status="nuevo",

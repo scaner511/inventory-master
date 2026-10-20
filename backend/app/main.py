@@ -720,6 +720,7 @@ TENANT_COLUMN_MIGRATIONS = [
     ("appointment_closures", "lost_reason", "VARCHAR(40)"),
     ("appointment_closures", "lost_reason_detail", "TEXT"),
     ("prospects", "occupation", "VARCHAR(120)"),
+    ("prospects", "prospector_name", "VARCHAR(120)"),
 ]
 
 

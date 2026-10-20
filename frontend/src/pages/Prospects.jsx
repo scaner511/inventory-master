@@ -73,7 +73,7 @@ function Stars({ value, onChange, readOnly = false }) {
 }
 
 const EMPTY_FORM = {
-  full_name: '', phone: '', address: '', marital_status: '', occupation: '', knows_brand: '',
+  full_name: '', phone: '', address: '', marital_status: '', occupation: '', prospector_name: '', knows_brand: '',
   notes: '', status: 'nuevo', rating: 3, stage_slug: 'nuevo',
   has_budget: '', is_decision_maker: '', close_probability: 0,
   monthly_value: '', setup_value: '', interested_products: [],
@@ -150,7 +150,7 @@ export default function Prospects() {
     setEditing(p)
     setForm({
       full_name: p.full_name, phone: p.phone || '', address: p.address || '',
-      marital_status: p.marital_status || '', occupation: p.occupation || '', knows_brand: p.knows_brand === true ? 'si' : p.knows_brand === false ? 'no' : '',
+      marital_status: p.marital_status || '', occupation: p.occupation || '', prospector_name: p.prospector_name || '', knows_brand: p.knows_brand === true ? 'si' : p.knows_brand === false ? 'no' : '',
       notes: p.notes || '', status: p.status, rating: p.rating, stage_slug: p.stage_slug,
       has_budget: p.has_budget || '', is_decision_maker: p.is_decision_maker || '',
       close_probability: p.close_probability, monthly_value: p.monthly_value || '',
@@ -168,6 +168,7 @@ export default function Prospects() {
       address: form.address.trim() || null,
       marital_status: form.marital_status.trim() || null,
       occupation: form.occupation.trim() || null,
+      prospector_name: form.prospector_name.trim() || null,
       knows_brand: form.knows_brand === 'si' ? true : form.knows_brand === 'no' ? false : null,
       notes: form.notes.trim() || null,
       status: form.status,
@@ -338,6 +339,7 @@ export default function Prospects() {
   const columns = [
     { key: 'name', label: 'Prospecto' },
     { key: 'phone', label: 'Teléfono' },
+    { key: 'prospector', label: 'Prospectado por' },
     { key: 'status', label: 'Estado', align: 'center' },
     { key: 'rating', label: 'Calificación', align: 'center' },
     { key: 'value', label: 'Oportunidad' },
@@ -400,6 +402,7 @@ export default function Prospects() {
                     {p.address && <div className="text-xs text-slate-500">{p.address}</div>}
                   </td>
                   <td className="px-4 py-3">{p.phone || '—'}</td>
+                  <td className="px-4 py-3">{p.prospector_name || '—'}</td>
                   <td className="px-4 py-3 text-center"><StatusBadge status={p.status} /></td>
                   <td className="px-4 py-3 text-center"><Stars value={p.rating} readOnly /></td>
                   <td className="px-4 py-3">{formatMoney(p.opportunity_value)}</td>
@@ -504,6 +507,13 @@ export default function Prospects() {
                 placeholder="Ej. Comerciante, empleado…"
               />
             </Field>
+            <Field label="Prospectado por">
+              <Input
+                value={form.prospector_name}
+                onChange={(e) => setForm({ ...form, prospector_name: e.target.value })}
+                placeholder="Nombre de quien prospectó"
+              />
+            </Field>
             <Field label="¿Conoce la marca?">
               <Select value={form.knows_brand} onChange={(e) => setForm({ ...form, knows_brand: e.target.value })}>
                 <option value="">—</option>
@@ -601,6 +611,7 @@ export default function Prospects() {
               <div><span className="text-slate-500">Dirección:</span> {detail.address || '—'}</div>
               <div><span className="text-slate-500">Estado civil:</span> {detail.marital_status || '—'}</div>
               <div><span className="text-slate-500">¿A qué se dedica?:</span> {detail.occupation || '—'}</div>
+              <div><span className="text-slate-500">Prospectado por:</span> {detail.prospector_name || '—'}</div>
               <div><span className="text-slate-500">Conoce marca:</span> {detail.knows_brand === true ? 'Sí' : detail.knows_brand === false ? 'No' : '—'}</div>
               <div><span className="text-slate-500">Oportunidad:</span> {formatMoney(detail.opportunity_value)}</div>
               <div><span className="text-slate-500">Probabilidad:</span> {detail.close_probability}%</div>
