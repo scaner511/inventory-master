@@ -47,8 +47,15 @@ def get_current_user(
 
     # Renovación por actividad: mientras la sesión siga vigente, cada petición
     # extiende la ventana de inactividad (hasta el tope absoluto por sesión).
+    # Si había un cierre diferido pendiente (p. ej. el navegador envió logout al
+    # cerrar la pestaña), una petición válida de la MISMA sesión lo cancela: fue
+    # un recargado (F5), no un cierre real.
     if user.active_session and session_id == user.active_session:
         now = datetime.now()
+        changed = False
+        if user.session_close_pending_at is not None:
+            user.session_close_pending_at = None
+            changed = True
         if user.session_expires_at is not None and user.session_expires_at > now:
             max_expires = None
             if user.last_login is not None:
@@ -60,7 +67,9 @@ def get_current_user(
                 new_expires = max_expires
             if new_expires != user.session_expires_at:
                 user.session_expires_at = new_expires
-                db.commit()
+                changed = True
+        if changed:
+            db.commit()
 
     # Si el usuario pertenece a un cliente desactivado, se bloquea el acceso.
     if user.tenant_id is not None:

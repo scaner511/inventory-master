@@ -16,22 +16,24 @@ export async function ping() {
   await api.get('/auth/me')
 }
 
-// Libera la sesión al cerrar la pestaña/ventana. Usa sendBeacon porque los
-// navegadores no esperan a peticiones normales durante 'unload'.
+// Libera la sesión al cerrar la pestaña/ventana. Usa sendBeacon (con el token
+// por query, porque sendBeacon no permite cabeceras) para que el envío ocurra
+// aunque el navegador esté cerrando la página.
+//
+// El backend aplica un pequeño margen de gracia: si la misma sesión vuelve a
+// usarse casi de inmediato (un recargado con F5), el cierre se cancela. Así se
+// distingue cerrar la pestaña de recargar.
 export function releaseSession() {
   const token = getToken()
   if (!token) return
-  const url = `${API_BASE}/auth/logout`
+  const url = `${API_BASE}/auth/logout?token=${encodeURIComponent(token)}`
   try {
-    const headers = { Authorization: `Bearer ${token}` }
-    const blob = new Blob([JSON.stringify({})], { type: 'application/json' })
+    const blob = new Blob(['{}'], { type: 'application/json' })
     if (navigator.sendBeacon) {
-      // sendBeacon no permite cabeceras personalizadas: se envía el token por
-      // query para que el backend pueda liberar la sesión igualmente.
-      navigator.sendBeacon(`${url}?token=${encodeURIComponent(token)}`, blob)
+      navigator.sendBeacon(url, blob)
       return
     }
-    fetch(url, { method: 'POST', headers, keepalive: true })
+    fetch(url, { method: 'POST', keepalive: true })
   } catch {
     /* noop */
   }

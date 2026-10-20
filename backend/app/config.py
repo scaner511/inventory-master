@@ -19,11 +19,14 @@ class Settings(BaseSettings):
     secret_key: str = "cambia-esta-clave-secreta-por-una-aleatoria"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
-    # Sesión única: ventana de inactividad antes de considerar la sesión libre
-    # (permite entrar desde otro equipo si el anterior se quedó "colgado").
-    active_session_idle_minutes: int = 15
-    # Duración máxima de una sesión única sin renovar (tope absoluto).
-    active_session_expire_minutes: int = 90
+    # Sesión única: la liberación ocurre al cerrar sesión o cerrar la pestaña.
+    # El cierre es diferido con este margen de gracia: si la misma sesión vuelve
+    # a usarse dentro de él (p. ej. un recargado con F5), el cierre se cancela.
+    session_close_grace_seconds: int = 5
+    # Tope de seguridad para que una sesión no quede viva indefinidamente si el
+    # cierre de pestaña nunca llegó al servidor.
+    active_session_idle_minutes: int = 1440
+    active_session_expire_minutes: int = 1440
 
     # App
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

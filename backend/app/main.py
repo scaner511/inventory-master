@@ -71,12 +71,37 @@ def _migrate_accept_terms(db: Session) -> None:
 
 
 def _migrate_user_modules(db: Session) -> None:
-    """Agrega la columna modules (módulos habilitados) a la tabla users."""
+    """Agrega la columna modules y capture_token a la tabla users.
+
+    Cada ALTER se commitea de inmediato para no dejar una transacción abierta
+    sosteniendo un lock sobre ``users`` (que bloquearía el arranque si otra
+    conexión intenta inspeccionar/alterar la tabla).
+    """
+    if not _table_columns("users"):
+        return
+    if engine.dialect.name == "postgresql":
+        # Postgres admite IF NOT EXISTS: sin inspección previa ni lock largo.
+        db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS modules TEXT"))
+        db.commit()
+        db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS capture_token VARCHAR(80)"))
+        db.commit()
+        db.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
+                "session_close_pending_at TIMESTAMP"
+            )
+        )
+        db.commit()
+        return
     if "modules" not in _table_columns("users"):
         db.execute(text("ALTER TABLE users ADD COLUMN modules TEXT"))
+        db.commit()
     if "capture_token" not in _table_columns("users"):
         db.execute(text("ALTER TABLE users ADD COLUMN capture_token VARCHAR(80)"))
-    db.commit()
+        db.commit()
+    if "session_close_pending_at" not in _table_columns("users"):
+        db.execute(text("ALTER TABLE users ADD COLUMN session_close_pending_at TIMESTAMP"))
+        db.commit()
 
 
 def _migrate_drive_per_tenant(db: Session) -> None:

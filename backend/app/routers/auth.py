@@ -49,8 +49,19 @@ def _session_max() -> timedelta:
 
 
 def _session_active(user: User, now: datetime) -> bool:
-    """True si la sesión única actual sigue vigente (no expirada)."""
-    return bool(user.active_session and user.session_expires_at and user.session_expires_at > now)
+    """True si la sesión única actual sigue vigente (no expirada).
+
+    Un cierre diferido (session_close_pending_at) cuenta como sesión libre una
+    vez transcurrido el margen de gracia; dentro del margen aún se considera
+    activa, para permitir que un recargado la cancele.
+    """
+    if not (user.active_session and user.session_expires_at and user.session_expires_at > now):
+        return False
+    if user.session_close_pending_at is not None:
+        grace = timedelta(seconds=settings.session_close_grace_seconds)
+        if now - user.session_close_pending_at >= grace:
+            return False
+    return True
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -75,6 +86,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     session_id = secrets.token_urlsafe(32)
     user.active_session = session_id
     user.session_expires_at = now + _session_window()
+    user.session_close_pending_at = None
     user.last_login = now
     db.commit()
     return _token_for(user, session_id)
@@ -133,15 +145,26 @@ def logout(
     Acepta el usuario por cabecera ``Authorization`` o, como respaldo, un ``token``
     por query (necesario para ``navigator.sendBeacon`` al cerrar la pestaña, ya que
     no permite cabeceras personalizadas).
+
+    El cierre es *diferido*: se marca ``session_close_pending_at`` con la hora
+    actual y la sesión queda libre tras el margen de gracia, salvo que la misma
+    sesión vuelva a usarse (un recargado), en cuyo caso se cancela.
     """
     if user is None and token:
         payload = decode_access_token(token)
         if payload and payload.get("sub"):
             user = db.get(User, int(payload["sub"]))
-    if user is None:
+    if user is None or not user.active_session:
         return {"message": "Sesión cerrada correctamente."}
-    user.active_session = None
-    user.session_expires_at = None
+    # Solo el dueño de la sesión activa puede cerrarla (evita que un token
+    # viejo libere la sesión de otro equipo que ya tomó el control).
+    if token:
+        payload = decode_access_token(token)
+        if payload and payload.get("session_id") != user.active_session:
+            return {"message": "Sesión cerrada correctamente."}
+    user.session_close_pending_at = datetime.now()
+    if token:
+        user.session_expires_at = datetime.now() + _session_window()
     db.commit()
     return {"message": "Sesión cerrada correctamente."}
 

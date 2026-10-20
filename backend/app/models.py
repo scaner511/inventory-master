@@ -83,6 +83,10 @@ class User(Base):
     # Sesión única: sólo un equipo puede tener la sesión activa a la vez.
     active_session: Mapped[str | None] = mapped_column(String(64), nullable=True)
     session_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Cierre diferido: al recibir logout (p. ej. al cerrar la pestaña) se marca
+    # aquí la hora. Si la misma sesión vuelve a usarse dentro del margen de
+    # gracia, se cancela (fue un recargado); si no, la sesión queda libre.
+    session_close_pending_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Módulos habilitados por el administrador (JSON serializado). NULL = todos.
     # Claves válidas: capture, calendar, temporary_storage, prospects.
     modules: Mapped[str | None] = mapped_column(Text, nullable=True)
