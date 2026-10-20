@@ -42,24 +42,22 @@ function Wheel({ segments, rotation, spinning, size = 320 }) {
   const labels = segments.map((s, i) => {
     // Ángulo central del segmento (0° = arriba, avanza en sentido horario).
     const mid = i * seg + seg / 2
-    const rad = ((mid - 90) * Math.PI) / 180
-    const x = r + labelRadius * Math.cos(rad)
-    const y = r + labelRadius * Math.sin(rad)
-    // En la mitad inferior el texto quedaría de cabeza: lo giramos 180°.
-    const upsideDown = mid > 180
+    // Colocamos el texto sobre la línea radial del segmento (eje vertical) y
+    // giramos todo alrededor del CENTRO de la rueda: así queda totalmente
+    // alineado con el radio y centrado, sin desfases.
     return (
       <text
         key={`lbl-${s.id ?? i}`}
-        x={x}
-        y={y}
+        x={r}
+        y={r - labelRadius}
         fill="#0b1220"
-        fontSize={Math.max(9, Math.min(15, 150 / n))}
+        fontSize={Math.max(8, Math.min(13, 120 / n))}
         fontWeight="700"
         textAnchor="middle"
         dominantBaseline="middle"
-        transform={`rotate(${upsideDown ? mid - 180 : mid} ${x} ${y})`}
+        transform={`rotate(${mid} ${r} ${r})`}
       >
-        {String(s.label).slice(0, 18)}
+        {String(s.label).slice(0, 16)}
       </text>
     )
   })
