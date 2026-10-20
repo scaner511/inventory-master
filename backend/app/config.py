@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     secret_key: str = "cambia-esta-clave-secreta-por-una-aleatoria"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
+    # Sesión única: ventana de inactividad antes de considerar la sesión libre
+    # (permite entrar desde otro equipo si el anterior se quedó "colgado").
+    active_session_idle_minutes: int = 15
+    # Duración máxima de una sesión única sin renovar (tope absoluto).
+    active_session_expire_minutes: int = 90
 
     # App
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

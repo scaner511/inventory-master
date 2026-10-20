@@ -1,4 +1,4 @@
-import { api, setToken, clearToken } from './client'
+import { api, setToken, clearToken, getToken, API_BASE } from './client'
 
 export async function login(username, password) {
   const { data } = await api.post('/auth/login', { username, password })
@@ -9,6 +9,32 @@ export async function login(username, password) {
 export async function fetchMe() {
   const { data } = await api.get('/auth/me')
   return data
+}
+
+// Mantiene viva la sesión única mientras la pestaña está abierta.
+export async function ping() {
+  await api.get('/auth/me')
+}
+
+// Libera la sesión al cerrar la pestaña/ventana. Usa sendBeacon porque los
+// navegadores no esperan a peticiones normales durante 'unload'.
+export function releaseSession() {
+  const token = getToken()
+  if (!token) return
+  const url = `${API_BASE}/auth/logout`
+  try {
+    const headers = { Authorization: `Bearer ${token}` }
+    const blob = new Blob([JSON.stringify({})], { type: 'application/json' })
+    if (navigator.sendBeacon) {
+      // sendBeacon no permite cabeceras personalizadas: se envía el token por
+      // query para que el backend pueda liberar la sesión igualmente.
+      navigator.sendBeacon(`${url}?token=${encodeURIComponent(token)}`, blob)
+      return
+    }
+    fetch(url, { method: 'POST', headers, keepalive: true })
+  } catch {
+    /* noop */
+  }
 }
 
 export async function acceptTerms() {

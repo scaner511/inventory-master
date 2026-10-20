@@ -1,5 +1,5 @@
 """Dependencias compartidas de FastAPI (autenticación y autorización)."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -45,12 +45,52 @@ def get_current_user(
     if user.active_session and session_id != user.active_session:
         raise unauthorized
 
+    # Renovación por actividad: mientras la sesión siga vigente, cada petición
+    # extiende la ventana de inactividad (hasta el tope absoluto por sesión).
+    if user.active_session and session_id == user.active_session:
+        now = datetime.now()
+        if user.session_expires_at is not None and user.session_expires_at > now:
+            max_expires = None
+            if user.last_login is not None:
+                max_expires = user.last_login + timedelta(
+                    minutes=settings.active_session_expire_minutes
+                )
+            new_expires = now + timedelta(minutes=settings.active_session_idle_minutes)
+            if max_expires is not None and new_expires > max_expires:
+                new_expires = max_expires
+            if new_expires != user.session_expires_at:
+                user.session_expires_at = new_expires
+                db.commit()
+
     # Si el usuario pertenece a un cliente desactivado, se bloquea el acceso.
     if user.tenant_id is not None:
         tenant = db.get(Tenant, user.tenant_id)
         if tenant is None or not tenant.is_active:
             raise HTTPException(status_code=403, detail="El cliente al que perteneces está desactivado")
 
+    return user
+
+
+def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Como get_current_user pero devuelve None en lugar de lanzar 401.
+
+    Útil para endpoints que aceptan autenticación por cabecera o por otro medio
+    (p. ej. logout vía sendBeacon con token por query).
+    """
+    if credentials is None:
+        return None
+    payload = decode_access_token(credentials.credentials)
+    if not payload or not payload.get("sub"):
+        return None
+    user = db.get(User, int(payload["sub"]))
+    if user is None or not user.is_active:
+        return None
+    session_id = payload.get("session_id")
+    if user.active_session and session_id != user.active_session:
+        return None
     return user
 
 
