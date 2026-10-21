@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { createProduct, deleteAllProducts, deleteProduct, getProducts, updateProduct } from '../api/index.js'
+import { createProduct, deleteAllProducts, deleteProduct, getProducts, stockEntry, updateProduct } from '../api/index.js'
 import { api, formatMoney, openAuthenticatedUrl } from '../api/client.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import Modal from '../components/ui/Modal.jsx'
+import SmartReceptionModal from '../components/SmartReceptionModal.jsx'
 import BarcodeScanner from '../components/BarcodeScanner.jsx'
 import Table, { EmptyState } from '../components/ui/Table.jsx'
 import Badge from '../components/ui/Badge.jsx'
@@ -47,6 +48,11 @@ export default function Products() {
   const [deletingAll, setDeletingAll] = useState(false)
   const [scannerOpen, setScannerOpen] = useState(false)
   const fileRef = useRef(null)
+
+  const [smartOpen, setSmartOpen] = useState(false)
+  const [smartRows, setSmartRows] = useState(null)
+  const [entryForm, setEntryForm] = useState({ location: '', newLocation: '', document: '' })
+  const [entrySaving, setEntrySaving] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -231,6 +237,59 @@ export default function Products() {
     }
   }
 
+  const knownLocations = useMemo(() => {
+    const set = new Set()
+    for (const p of products) {
+      for (const l of p.locations || []) {
+        if (l.location) set.add(l.location)
+      }
+    }
+    return [...set].sort((a, b) => a.localeCompare(b))
+  }, [products])
+
+  function openSmart() {
+    setSmartOpen(true)
+  }
+
+  function handleSmartApply(rows) {
+    setSmartRows(rows)
+    setEntryForm({ location: knownLocations[0] || '', newLocation: '', document: '' })
+  }
+
+  async function confirmStockEntry(e) {
+    e.preventDefault()
+    if (!smartRows?.length) return
+    const location = (entryForm.newLocation.trim() || entryForm.location.trim())
+    if (!location) return toast.error('Indica la ubicación de destino')
+    const missingName = smartRows.find((r) => !r.exists && !(r.name || r.description || '').trim())
+    if (missingName) {
+      return toast.error(`El código "${missingName.code}" es nuevo: escribe su nombre para crearlo.`)
+    }
+    setEntrySaving(true)
+    try {
+      const payload = {
+        location,
+        document: entryForm.document.trim() || undefined,
+        movement: 'ENTRADA POR RECEPCION',
+        lines: smartRows.map((r) => ({
+          code: r.code.trim(),
+          name: (r.name || r.description || '').trim() || undefined,
+          quantity: Number(r.quantity) || 0,
+        })),
+      }
+      const res = await stockEntry(payload)
+      toast.success(
+        `Entrada registrada: ${res.updated_products} actualizado(s), ${res.created_products} nuevo(s)`,
+      )
+      setSmartRows(null)
+      load()
+    } catch {
+      /* interceptor */
+    } finally {
+      setEntrySaving(false)
+    }
+  }
+
   function renderLocations(p) {
     const locs = Array.isArray(p.locations) && p.locations.length ? p.locations : []
     if (!locs.length) return <span className="text-slate-500">Sin ubicaciones</span>
@@ -271,6 +330,9 @@ export default function Products() {
           )}
           <Button variant="ghost" onClick={() => setScannerOpen(true)}>
             📷 Escanear código
+          </Button>
+          <Button variant="success" onClick={openSmart}>
+            🤖 Recepción Inteligente
           </Button>
           <Button onClick={openCreate}>➕ Nuevo producto</Button>
         </div>
@@ -464,6 +526,80 @@ export default function Products() {
       </Modal>
 
       <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onCode={handleScanCode} />
+
+      <SmartReceptionModal
+        open={smartOpen}
+        onClose={() => setSmartOpen(false)}
+        mode="inventory"
+        products={products}
+        onApply={handleSmartApply}
+      />
+
+      <Modal open={!!smartRows} onClose={() => setSmartRows(null)} title="Confirmar entrada de inventario" wide>
+        <form onSubmit={confirmStockEntry} className="space-y-4">
+          <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-3 text-sm text-slate-300">
+            Se registrará una <span className="text-slate-100">ENTRADA POR RECEPCIÓN</span> y el stock se sumará al
+            inventario. Los productos nuevos se crearán con el nombre indicado.
+          </div>
+          <Field label="Ubicación de destino" hint="Selecciona una existente o escribe una nueva.">
+            <Select
+              value={entryForm.location}
+              onChange={(e) => setEntryForm((f) => ({ ...f, location: e.target.value, newLocation: '' }))}
+            >
+              <option value="">— Elegir ubicación existente —</option>
+              {knownLocations.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="…o crear ubicación nueva">
+            <Input
+              value={entryForm.newLocation}
+              onChange={(e) => setEntryForm((f) => ({ ...f, newLocation: e.target.value, location: '' }))}
+              placeholder="Ej: Bodega 2 / Rack A3"
+            />
+          </Field>
+          <Field label="Documento origen (opcional)">
+            <Input
+              value={entryForm.document}
+              onChange={(e) => setEntryForm((f) => ({ ...f, document: e.target.value }))}
+              placeholder="Nº remisión / factura"
+            />
+          </Field>
+
+          <div className="max-h-56 overflow-auto rounded-lg border border-slate-700">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-800/60 text-xs uppercase text-slate-400">
+                <tr>
+                  <th className="px-3 py-2 text-left">Código</th>
+                  <th className="px-3 py-2 text-left">Nombre</th>
+                  <th className="px-3 py-2 text-center">Cantidad</th>
+                </tr>
+              </thead>
+              <tbody>
+                {smartRows?.map((r, i) => (
+                  <tr key={i} className="border-t border-slate-800">
+                    <td className="px-3 py-2 font-mono text-xs text-slate-300">{r.code}</td>
+                    <td className="px-3 py-2 text-slate-100">{r.name || r.description}</td>
+                    <td className="px-3 py-2 text-center font-semibold text-slate-200">{r.quantity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-slate-800 pt-4">
+            <Button type="button" variant="ghost" onClick={() => setSmartRows(null)}>
+              Cancelar
+            </Button>
+            <Button type="submit" variant="success" disabled={entrySaving}>
+              {entrySaving ? 'Registrando...' : 'Registrar entrada'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

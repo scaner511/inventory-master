@@ -300,6 +300,45 @@ class ProductOut(ProductBase):
     location: str | None = None
 
 
+class StockEntryLine(BaseModel):
+    """Una línea de entrada de inventario (producto existente o código nuevo)."""
+
+    code: str = Field(min_length=1, max_length=50)
+    name: str | None = Field(default=None, max_length=255)
+    description: str | None = Field(default=None, max_length=255)
+    quantity: int = Field(ge=1)
+    location: str | None = Field(default=None, max_length=255)
+    # Si el código no existe y no se envía name, se rechaza (validación en router).
+    purchase_price: float | None = Field(default=None, ge=0)
+    sale_price: float | None = Field(default=None, ge=0)
+
+
+class StockEntryIn(BaseModel):
+    """Entrada de inventario desde recepción (manual o inteligente/OCR)."""
+
+    location: str | None = Field(default=None, max_length=255)
+    document: str | None = Field(default=None, max_length=255)
+    movement: str = Field(default="ENTRADA POR RECEPCION", max_length=60)
+    lines: list[StockEntryLine] = Field(min_length=1)
+
+
+class StockEntryResultLine(BaseModel):
+    code: str
+    name: str
+    created: bool
+    previous_stock: int
+    new_stock: int
+    quantity: int
+
+
+class StockEntryOut(BaseModel):
+    entry_id: str
+    location: str | None = None
+    lines: list[StockEntryResultLine]
+    created_products: int
+    updated_products: int
+
+
 # ===================== LOANS =====================
 
 
@@ -420,6 +459,8 @@ class TsItemCreate(BaseModel):
     product_id: int | None = None
     product_name: str = Field(min_length=1, max_length=255)
     barcode: str | None = None
+    description: str | None = Field(default=None, max_length=255)
+    pallets: int = Field(default=0, ge=0)
     quantity: int = Field(default=1, ge=1)
     note: str | None = None
 
@@ -431,6 +472,8 @@ class TsItemOut(BaseModel):
     product_id: int | None = None
     product_name: str
     barcode: str | None = None
+    description: str | None = None
+    pallets: int = 0
     quantity: int
     returned_qty: int
     note: str | None = None

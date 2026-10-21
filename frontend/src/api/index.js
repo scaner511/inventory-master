@@ -18,6 +18,11 @@ export async function createProduct(payload) {
   return data
 }
 
+export async function stockEntry(payload) {
+  const { data } = await api.post('/products/stock-entry', payload)
+  return data
+}
+
 export async function updateProduct(id, payload) {
   const { data } = await api.put(`/products/${id}`, payload)
   return data

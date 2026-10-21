@@ -18,6 +18,7 @@ import { openAuthenticatedUrl, API_BASE } from '../api/client.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import BarcodeScanner from '../components/BarcodeScanner.jsx'
+import SmartReceptionModal from '../components/SmartReceptionModal.jsx'
 import Table, { EmptyState } from '../components/ui/Table.jsx'
 import { Button, Field, Input, Select, Textarea } from '../components/ui/Form.jsx'
 
@@ -47,7 +48,7 @@ function expiryLabel(row) {
   return `${d} d`
 }
 
-const EMPTY_ITEM = { product_id: null, product_name: '', barcode: '', quantity: 1, note: '' }
+const EMPTY_ITEM = { product_id: null, product_name: '', barcode: '', description: '', pallets: 0, quantity: 1, note: '' }
 const EMPTY_FORM = {
   entry_date: new Date().toISOString().slice(0, 10),
   deadline_date: '',
@@ -89,6 +90,7 @@ export default function TemporaryStorage() {
   const [products, setProducts] = useState([])
   const [productSearch, setProductSearch] = useState('')
   const [scannerIdx, setScannerIdx] = useState(null)
+  const [smartOpen, setSmartOpen] = useState(false)
 
   const [exitTarget, setExitTarget] = useState(null)
   const [exitForm, setExitForm] = useState({ exit_type: 'retirado', responsible: '', document: '', note: '' })
@@ -168,6 +170,8 @@ export default function TemporaryStorage() {
         product_id: it.product_id,
         product_name: it.product_name,
         barcode: it.barcode || '',
+        description: it.description || '',
+        pallets: it.pallets || 0,
         quantity: it.quantity,
         note: it.note || '',
       })),
@@ -195,6 +199,26 @@ export default function TemporaryStorage() {
     toast[found ? 'success' : 'error'](found ? `Producto: ${found.name}` : 'Código no encontrado en catálogo: agrega el nombre')
   }
 
+  function applyOcrRows(rows) {
+    const mapped = rows.map((r) => {
+      const found = products.find((p) => fold(p.code) === fold(r.code))
+      return {
+        product_id: found?.id || null,
+        product_name: (found?.name || r.description || r.name || r.code || '').trim(),
+        barcode: (r.code || '').trim(),
+        description: (r.description || '').trim(),
+        pallets: Number(r.pallets) || 0,
+        quantity: Number(r.quantity) || 1,
+        note: '',
+      }
+    })
+    setForm((f) => {
+      const kept = f.items.filter((it) => it.product_name.trim() || it.barcode.trim())
+      return { ...f, items: [...kept, ...mapped] }
+    })
+    toast.success(`${mapped.length} producto(s) agregados desde el documento`)
+  }
+
   async function handleSave(e) {
     e.preventDefault()
     if (!form.party_name.trim()) return toast.error('Indica el tercero/vendedor')
@@ -216,6 +240,8 @@ export default function TemporaryStorage() {
         product_id: it.product_id || null,
         product_name: it.product_name.trim(),
         barcode: it.barcode.trim() || null,
+        description: (it.description || '').trim() || null,
+        pallets: Number(it.pallets) || 0,
         quantity: Number(it.quantity),
         note: it.note.trim() || null,
       })),
@@ -604,9 +630,14 @@ export default function TemporaryStorage() {
           </div>
 
           <div>
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Productos</span>
-              <Button type="button" variant="ghost" onClick={() => addItem()}>+ Agregar</Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="success" onClick={() => setSmartOpen(true)}>
+                  🤖 Extraer desde documento
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => addItem()}>+ Agregar</Button>
+              </div>
             </div>
             <div className="space-y-2">
               {form.items.map((it, idx) => (
@@ -620,7 +651,7 @@ export default function TemporaryStorage() {
                   </div>
                   <div className="col-span-3">
                     <Input
-                      placeholder="Código de barras"
+                      placeholder="Código / código de barras"
                       value={it.barcode}
                       onChange={(e) => updateItem(idx, { barcode: e.target.value })}
                     />
@@ -629,11 +660,21 @@ export default function TemporaryStorage() {
                     <Input
                       type="number"
                       min="1"
+                      title="Cantidad"
                       value={it.quantity}
                       onChange={(e) => updateItem(idx, { quantity: e.target.value })}
                     />
                   </div>
-                  <div className="col-span-2">
+                  <div className="col-span-1">
+                    <Input
+                      type="number"
+                      min="0"
+                      title="Tarimas / pallets"
+                      value={it.pallets}
+                      onChange={(e) => updateItem(idx, { pallets: e.target.value })}
+                    />
+                  </div>
+                  <div className="col-span-1">
                     <Button type="button" variant="ghost" onClick={() => setScannerIdx(idx)} className="w-full">
                       Escanear
                     </Button>
@@ -647,6 +688,13 @@ export default function TemporaryStorage() {
                     >
                       ✕
                     </button>
+                  </div>
+                  <div className="col-span-12">
+                    <Input
+                      placeholder="Descripción / detalle (opcional)"
+                      value={it.description}
+                      onChange={(e) => updateItem(idx, { description: e.target.value })}
+                    />
                   </div>
                 </div>
               ))}
@@ -802,6 +850,14 @@ export default function TemporaryStorage() {
           if (scannerIdx !== null) applyBarcodeToItem(scannerIdx, code)
           setScannerIdx(null)
         }}
+      />
+
+      <SmartReceptionModal
+        open={smartOpen}
+        onClose={() => setSmartOpen(false)}
+        mode="storage"
+        products={products}
+        onApply={applyOcrRows}
       />
     </div>
   )

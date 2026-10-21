@@ -1,6 +1,7 @@
 """Rutas CRUD de productos (inventario)."""
 import io
 import unicodedata
+import uuid
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -9,7 +10,14 @@ from sqlalchemy.orm import Session
 
 from app.deps import get_current_user, get_tenant_db, require_privileged
 from app.models import Product, ProductStockLocation, User
-from app.schemas import ProductCreate, ProductOut, ProductUpdate
+from app.schemas import (
+    ProductCreate,
+    ProductOut,
+    ProductUpdate,
+    StockEntryIn,
+    StockEntryOut,
+    StockEntryResultLine,
+)
 from app.utils import locations as loc_utils
 
 router = APIRouter(prefix="/api/products", tags=["products"])
@@ -439,6 +447,121 @@ def update_product(
     db.commit()
     db.refresh(product)
     return _to_out(db, product, 5)
+
+
+@router.post("/stock-entry", response_model=StockEntryOut, status_code=201)
+def stock_entry(
+    data: StockEntryIn,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    """Suma stock al inventario desde una recepción (manual o inteligente/OCR).
+
+    Para cada línea: si el producto existe se incrementa su stock en la ubicación
+    indicada; si el código NO existe se crea el producto (requiere ``name``). En
+    todos los casos se registra la ubicación y una entrada de auditoría
+    (ENTRADA POR RECEPCION). Nunca borra ni reemplaza stock existente.
+    """
+    from app.utils.audit import record_audit
+
+    entry_id = uuid.uuid4().hex[:12]
+    default_loc = (data.location or "").strip() or "Principal"
+    results: list[StockEntryResultLine] = []
+    created = 0
+    updated = 0
+
+    for line in data.lines:
+        code = (line.code or "").strip()
+        if not code:
+            continue
+        qty = int(line.quantity or 0)
+        if qty <= 0:
+            continue
+        loc = (line.location or "").strip() or default_loc
+
+        product = (
+            db.query(Product)
+            .filter(Product.code == code, Product.tenant_id == user.tenant_id)
+            .first()
+        )
+        is_new = product is None
+        if is_new:
+            name = (line.name or "").strip()
+            if not name:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"El código '{code}' no existe. Indica el nombre para crear el producto.",
+                )
+            product = Product(
+                tenant_id=user.tenant_id,
+                code=code,
+                name=name,
+                stock=0,
+                purchase_price=line.purchase_price or 0,
+                sale_price=line.sale_price or 0,
+                condition="buen_estado",
+            )
+            db.add(product)
+            db.flush()
+            created += 1
+        else:
+            # Permite completar precio/nombre si vienen y el producto los tenía vacíos.
+            changed = False
+            if line.name and not (product.name or "").strip():
+                product.name = line.name.strip()
+                changed = True
+            if line.purchase_price is not None and not product.purchase_price:
+                product.purchase_price = line.purchase_price
+                changed = True
+            if line.sale_price is not None and not product.sale_price:
+                product.sale_price = line.sale_price
+                changed = True
+            if changed:
+                db.flush()
+            updated += 1
+
+        previous = product.stock or 0
+        loc_utils.adjust_quantity(db, product, loc, qty)
+        db.flush()
+        # products.stock = suma de ubicaciones (invariante).
+        product.stock = sum(r.quantity for r in loc_utils.rows_for(db, product))
+
+        record_audit(
+            db,
+            action="ENTRADA POR RECEPCION",
+            user_id=user.id,
+            tenant_id=user.tenant_id,
+            detail=(
+                f"{data.movement} · Código {code} · Ubicación {loc} · "
+                f"+{qty} (stock {previous} → {product.stock})"
+                + (f" · Documento {data.document}" if data.document else "")
+                + f" · Folio {entry_id}"
+            ),
+            product_name=product.name,
+            quantity=qty,
+        )
+
+        results.append(
+            StockEntryResultLine(
+                code=code,
+                name=product.name,
+                created=is_new,
+                previous_stock=previous,
+                new_stock=product.stock,
+                quantity=qty,
+            )
+        )
+
+    if not results:
+        raise HTTPException(status_code=400, detail="No hay líneas válidas para ingresar")
+
+    return StockEntryOut(
+        entry_id=entry_id,
+        location=default_loc,
+        lines=results,
+        created_products=created,
+        updated_products=updated,
+    )
 
 
 @router.delete("/all", status_code=200)

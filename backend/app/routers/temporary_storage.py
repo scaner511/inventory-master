@@ -147,6 +147,8 @@ def _to_out(storage: TemporaryStorage) -> TsOut:
             product_id=it.product_id,
             product_name=it.product_name,
             barcode=it.barcode,
+            description=it.description,
+            pallets=it.pallets or 0,
             quantity=it.quantity,
             returned_qty=it.returned_qty,
             note=it.note,
@@ -468,6 +470,8 @@ def create_storage(
                 product_id=it.product_id,
                 product_name=it.product_name.strip(),
                 barcode=(it.barcode or "").strip() or None,
+                description=(it.description or "").strip() or None,
+                pallets=it.pallets or 0,
                 quantity=it.quantity,
                 note=(it.note or "").strip() or None,
             )
@@ -550,6 +554,8 @@ def update_storage(
                     product_id=it["product_id"],
                     product_name=it["product_name"].strip(),
                     barcode=(it.get("barcode") or "").strip() or None,
+                    description=(it.get("description") or "").strip() or None,
+                    pallets=it.get("pallets") or 0,
                     quantity=it["quantity"],
                     note=(it.get("note") or "").strip() or None,
                 )

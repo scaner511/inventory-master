@@ -433,6 +433,10 @@ class TemporaryStorageItem(BaseBusiness):
     product_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     product_name: Mapped[str] = mapped_column(String(255), index=True)
     barcode: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    # Descripción larga tomada del documento (packing slip/factura/OCR).
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Tarimas/pallets asociados a la línea (documentos de terceros).
+    pallets: Mapped[int] = mapped_column(Integer, default=0)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     returned_qty: Mapped[int] = mapped_column(Integer, default=0)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
