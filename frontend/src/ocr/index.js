@@ -160,10 +160,10 @@ function parseAiJson(raw) {
   }
 }
 
-async function aiExtractImage(puter, blob) {
+async function aiExtractImage(puter, blob, model) {
   // Puter acepta un File/Blob directamente como media.
   const file = blob instanceof File ? blob : new File([blob], 'doc.png', { type: blob.type || 'image/png' })
-  const res = await puter.ai.chat(AI_PROMPT, file, { model: PUTER_MODEL })
+  const res = await puter.ai.chat(AI_PROMPT, file, { model: model || PUTER_MODEL })
   const items = parseAiJson(res)
   if (!items) throw new Error('La IA no devolvió un JSON válido')
   return items.map((it) => ({
@@ -176,10 +176,14 @@ async function aiExtractImage(puter, blob) {
 
 /**
  * Motor IA: renderiza (si es PDF) y manda cada página a Puter.
+ * @param token token/API key de Puter del cliente (omite el popup user-pays).
+ * @param model modelo a usar (por defecto PUTER_MODEL).
  * @returns {Promise<{rows:Array, raw:string, usedAi:true}>}
  */
-async function aiExtract(file, onProgress) {
+async function aiExtract(file, onProgress, { token, model } = {}) {
   const puter = await loadPuter()
+  // El token del cliente (Super Admin) evita el login/popup de Puter.
+  if (token) puter.authToken = token
   const isPdf = file.type === 'application/pdf'
   const images = isPdf ? await renderPdfToBlob(file, onProgress) : [file]
   const all = []
@@ -187,7 +191,7 @@ async function aiExtract(file, onProgress) {
     if (onProgress) {
       onProgress({ status: `Analizando con IA (${i + 1}/${images.length})`, progress: (i + 1) / (images.length + 1) })
     }
-    const rows = await aiExtractImage(puter, images[i])
+    const rows = await aiExtractImage(puter, images[i], model)
     all.push(...rows)
   }
   return { rows: all, usedAi: true }
@@ -196,15 +200,17 @@ async function aiExtract(file, onProgress) {
 /**
  * Extrae texto de una imagen o PDF.
  * @param engine 'ai' => Puter IA | 'ocr' => Tesseract | 'auto' => IA con respaldo Tesseract
+ * @param token token/API key de Puter del cliente (opcional).
+ * @param model modelo de IA a usar (opcional).
  * @returns {Promise<{text:string, confidence:number, pages:number, rows?:Array, engine?:string}>}
  */
-export async function extractDocument(file, { onProgress, provider, engine = 'ocr' } = {}) {
+export async function extractDocument(file, { onProgress, provider, engine = 'ocr', token, model } = {}) {
   if (provider) return provider(file, { onProgress })
   if (!file) throw new Error('No se recibió ningún archivo')
 
   if (engine === 'ai' || engine === 'auto') {
     try {
-      const { rows } = await aiExtract(file, onProgress)
+      const { rows } = await aiExtract(file, onProgress, { token, model })
       return { text: '', confidence: 100, pages: 1, rows, engine: 'ai' }
     } catch (err) {
       if (engine === 'ai') throw err

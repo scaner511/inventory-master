@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import Modal from './ui/Modal.jsx'
 import { Button, Field, Input, Select } from './ui/Form.jsx'
+import { getAiConfig } from '../api/index.js'
 import { extractDocument, isAccepted, matchRows, parseDocumentRows } from '../ocr/index.js'
 
 // Umbral de confianza a partir del cual pedimos verificación manual.
@@ -31,9 +32,18 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
   const [fileName, setFileName] = useState('')
   const [previewUrl, setPreviewUrl] = useState('')
   const [showText, setShowText] = useState(false)
+  const [aiConfig, setAiConfig] = useState({ enabled: false, token: null, model: null })
 
   const isStorage = mode === 'storage'
   const lowConfidence = confidence !== null && confidence < CONFIDENCE_WARN
+
+  // Carga la config de IA del cliente (habilitada por el Super Admin).
+  useEffect(() => {
+    if (!open) return
+    getAiConfig()
+      .then((cfg) => setAiConfig(cfg || { enabled: false }))
+      .catch(() => setAiConfig({ enabled: false, token: null, model: null }))
+  }, [open])
 
   const reset = () => {
     setBusy(false)
@@ -72,7 +82,9 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
     }
     try {
       const result = await extractDocument(file, {
-        engine: 'auto',
+        engine: aiConfig.enabled ? 'auto' : 'ocr',
+        token: aiConfig.token,
+        model: aiConfig.model,
         onProgress: ({ status, progress: p }) => {
           setStatusText(status || '')
           setProgress(Math.round((p || 0) * 100))

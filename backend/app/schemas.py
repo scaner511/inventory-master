@@ -197,6 +197,11 @@ class TenantUpdate(BaseModel):
     clear_max_users: bool | None = None
     # Módulos habilitados al cliente (solo el Super Admin los define).
     modules: list[str] | None = None
+    # --- IA de Recepción Inteligente (solo Super Admin) ---
+    ai_enabled: bool | None = None
+    # Token/API key de Puter del cliente. Cadena vacía = borrar el token.
+    ai_api_key: str | None = Field(default=None, max_length=500)
+    ai_model: str | None = Field(default=None, max_length=120)
 
 
 class TenantReset(BaseModel):
@@ -221,6 +226,11 @@ class TenantOut(BaseModel):
     users_count: int = 0
     # Módulos habilitados al cliente (lista). NULL/ausente = todos.
     modules: list[str] = Field(default_factory=list)
+    # --- IA de Recepción Inteligente (solo Super Admin) ---
+    ai_enabled: bool = False
+    ai_model: str | None = None
+    # Solo indica si hay token guardado (no se devuelve el token completo).
+    ai_api_key_set: bool = False
 
     @field_validator("modules", mode="before")
     @classmethod
@@ -1193,3 +1203,20 @@ class CaptureDashboardOut(BaseModel):
     by_prize: list[dict] = []
     top_campaigns: list[dict] = []
     top_vendors: list[dict] = []
+
+
+# ===================== IA (Recepción Inteligente / Puter) =====================
+
+
+class AiConfigOut(BaseModel):
+    """Config de IA del cliente para inicializar Puter.js en el navegador."""
+
+    enabled: bool = False
+    token: str | None = None
+    model: str | None = None
+
+
+class AiModelOut(BaseModel):
+    id: str
+    name: str
+    free: bool = False

@@ -16,6 +16,7 @@ from app.config import BASE_DIR, settings
 from app.database import Base, SessionLocal, create_tenant_database, default_database_name, engine, slugify
 from app.deps import require_valid_license
 from app.routers import (
+    ai as ai_router,
     appointments,
     audit,
     auth,
@@ -119,6 +120,30 @@ def _migrate_tenant_modules(db: Session) -> None:
     if "modules" not in _table_columns("tenants"):
         db.execute(text("ALTER TABLE tenants ADD COLUMN modules TEXT"))
         db.commit()
+
+
+def _migrate_tenant_ai(db: Session) -> None:
+    """Agrega las columnas de IA (Recepción Inteligente) a la tabla tenants.
+
+    Cada ALTER se commitea de inmediato para no dejar locks sobre ``tenants``.
+    """
+    if not _table_columns("tenants"):
+        return
+    cols = _table_columns("tenants")
+    migrations = [
+        ("ai_enabled", "BOOLEAN DEFAULT FALSE"),
+        ("ai_api_key", "TEXT"),
+        ("ai_model", "VARCHAR(120)"),
+    ]
+    for column, definition in migrations:
+        if column in cols:
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE tenants ADD COLUMN {column} {definition}"))
+            db.commit()
+        except Exception as exc:  # no romper el arranque por una columna
+            db.rollback()
+            print(f"[AVISO] No se pudo agregar tenants.{column}: {exc}")
 
 
 def _migrate_drive_per_tenant(db: Session) -> None:
@@ -653,6 +678,7 @@ def init_db() -> None:
         _migrate_accept_terms(db)
         _migrate_user_modules(db)
         _migrate_tenant_modules(db)
+        _migrate_tenant_ai(db)
         _migrate_tenant_max_users(db)
         _migrate_drive_per_tenant(db)
         _migrate_user_active_session(db)
@@ -1006,6 +1032,7 @@ app.include_router(backup.router, dependencies=business_deps)
 # bloqueo de licencia ni JWT (se valida por otros medios dentro de cada ruta).
 app.include_router(backup.oauth_router)
 app.include_router(audit.router, dependencies=business_deps)
+app.include_router(ai_router.router, dependencies=business_deps)
 
 
 @app.get("/api/health")

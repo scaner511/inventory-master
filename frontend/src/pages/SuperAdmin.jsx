@@ -4,6 +4,7 @@ import {
   createTenant,
   createTenantUser,
   deleteTenant,
+  getAiModels,
   getGlobalUsers,
   getTenantUsers,
   getTenants,
@@ -54,8 +55,9 @@ function TenantsTab() {
   const [tenants, setTenants] = useState([])
   const [editOpen, setEditOpen] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: [] })
+  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: [], ai_enabled: false, ai_api_key: '', ai_model: '', ai_api_key_set: false })
   const [saving, setSaving] = useState(false)
+  const [aiModels, setAiModels] = useState([])
   const [usersOpen, setUsersOpen] = useState(null)
   const [tenantUsers, setTenantUsers] = useState([])
   const [addUserOpen, setAddUserOpen] = useState(false)
@@ -81,6 +83,10 @@ function TenantsTab() {
     load()
   }, [load])
 
+  useEffect(() => {
+    getAiModels().then(setAiModels).catch(() => {})
+  }, [])
+
   async function handleSubmit(e) {
     e.preventDefault()
     setSaving(true)
@@ -90,6 +96,10 @@ function TenantsTab() {
           name: form.name,
           max_users: form.max_users === '' ? null : Number(form.max_users),
           modules: form.modules,
+          ai_enabled: form.ai_enabled,
+          ai_model: form.ai_model,
+          // Solo se envía el token si se escribió uno nuevo (o vacío para borrar).
+          ...(form.ai_api_key !== '' ? { ai_api_key: form.ai_api_key } : {}),
         })
         toast.success('Cliente actualizado')
       } else {
@@ -121,13 +131,17 @@ function TenantsTab() {
       admin_email: '',
       max_users: t.max_users ? String(t.max_users) : '',
       modules: Array.isArray(t.modules) ? t.modules : MODULES.map((m) => m.key),
+      ai_enabled: !!t.ai_enabled,
+      ai_api_key: '',
+      ai_model: t.ai_model || '',
+      ai_api_key_set: !!t.ai_api_key_set,
     })
     setEditOpen(true)
   }
 
   function openCreate() {
     setEditing(null)
-    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: MODULES.map((m) => m.key) })
+    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: MODULES.map((m) => m.key), ai_enabled: false, ai_api_key: '', ai_model: '', ai_api_key_set: false })
     setEditOpen(true)
   }
 
@@ -426,6 +440,68 @@ function TenantsTab() {
               ))}
             </div>
           </Field>
+          {editing && (
+            <div className="rounded-xl border border-slate-700 bg-slate-800/30 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                🤖 Recepción Inteligente (IA)
+              </p>
+              <label className="mb-3 flex items-center gap-3 text-sm text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={form.ai_enabled}
+                  onChange={(e) => setForm({ ...form, ai_enabled: e.target.checked })}
+                  className="h-4 w-4"
+                />
+                Habilitar análisis con IA al subir documentos
+              </label>
+              <div className="space-y-3">
+                <Field
+                  label="API key / token de Puter"
+                  hint={
+                    form.ai_api_key_set
+                      ? 'Ya hay un token guardado. Escribe uno nuevo para reemplazarlo, o déjalo vacío para conservarlo.'
+                      : 'Pégalo desde puter.com (Dashboard → API keys). Se usa para autenticar la IA del cliente.'
+                  }
+                >
+                  <Input
+                    type="password"
+                    value={form.ai_api_key}
+                    onChange={(e) => setForm({ ...form, ai_api_key: e.target.value })}
+                    placeholder={form.ai_api_key_set ? '•••••••• (guardado)' : 'sk-...'}
+                    autoComplete="new-password"
+                  />
+                </Field>
+                <Field label="Modelo de IA" hint="Modelos con visión (leen imágenes). Los marcados 🆓 no generan costo.">
+                  <Select value={form.ai_model} onChange={(e) => setForm({ ...form, ai_model: e.target.value })}>
+                    <option value="">— Predeterminado (gpt-5.4-nano) —</option>
+                    {(aiModels.length
+                      ? aiModels
+                      : [
+                          { id: 'gpt-5.4-nano', name: 'GPT-5.4 Nano (OpenAI)', free: false },
+                          { id: 'google/gemini-2.0-flash:free', name: 'Gemini 2.0 Flash — GRATIS', free: true },
+                        ]
+                    ).map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.free ? '🆓 ' : ''}
+                        {m.name || m.id}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="ID exacto del modelo (opcional)" hint="Si el modelo no está en la lista, escribe su ID.">
+                  <Input
+                    value={form.ai_model}
+                    onChange={(e) => setForm({ ...form, ai_model: e.target.value })}
+                    placeholder="ej: gpt-4o-mini"
+                    className="font-mono text-xs"
+                  />
+                </Field>
+                <p className="text-xs text-slate-500">
+                  Si la IA está deshabilitada o falla, la Recepción Inteligente usa el OCR local (Tesseract) automáticamente.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setEditOpen(false)}>
               Cancelar

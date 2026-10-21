@@ -96,6 +96,16 @@ def _subscription_days_left(tenant: Tenant) -> int | None:
     return (tenant.subscription_expires_at - date.today()).days
 
 
+def _fill_tenant_out(out: TenantOut, db: Session, tenant: Tenant) -> TenantOut:
+    """Completa los campos calculados del cliente (no persistidos)."""
+    out.users_count = _tenant_users_count(db, tenant.id)
+    out.subscription_days_left = _subscription_days_left(tenant)
+    out.ai_api_key_set = bool((tenant.ai_api_key or "").strip())
+    out.ai_enabled = bool(tenant.ai_enabled)
+    out.ai_model = tenant.ai_model
+    return out
+
+
 def _renew_tenant(db: Session, tenant: Tenant, days: int, actor: User) -> date:
     """Renueva la licencia del cliente y la hereda a todos sus usuarios.
 
@@ -152,8 +162,7 @@ def list_tenants(db: Session = Depends(get_db)):
     result = []
     for t in tenants:
         out = TenantOut.model_validate(t)
-        out.users_count = _tenant_users_count(db, t.id)
-        out.subscription_days_left = _subscription_days_left(t)
+        _fill_tenant_out(out, db, t)
         result.append(out)
     return result
 
@@ -203,8 +212,7 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
     )
 
     out = TenantOut.model_validate(tenant)
-    out.users_count = _tenant_users_count(db, tenant.id)
-    out.subscription_days_left = _subscription_days_left(tenant)
+    _fill_tenant_out(out, db, tenant)
     return out
 
 
@@ -234,12 +242,19 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
                 detail=f"No se puede fijar {data.max_users} usuarios: el cliente ya tiene {_tenant_users_count(db, tenant_id)}",
             )
         tenant.max_users = data.max_users
+    if data.ai_enabled is not None:
+        tenant.ai_enabled = data.ai_enabled
+    if "ai_api_key" in (data.model_fields_set or set()):
+        # Cadena vacía = borrar el token guardado.
+        token = (data.ai_api_key or "").strip()
+        tenant.ai_api_key = token or None
+    if "ai_model" in (data.model_fields_set or set()):
+        tenant.ai_model = (data.ai_model or "").strip() or None
     db.commit()
     db.refresh(tenant)
 
     out = TenantOut.model_validate(tenant)
-    out.users_count = _tenant_users_count(db, tenant.id)
-    out.subscription_days_left = _subscription_days_left(tenant)
+    _fill_tenant_out(out, db, tenant)
     return out
 
 

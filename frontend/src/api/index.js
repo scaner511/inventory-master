@@ -23,6 +23,16 @@ export async function stockEntry(payload) {
   return data
 }
 
+export async function getAiModels() {
+  const { data } = await api.get('/ai/models')
+  return data
+}
+
+export async function getAiConfig() {
+  const { data } = await api.get('/ai/config')
+  return data
+}
+
 export async function updateProduct(id, payload) {
   const { data } = await api.put(`/products/${id}`, payload)
   return data
