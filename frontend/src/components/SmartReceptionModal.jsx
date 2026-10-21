@@ -26,6 +26,7 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
   const [statusText, setStatusText] = useState('')
   const [confidence, setConfidence] = useState(null)
   const [rawText, setRawText] = useState('')
+  const [engine, setEngine] = useState('')
   const [rows, setRows] = useState([])
   const [fileName, setFileName] = useState('')
   const [previewUrl, setPreviewUrl] = useState('')
@@ -40,6 +41,7 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
     setStatusText('')
     setConfidence(null)
     setRawText('')
+    setEngine('')
     setRows([])
     setFileName('')
     if (previewUrl) URL.revokeObjectURL(previewUrl)
@@ -70,6 +72,7 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
     }
     try {
       const result = await extractDocument(file, {
+        engine: 'auto',
         onProgress: ({ status, progress: p }) => {
           setStatusText(status || '')
           setProgress(Math.round((p || 0) * 100))
@@ -77,8 +80,10 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
       })
       setRawText(result.text || '')
       setConfidence(Math.round(result.confidence || 0))
-      const parsed = parseDocumentRows(result.text || '')
-      const matched = matchRows(parsed.rows, products).map((r) => ({
+      setEngine(result.engine || 'ocr')
+      // Si la IA ya devolvió filas estructuradas, se usan tal cual.
+      const baseRows = result.rows?.length ? result.rows : parseDocumentRows(result.text || '').rows
+      const matched = matchRows(baseRows, products).map((r) => ({
         ...r,
         quantity: r.quantity || 1,
         pallets: r.pallets || 0,
@@ -197,7 +202,11 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
         {fileName && !busy && (
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
             <span>Archivo: <span className="text-slate-200">{fileName}</span></span>
-            {confidence !== null && (
+            {engine === 'ai' ? (
+              <span className="rounded-md bg-blue-500/15 px-2 py-0.5 font-semibold text-blue-300">
+                🤖 Analizado con IA
+              </span>
+            ) : confidence !== null ? (
               <span
                 className={`rounded-md px-2 py-0.5 font-semibold ${
                   lowConfidence ? 'bg-amber-500/15 text-amber-400' : 'bg-emerald-500/15 text-emerald-400'
@@ -205,7 +214,7 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
               >
                 Confianza OCR: {confidence}%
               </span>
-            )}
+            ) : null}
             {rawText && (
               <button className="text-blue-400 hover:underline" onClick={() => setShowText((v) => !v)}>
                 {showText ? 'Ocultar texto' : 'Ver texto detectado'}
@@ -214,7 +223,7 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
           </div>
         )}
 
-        {lowConfidence && (
+        {(lowConfidence || (engine === 'ai' && rows.length > 0)) && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
             ⚠️ Verifique los datos antes de guardar.
           </div>

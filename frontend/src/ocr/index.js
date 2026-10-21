@@ -19,10 +19,18 @@ const PDFJS_VERSION = '4.7.76'
 const PDFJS_CDN = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.min.mjs`
 const PDFJS_WORKER = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`
 
+// --- Motor IA (Puter.js) ---
+// Puter.js da acceso a +500 modelos (OpenAI, Google, Anthropic, ...) directo
+// desde el navegador mediante el modelo "user-pays": el usuario autoriza con su
+// cuenta la primera vez. Para cambiar de modelo basta editar PUTER_MODEL.
+const PUTER_CDN = 'https://js.puter.com/v2/'
+const PUTER_MODEL = 'gpt-5.4-nano'
+
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 
 let _tesseractPromise = null
 let _pdfjsPromise = null
+let _puterPromise = null
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -54,6 +62,16 @@ async function loadPdfJs() {
     })
   }
   return _pdfjsPromise
+}
+
+async function loadPuter() {
+  if (!_puterPromise) {
+    _puterPromise = loadScript(PUTER_CDN).then(() => {
+      if (!window.puter) throw new Error('Puter.js no disponible')
+      return window.puter
+    })
+  }
+  return _puterPromise
 }
 
 export function isAccepted(file) {
@@ -102,13 +120,98 @@ async function renderPdfToBlob(file, onProgress) {
   return pages
 }
 
+// ---- Motor IA (Puter.js) ----
+const AI_PROMPT = `Eres un asistente experto en leer documentos de almacén, remisiones, packing slips y facturas (en español e inglés).
+Analiza la imagen y extrae ÚNICAMENTE los productos/renglones listados.
+Devuelve EXCLUSIVAMENTE un objeto JSON válido, sin explicaciones ni markdown, con esta forma:
+{"items":[{"code":"","description":"","quantity":0,"pallets":0}]}
+Reglas:
+- "code": el código/SKU/artículo/clave del producto si aparece. Si no hay, deja "".
+- "description": el nombre o descripción del producto. No repitas el código aquí.
+- "quantity": la cantidad (CTD/QTY/unidades/piezas). Si hay varias columnas de cantidad, usa la de unidades. Si no aparece, usa 1.
+- "pallets": número de tarimas/pallets/bultos/cajas si aparece. Si no, usa 0.
+- NO incluyas filas de totales, subtotales, direcciones, fechas ni encabezados.
+- Si un renglón no tiene cantidad clara, asume 1.
+- Responde solo con el JSON.`
+
+function parseAiJson(raw) {
+  if (raw == null) return null
+  let text = raw
+  if (typeof raw === 'object') {
+    // Puter puede devolver { message: { content } } o content directo.
+    text = raw?.message?.content ?? raw?.text ?? raw?.content ?? raw
+    if (Array.isArray(text)) {
+      text = text.map((b) => (typeof b === 'string' ? b : b?.text || '')).join('')
+    }
+  }
+  if (typeof text !== 'string') return null
+  // Recorta posibles fences ```json ... ```
+  let s = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
+  const start = s.indexOf('{')
+  const end = s.lastIndexOf('}')
+  if (start >= 0 && end > start) s = s.slice(start, end + 1)
+  try {
+    const obj = JSON.parse(s)
+    const items = Array.isArray(obj) ? obj : obj?.items
+    if (!Array.isArray(items)) return null
+    return items
+  } catch {
+    return null
+  }
+}
+
+async function aiExtractImage(puter, blob) {
+  // Puter acepta un File/Blob directamente como media.
+  const file = blob instanceof File ? blob : new File([blob], 'doc.png', { type: blob.type || 'image/png' })
+  const res = await puter.ai.chat(AI_PROMPT, file, { model: PUTER_MODEL })
+  const items = parseAiJson(res)
+  if (!items) throw new Error('La IA no devolvió un JSON válido')
+  return items.map((it) => ({
+    code: String(it.code || '').trim(),
+    description: String(it.description || '').trim(),
+    quantity: Math.max(parseInt(it.quantity, 10) || 1, 1),
+    pallets: Math.max(parseInt(it.pallets, 10) || 0, 0),
+  }))
+}
+
+/**
+ * Motor IA: renderiza (si es PDF) y manda cada página a Puter.
+ * @returns {Promise<{rows:Array, raw:string, usedAi:true}>}
+ */
+async function aiExtract(file, onProgress) {
+  const puter = await loadPuter()
+  const isPdf = file.type === 'application/pdf'
+  const images = isPdf ? await renderPdfToBlob(file, onProgress) : [file]
+  const all = []
+  for (let i = 0; i < images.length; i++) {
+    if (onProgress) {
+      onProgress({ status: `Analizando con IA (${i + 1}/${images.length})`, progress: (i + 1) / (images.length + 1) })
+    }
+    const rows = await aiExtractImage(puter, images[i])
+    all.push(...rows)
+  }
+  return { rows: all, usedAi: true }
+}
+
 /**
  * Extrae texto de una imagen o PDF.
- * @returns {Promise<{text:string, confidence:number, pages:number}>}
+ * @param engine 'ai' => Puter IA | 'ocr' => Tesseract | 'auto' => IA con respaldo Tesseract
+ * @returns {Promise<{text:string, confidence:number, pages:number, rows?:Array, engine?:string}>}
  */
-export async function extractDocument(file, { onProgress, provider } = {}) {
+export async function extractDocument(file, { onProgress, provider, engine = 'ocr' } = {}) {
   if (provider) return provider(file, { onProgress })
   if (!file) throw new Error('No se recibió ningún archivo')
+
+  if (engine === 'ai' || engine === 'auto') {
+    try {
+      const { rows } = await aiExtract(file, onProgress)
+      return { text: '', confidence: 100, pages: 1, rows, engine: 'ai' }
+    } catch (err) {
+      if (engine === 'ai') throw err
+      if (onProgress) onProgress({ status: 'IA no disponible, usando OCR…', progress: 0 })
+      // cae a Tesseract
+    }
+  }
 
   const isPdf = file.type === 'application/pdf'
   const images = isPdf ? await renderPdfToBlob(file, onProgress) : [file]
@@ -133,6 +236,7 @@ export async function extractDocument(file, { onProgress, provider } = {}) {
     text: texts.join('\n'),
     confidence: images.length ? confidenceSum / images.length : 0,
     pages: images.length,
+    engine: 'ocr',
   }
 }
 
