@@ -44,45 +44,17 @@ def _session_window() -> timedelta:
     return timedelta(minutes=settings.active_session_idle_minutes)
 
 
-def _session_max() -> timedelta:
-    return timedelta(minutes=settings.active_session_expire_minutes)
-
-
-def _session_active(user: User, now: datetime) -> bool:
-    """True si la sesión única actual sigue vigente (no expirada).
-
-    Un cierre diferido (session_close_pending_at) cuenta como sesión libre una
-    vez transcurrido el margen de gracia; dentro del margen aún se considera
-    activa, para permitir que un recargado la cancele.
-    """
-    if not (user.active_session and user.session_expires_at and user.session_expires_at > now):
-        return False
-    if user.session_close_pending_at is not None:
-        grace = timedelta(seconds=settings.session_close_grace_seconds)
-        if now - user.session_close_pending_at >= grace:
-            return False
-    return True
-
-
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == data.username).first()
     if not user or not user.is_active or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 
-    # Sesión única: si la sesión previa sigue vigente (con actividad reciente) se
-    # bloquea el acceso desde otro equipo. Si quedó inactiva (equipo apagado,
-    # pestaña cerrada, etc.), la ventana se vence y se permite reingresar.
+    # Sesión única con reemplazo: un inicio de sesión nuevo SIEMPRE gana y
+    # cierra automáticamente la sesión anterior (su token queda inválido al
+    # cambiar el session_id). Así nadie queda bloqueado por un equipo que se
+    # quedó con la sesión abierta (pestaña olvidada, equipo apagado, etc.).
     now = datetime.now()
-    if _session_active(user, now):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Ya hay una sesión activa en otro equipo. Cierra sesión ahí, o "
-                "espera unos minutos sin actividad para poder entrar aquí."
-            ),
-        )
-
     session_id = secrets.token_urlsafe(32)
     user.active_session = session_id
     user.session_expires_at = now + _session_window()
