@@ -32,7 +32,7 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
   const [fileName, setFileName] = useState('')
   const [previewUrl, setPreviewUrl] = useState('')
   const [showText, setShowText] = useState(false)
-  const [aiConfig, setAiConfig] = useState({ enabled: false, token: null, model: null })
+  const [aiConfig, setAiConfig] = useState({ enabled: false, provider: 'puter', token: null, model: null })
 
   const isStorage = mode === 'storage'
   const lowConfidence = confidence !== null && confidence < CONFIDENCE_WARN
@@ -42,7 +42,7 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
     if (!open) return
     getAiConfig()
       .then((cfg) => setAiConfig(cfg || { enabled: false }))
-      .catch(() => setAiConfig({ enabled: false, token: null, model: null }))
+      .catch(() => setAiConfig({ enabled: false, provider: 'puter', token: null, model: null }))
   }, [open])
 
   const reset = () => {
@@ -83,6 +83,7 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
     try {
       const result = await extractDocument(file, {
         engine: aiConfig.enabled ? 'auto' : 'ocr',
+        aiProvider: aiConfig.provider || 'puter',
         token: aiConfig.token,
         model: aiConfig.model,
         onProgress: ({ status, progress: p }) => {

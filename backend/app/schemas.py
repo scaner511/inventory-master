@@ -199,7 +199,9 @@ class TenantUpdate(BaseModel):
     modules: list[str] | None = None
     # --- IA de Recepción Inteligente (solo Super Admin) ---
     ai_enabled: bool | None = None
-    # Token/API key de Puter del cliente. Cadena vacía = borrar el token.
+    # Proveedor: "puter" o "gemini".
+    ai_provider: str | None = Field(default=None, max_length=20)
+    # Token/API key del proveedor. Cadena vacía = borrar el token.
     ai_api_key: str | None = Field(default=None, max_length=500)
     ai_model: str | None = Field(default=None, max_length=120)
 
@@ -228,6 +230,7 @@ class TenantOut(BaseModel):
     modules: list[str] = Field(default_factory=list)
     # --- IA de Recepción Inteligente (solo Super Admin) ---
     ai_enabled: bool = False
+    ai_provider: str | None = None
     ai_model: str | None = None
     # Solo indica si hay token guardado (no se devuelve el token completo).
     ai_api_key_set: bool = False
@@ -1209,9 +1212,10 @@ class CaptureDashboardOut(BaseModel):
 
 
 class AiConfigOut(BaseModel):
-    """Config de IA del cliente para inicializar Puter.js en el navegador."""
+    """Config de IA del cliente para llamar al proveedor desde el navegador."""
 
     enabled: bool = False
+    provider: str | None = None
     token: str | None = None
     model: str | None = None
 
@@ -1219,4 +1223,5 @@ class AiConfigOut(BaseModel):
 class AiModelOut(BaseModel):
     id: str
     name: str
+    provider: str = "puter"
     free: bool = False

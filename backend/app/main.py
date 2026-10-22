@@ -132,6 +132,7 @@ def _migrate_tenant_ai(db: Session) -> None:
     cols = _table_columns("tenants")
     migrations = [
         ("ai_enabled", "BOOLEAN DEFAULT FALSE"),
+        ("ai_provider", "VARCHAR(20)"),
         ("ai_api_key", "TEXT"),
         ("ai_model", "VARCHAR(120)"),
     ]

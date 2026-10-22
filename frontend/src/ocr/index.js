@@ -19,18 +19,23 @@ const PDFJS_VERSION = '4.7.76'
 const PDFJS_CDN = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.min.mjs`
 const PDFJS_WORKER = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`
 
-// --- Motor IA (Puter.js) ---
-// Puter.js da acceso a +500 modelos (OpenAI, Google, Anthropic, ...) directo
-// desde el navegador mediante el modelo "user-pays": el usuario autoriza con su
-// cuenta la primera vez. Para cambiar de modelo basta editar PUTER_MODEL.
-const PUTER_CDN = 'https://js.puter.com/v2/'
-const PUTER_MODEL = 'gpt-5.4-nano'
+// --- Motor IA (REST directo: Puter / Gemini) ---
+// Se llama a la API REST del proveedor con el token que el Super Admin
+// configura por cliente (más fiable que el SDK JS y sin popup de login).
+//   - Puter  : POST https://api.puter.com/drivers/call (interface
+//              "puter-chat-completion", método "complete"), token personal.
+//   - Gemini : POST generativelanguage.googleapis.com/v1beta (API key).
+// El modelo concreto lo define la config del cliente (ver GET /api/ai/config).
+const PUTER_DRIVERS_URL = 'https://api.puter.com/drivers/call'
+const PUTER_MODELS_URL = 'https://api.puter.com/puterai/chat/models'
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/'
+const DEFAULT_PUTER_MODEL = 'google/gemini-3.8-flash'
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash'
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 
 let _tesseractPromise = null
 let _pdfjsPromise = null
-let _puterPromise = null
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -62,16 +67,6 @@ async function loadPdfJs() {
     })
   }
   return _pdfjsPromise
-}
-
-async function loadPuter() {
-  if (!_puterPromise) {
-    _puterPromise = loadScript(PUTER_CDN).then(() => {
-      if (!window.puter) throw new Error('Puter.js no disponible')
-      return window.puter
-    })
-  }
-  return _puterPromise
 }
 
 export function isAccepted(file) {
@@ -134,56 +129,240 @@ Reglas:
 - Si un renglón no tiene cantidad clara, asume 1.
 - Responde solo con el JSON.`
 
-function parseAiJson(raw) {
+// ---- Reparación de JSON (respuestas truncadas o con fences) ----
+// Igual que TiReport: quita ```json, aísla el objeto {...} externo y cierra
+// cadenas/comas/llaves abiertas cuando la respuesta se corta por límite de tokens.
+function normalizarJson(texto) {
+  const t = (texto || '').trim()
+  let cuerpo = t
+  if (cuerpo.startsWith('```')) {
+    cuerpo = cuerpo.replace(/^```(?:json)?/i, '').replace(/```\s*$/, '')
+  }
+  const inicio = cuerpo.indexOf('{')
+  const fin = cuerpo.lastIndexOf('}')
+  let frag = cuerpo
+  if (inicio >= 0 && fin > inicio) frag = cuerpo.slice(inicio, fin + 1)
+  else if (inicio >= 0) frag = cuerpo.slice(inicio)
+  return repararJson(frag.trim())
+}
+
+function repararJson(frag) {
+  const sb = []
+  const pila = []
+  let enCadena = false
+  let escape = false
+  for (const ch of frag) {
+    if (escape) {
+      sb.push(ch)
+      escape = false
+      continue
+    }
+    if (ch === '\\') {
+      sb.push(ch)
+      escape = true
+      continue
+    }
+    if (ch === '"') {
+      enCadena = !enCadena
+      sb.push(ch)
+      continue
+    }
+    if (!enCadena) {
+      if (ch === '{') pila.push('}')
+      else if (ch === '[') pila.push(']')
+      else if (ch === '}' || ch === ']') {
+        if (pila.length && pila[pila.length - 1] === ch) pila.pop()
+      }
+    }
+    sb.push(ch)
+  }
+  if (enCadena) sb.push('"')
+
+  let t = sb.join('').trimEnd()
+  while (t.length) {
+    const ultimo = t[t.length - 1]
+    if (ultimo === ',') {
+      t = t.slice(0, -1).trimEnd()
+    } else if (ultimo === ':') {
+      const m = /"[^"]*"\s*:\s*$/.exec(t)
+      t = (m ? t.slice(0, m.index) : t.slice(0, -1)).trimEnd()
+    } else {
+      break
+    }
+  }
+  while (pila.length) t += pila.pop()
+  return t
+}
+
+function parseAiItems(raw) {
   if (raw == null) return null
   let text = raw
   if (typeof raw === 'object') {
-    // Puter puede devolver { message: { content } } o content directo.
+    // Puter: { message: { content } } | Gemini u otros: { text } / { content }.
     text = raw?.message?.content ?? raw?.text ?? raw?.content ?? raw
     if (Array.isArray(text)) {
       text = text.map((b) => (typeof b === 'string' ? b : b?.text || '')).join('')
     }
   }
   if (typeof text !== 'string') return null
-  // Recorta posibles fences ```json ... ```
-  let s = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
-  const start = s.indexOf('{')
-  const end = s.lastIndexOf('}')
-  if (start >= 0 && end > start) s = s.slice(start, end + 1)
+  let obj
   try {
-    const obj = JSON.parse(s)
-    const items = Array.isArray(obj) ? obj : obj?.items
-    if (!Array.isArray(items)) return null
-    return items
+    obj = JSON.parse(normalizarJson(text))
   } catch {
     return null
   }
+  const items = Array.isArray(obj) ? obj : obj?.items
+  return Array.isArray(items) ? items : null
 }
 
-async function aiExtractImage(puter, blob, model) {
-  // Puter acepta un File/Blob directamente como media.
-  const file = blob instanceof File ? blob : new File([blob], 'doc.png', { type: blob.type || 'image/png' })
-  const res = await puter.ai.chat(AI_PROMPT, file, { model: model || PUTER_MODEL })
-  const items = parseAiJson(res)
-  if (!items) throw new Error('La IA no devolvió un JSON válido')
+function toRows(items) {
   return items.map((it) => ({
-    code: String(it.code || '').trim(),
-    description: String(it.description || '').trim(),
+    code: String(it.code || it.codigo || '').trim(),
+    description: String(it.description || it.descripcion || '').trim(),
     quantity: Math.max(parseInt(it.quantity, 10) || 1, 1),
     pallets: Math.max(parseInt(it.pallets, 10) || 0, 0),
   }))
 }
 
+async function blobToBase64(blob) {
+  const buf = await blob.arrayBuffer()
+  let binary = ''
+  const bytes = new Uint8Array(buf)
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+async function leerRespuesta(res) {
+  const texto = await res.text()
+  if (!res.ok) {
+    let msg = texto.slice(0, 400)
+    try {
+      msg = JSON.parse(texto)?.error?.message || JSON.parse(texto)?.detail || msg
+    } catch {
+      /* usa el texto crudo */
+    }
+    throw new Error(`El proveedor de IA respondió ${res.status}: ${msg}`)
+  }
+  return texto
+}
+
+// ---- Proveedor Puter (REST) ----
+async function puterExtractImage(token, blob, model) {
+  const mime = blob.type || 'image/jpeg'
+  const b64 = await blobToBase64(blob)
+  const args = {
+    model: model || DEFAULT_PUTER_MODEL,
+    temperature: 0.1,
+    max_tokens: 1500,
+    messages: [
+      { role: 'system', content: AI_PROMPT },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Extrae los productos de esta imagen.' },
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } },
+        ],
+      },
+    ],
+  }
+  const res = await fetch(PUTER_DRIVERS_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      interface: 'puter-chat-completion',
+      method: 'complete',
+      args,
+      auth_token: token,
+    }),
+  })
+  const texto = await leerRespuesta(res)
+  const raiz = JSON.parse(texto)
+  if (raiz.success === false) {
+    const err = raiz.error || {}
+    const code = String(err.code || '')
+    if (code.includes('insufficient_funds') || code.includes('no_usage')) {
+      throw new Error('Se agotó la cuota gratuita de Puter. Revisa tu saldo o cambia a Gemini.')
+    }
+    if (code.includes('subscription_required') || res.status === 401 || res.status === 403) {
+      throw new Error(`Token de Puter inválido o sin permiso: ${err.message || code || 'sin detalle'}`)
+    }
+    throw new Error(`Puter: ${err.message || code || 'respuesta vacía'}`)
+  }
+  const content = raiz?.result?.message?.content
+  const items = parseAiItems(content)
+  if (!items) throw new Error('La IA no devolvió un JSON válido (Puter)')
+  return toRows(items)
+}
+
+// ---- Proveedor Gemini (REST) ----
+async function geminiExtractImage(token, blob, model) {
+  const mime = blob.type || 'image/jpeg'
+  const b64 = await blobToBase64(blob)
+  const payload = {
+    contents: [
+      {
+        parts: [
+          { text: AI_PROMPT },
+          { inline_data: { mime_type: mime, data: b64 } },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 2048,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                code: { type: 'string' },
+                description: { type: 'string' },
+                quantity: { type: 'integer' },
+                pallets: { type: 'integer' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }
+  const url = `${GEMINI_BASE}models/${model || DEFAULT_GEMINI_MODEL}:generateContent?key=${encodeURIComponent(token)}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify(payload),
+  })
+  const texto = await leerRespuesta(res)
+  const crudo = JSON.parse(texto)?.candidates?.[0]?.content?.parts?.[0]?.text
+  const items = parseAiItems(crudo)
+  if (!items) throw new Error('La IA no devolvió un JSON válido (Gemini)')
+  return toRows(items)
+}
+
+async function aiExtractImage(provider, token, blob, model) {
+  if (provider === 'gemini') return geminiExtractImage(token, blob, model)
+  return puterExtractImage(token, blob, model)
+}
+
 /**
- * Motor IA: renderiza (si es PDF) y manda cada página a Puter.
- * @param token token/API key de Puter del cliente (omite el popup user-pays).
- * @param model modelo a usar (por defecto PUTER_MODEL).
- * @returns {Promise<{rows:Array, raw:string, usedAi:true}>}
+ * Motor IA: renderiza (si es PDF) y manda cada página al proveedor configurado.
+ * @param provider 'puter' | 'gemini'.
+ * @param token token/API key del proveedor del cliente.
+ * @param model modelo a usar.
+ * @returns {Promise<{rows:Array, usedAi:true}>}
  */
-async function aiExtract(file, onProgress, { token, model } = {}) {
-  const puter = await loadPuter()
-  // El token del cliente (Super Admin) evita el login/popup de Puter.
-  if (token) puter.authToken = token
+async function aiExtract(file, onProgress, { provider = 'puter', token, model } = {}) {
+  if (!token) throw new Error('La IA no tiene token configurado para este cliente')
   const isPdf = file.type === 'application/pdf'
   const images = isPdf ? await renderPdfToBlob(file, onProgress) : [file]
   const all = []
@@ -191,7 +370,7 @@ async function aiExtract(file, onProgress, { token, model } = {}) {
     if (onProgress) {
       onProgress({ status: `Analizando con IA (${i + 1}/${images.length})`, progress: (i + 1) / (images.length + 1) })
     }
-    const rows = await aiExtractImage(puter, images[i], model)
+    const rows = await aiExtractImage(provider, token, images[i], model)
     all.push(...rows)
   }
   return { rows: all, usedAi: true }
@@ -199,18 +378,23 @@ async function aiExtract(file, onProgress, { token, model } = {}) {
 
 /**
  * Extrae texto de una imagen o PDF.
- * @param engine 'ai' => Puter IA | 'ocr' => Tesseract | 'auto' => IA con respaldo Tesseract
- * @param token token/API key de Puter del cliente (opcional).
+ * @param engine 'ai' => IA | 'ocr' => Tesseract | 'auto' => IA con respaldo Tesseract
+ * @param aiProvider 'puter' | 'gemini' (proveedor de IA).
+ * @param token token/API key del proveedor del cliente (opcional).
  * @param model modelo de IA a usar (opcional).
+ * @param provider adaptador personalizado que reemplaza todo (opcional).
  * @returns {Promise<{text:string, confidence:number, pages:number, rows?:Array, engine?:string}>}
  */
-export async function extractDocument(file, { onProgress, provider, engine = 'ocr', token, model } = {}) {
+export async function extractDocument(
+  file,
+  { onProgress, provider, engine = 'ocr', aiProvider = 'puter', token, model } = {},
+) {
   if (provider) return provider(file, { onProgress })
   if (!file) throw new Error('No se recibió ningún archivo')
 
   if (engine === 'ai' || engine === 'auto') {
     try {
-      const { rows } = await aiExtract(file, onProgress, { token, model })
+      const { rows } = await aiExtract(file, onProgress, { provider: aiProvider, token, model })
       return { text: '', confidence: 100, pages: 1, rows, engine: 'ai' }
     } catch (err) {
       if (engine === 'ai') throw err

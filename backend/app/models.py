@@ -60,9 +60,11 @@ class Tenant(Base):
     # Habilitado por el Super Admin por cliente. Si está activo y hay token, la
     # extracción de documentos usa IA; si no, se usa Tesseract (navegador).
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Token/API key de Puter del cliente (NO se incluye en respaldos).
+    # Proveedor de IA: "puter" (token de puter.com) o "gemini" (API key de Google).
+    ai_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Token/API key del proveedor (NO se incluye en respaldos).
     ai_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Modelo elegido (ej: "gpt-5.4-nano", "gemini-3-flash-lite:free").
+    # Modelo elegido (ej: "google/gemini-3.8-flash", "gemini-2.5-flash").
     ai_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

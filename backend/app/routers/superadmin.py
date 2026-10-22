@@ -102,6 +102,7 @@ def _fill_tenant_out(out: TenantOut, db: Session, tenant: Tenant) -> TenantOut:
     out.subscription_days_left = _subscription_days_left(tenant)
     out.ai_api_key_set = bool((tenant.ai_api_key or "").strip())
     out.ai_enabled = bool(tenant.ai_enabled)
+    out.ai_provider = tenant.ai_provider or "puter"
     out.ai_model = tenant.ai_model
     return out
 
@@ -244,6 +245,9 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
         tenant.max_users = data.max_users
     if data.ai_enabled is not None:
         tenant.ai_enabled = data.ai_enabled
+    if "ai_provider" in (data.model_fields_set or set()):
+        prov = (data.ai_provider or "").strip().lower()
+        tenant.ai_provider = prov if prov in ("puter", "gemini") else None
     if "ai_api_key" in (data.model_fields_set or set()):
         # Cadena vacía = borrar el token guardado.
         token = (data.ai_api_key or "").strip()

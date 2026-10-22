@@ -55,7 +55,7 @@ function TenantsTab() {
   const [tenants, setTenants] = useState([])
   const [editOpen, setEditOpen] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: [], ai_enabled: false, ai_api_key: '', ai_model: '', ai_api_key_set: false })
+  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: [], ai_enabled: false, ai_provider: 'puter', ai_api_key: '', ai_model: '', ai_api_key_set: false })
   const [saving, setSaving] = useState(false)
   const [aiModels, setAiModels] = useState([])
   const [usersOpen, setUsersOpen] = useState(null)
@@ -97,6 +97,7 @@ function TenantsTab() {
           max_users: form.max_users === '' ? null : Number(form.max_users),
           modules: form.modules,
           ai_enabled: form.ai_enabled,
+          ai_provider: form.ai_provider,
           ai_model: form.ai_model,
           // Solo se envía el token si se escribió uno nuevo (o vacío para borrar).
           ...(form.ai_api_key !== '' ? { ai_api_key: form.ai_api_key } : {}),
@@ -132,6 +133,7 @@ function TenantsTab() {
       max_users: t.max_users ? String(t.max_users) : '',
       modules: Array.isArray(t.modules) ? t.modules : MODULES.map((m) => m.key),
       ai_enabled: !!t.ai_enabled,
+      ai_provider: t.ai_provider || 'puter',
       ai_api_key: '',
       ai_model: t.ai_model || '',
       ai_api_key_set: !!t.ai_api_key_set,
@@ -141,7 +143,7 @@ function TenantsTab() {
 
   function openCreate() {
     setEditing(null)
-    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: MODULES.map((m) => m.key), ai_enabled: false, ai_api_key: '', ai_model: '', ai_api_key_set: false })
+    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: MODULES.map((m) => m.key), ai_enabled: false, ai_provider: 'puter', ai_api_key: '', ai_model: '', ai_api_key_set: false })
     setEditOpen(true)
   }
 
@@ -455,44 +457,51 @@ function TenantsTab() {
                 Habilitar análisis con IA al subir documentos
               </label>
               <div className="space-y-3">
+                <Field label="Proveedor de IA" hint="Con qué servicio se analizan los documentos.">
+                  <Select
+                    value={form.ai_provider}
+                    onChange={(e) => setForm({ ...form, ai_provider: e.target.value, ai_model: '' })}
+                  >
+                    <option value="puter">Puter (token de puter.com)</option>
+                    <option value="gemini">Google Gemini (API key de AI Studio)</option>
+                  </Select>
+                </Field>
                 <Field
-                  label="API key / token de Puter"
+                  label={form.ai_provider === 'gemini' ? 'API key de Google Gemini' : 'Token de Puter'}
                   hint={
                     form.ai_api_key_set
                       ? 'Ya hay un token guardado. Escribe uno nuevo para reemplazarlo, o déjalo vacío para conservarlo.'
-                      : 'Pégalo desde puter.com (Dashboard → API keys). Se usa para autenticar la IA del cliente.'
+                      : form.ai_provider === 'gemini'
+                        ? 'Créala en aistudio.google.com/apikey.'
+                        : 'Cópialo desde puter.com/dashboard → Create token.'
                   }
                 >
                   <Input
                     type="password"
                     value={form.ai_api_key}
                     onChange={(e) => setForm({ ...form, ai_api_key: e.target.value })}
-                    placeholder={form.ai_api_key_set ? '•••••••• (guardado)' : 'sk-...'}
+                    placeholder={form.ai_api_key_set ? '•••••••• (guardado)' : form.ai_provider === 'gemini' ? 'AIza...' : 'sk-...'}
                     autoComplete="new-password"
                   />
                 </Field>
                 <Field label="Modelo de IA" hint="Modelos con visión (leen imágenes). Los marcados 🆓 no generan costo.">
                   <Select value={form.ai_model} onChange={(e) => setForm({ ...form, ai_model: e.target.value })}>
-                    <option value="">— Predeterminado (gpt-5.4-nano) —</option>
-                    {(aiModels.length
-                      ? aiModels
-                      : [
-                          { id: 'gpt-5.4-nano', name: 'GPT-5.4 Nano (OpenAI)', free: false },
-                          { id: 'google/gemini-2.0-flash:free', name: 'Gemini 2.0 Flash — GRATIS', free: true },
-                        ]
-                    ).map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.free ? '🆓 ' : ''}
-                        {m.name || m.id}
-                      </option>
-                    ))}
+                    <option value="">— Predeterminado —</option>
+                    {aiModels
+                      .filter((m) => (m.provider || 'puter') === form.ai_provider)
+                      .map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.free ? '🆓 ' : ''}
+                          {m.name || m.id}
+                        </option>
+                      ))}
                   </Select>
                 </Field>
                 <Field label="ID exacto del modelo (opcional)" hint="Si el modelo no está en la lista, escribe su ID.">
                   <Input
                     value={form.ai_model}
                     onChange={(e) => setForm({ ...form, ai_model: e.target.value })}
-                    placeholder="ej: gpt-4o-mini"
+                    placeholder={form.ai_provider === 'gemini' ? 'ej: gemini-2.5-flash' : 'ej: google/gemini-3.8-flash'}
                     className="font-mono text-xs"
                   />
                 </Field>
