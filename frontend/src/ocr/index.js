@@ -1,63 +1,28 @@
-// Capa de OCR para "Recepción Inteligente".
+// Capa de "Recepción Inteligente" basada SOLO en IA (visión).
 //
-// Arquitectura por adaptadores: la UI llama siempre a `extractDocument(file)`
-// y obtiene SIEMPRE la misma forma de salida, sin depender del motor.
-// El motor por defecto es Tesseract.js (100% en el navegador, sin subir el
-// documento a ningún servidor). Para migrar a Google Vision / otro proveedor
-// basta con implementar un adaptador con la misma firma y pasarlo en
-// `provider`, sin tocar la UI.
-//
-// Tesseract.js y pdf.js se cargan por CDN de forma perezosa (solo la primera
-// vez) para no engordar el bundle ni requerir dependencias nuevas en npm.
-
-const TESSERACT_VERSION = '5.1.0'
-const TESSERACT_CDN = `https://cdn.jsdelivr.net/npm/tesseract.js@${TESSERACT_VERSION}/dist/tesseract.min.js`
-const TESSERACT_WORKER = `https://cdn.jsdelivr.net/npm/tesseract.js@${TESSERACT_VERSION}/dist/worker.min.js`
-const TESSERACT_CORE = 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0'
-const TESSERACT_LANG = 'https://tessdata.projectnaptha.com/4.0.0'
-const PDFJS_VERSION = '4.7.76'
-const PDFJS_CDN = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.min.mjs`
-const PDFJS_WORKER = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`
-
-// --- Motor IA (REST directo: Puter / Gemini) ---
-// Se llama a la API REST del proveedor con el token que el Super Admin
-// configura por cliente (más fiable que el SDK JS y sin popup de login).
+// La UI llama siempre a `extractDocument(file, { aiProvider, token, model })` y
+// obtiene SIEMPRE la misma forma de salida. El reconocimiento lo hace un modelo
+// multimodal (lee la foto/imagen del documento directamente, como en la app
+// Android TiReport):
 //   - Puter  : POST https://api.puter.com/drivers/call (interface
 //              "puter-chat-completion", método "complete"), token personal.
 //   - Gemini : POST generativelanguage.googleapis.com/v1beta (API key).
 // El modelo concreto lo define la config del cliente (ver GET /api/ai/config).
+//
+// pdf.js se carga por CDN de forma perezosa para renderizar PDFs a imagen.
+
+const PDFJS_VERSION = '4.7.76'
+const PDFJS_CDN = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.min.mjs`
+const PDFJS_WORKER = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`
+
 const PUTER_DRIVERS_URL = 'https://api.puter.com/drivers/call'
-const PUTER_MODELS_URL = 'https://api.puter.com/puterai/chat/models'
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/'
-const DEFAULT_PUTER_MODEL = 'google/gemini-3.8-flash'
+const DEFAULT_PUTER_MODEL = 'google:google/gemini-3.8-flash'
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash'
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 
-let _tesseractPromise = null
 let _pdfjsPromise = null
-
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    if ([...document.scripts].some((s) => s.src === src)) return resolve()
-    const el = document.createElement('script')
-    el.src = src
-    el.async = true
-    el.onload = () => resolve()
-    el.onerror = () => reject(new Error(`No se pudo cargar ${src}`))
-    document.head.appendChild(el)
-  })
-}
-
-async function loadTesseract() {
-  if (!_tesseractPromise) {
-    _tesseractPromise = loadScript(TESSERACT_CDN).then(() => {
-      if (!window.Tesseract) throw new Error('Tesseract.js no disponible')
-      return window.Tesseract
-    })
-  }
-  return _tesseractPromise
-}
 
 async function loadPdfJs() {
   if (!_pdfjsPromise) {
@@ -73,31 +38,15 @@ export function isAccepted(file) {
   return ACCEPTED.includes(file.type)
 }
 
-// ---- Motor Tesseract ----
-async function tesseractExtract(file, onProgress) {
-  const Tesseract = await loadTesseract()
-  const { data } = await Tesseract.recognize(file, 'spa+eng', {
-    workerPath: TESSERACT_WORKER,
-    corePath: TESSERACT_CORE,
-    langPath: TESSERACT_LANG,
-    logger: (m) => {
-      if (onProgress && m.status) {
-        onProgress({
-          status: m.status,
-          progress: typeof m.progress === 'number' ? m.progress : 0,
-        })
-      }
-    },
-  })
-  return { text: data.text || '', confidence: data.confidence ?? 0 }
-}
-
-async function renderPdfToBlob(file, onProgress) {
+// ---- Preparación de imagen: PDF -> PNG; toda imagen -> JPEG (máx 1280 px) ----
+// Igual que la app: se reduce y se manda JPEG base64, lo que da fotos ligeras
+// que el modelo lee bien (fotos gigantes de móvil suelen fallar o expirar).
+async function renderPdfToBlobs(file, onProgress) {
   const pdfjs = await loadPdfJs()
   const buf = await file.arrayBuffer()
   const pdf = await pdfjs.getDocument({ data: buf }).promise
-  const pages = []
-  const scale = 2.0 // mayor resolución => mejor OCR
+  const blobs = []
+  const scale = 2.0
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
     const viewport = page.getViewport({ scale })
@@ -106,18 +55,61 @@ async function renderPdfToBlob(file, onProgress) {
     canvas.height = viewport.height
     const ctx = canvas.getContext('2d')
     await page.render({ canvasContext: ctx, viewport }).promise
-    const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'))
-    pages.push(blob)
-    if (onProgress) {
-      onProgress({ status: 'rendering pdf', progress: i / (pdf.numPages + 1) })
-    }
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.85))
+    blobs.push(blob)
+    if (onProgress) onProgress({ status: 'renderizando PDF', progress: i / (pdf.numPages + 1) })
   }
-  return pages
+  return blobs
 }
 
-// ---- Motor IA (Puter.js) ----
+async function fileToJpegBlob(file, maxDim = 1280, quality = 0.8) {
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error('No se pudo leer la imagen'))
+      el.src = url
+    })
+    let { width, height } = img
+    const mayor = Math.max(width, height)
+    if (mayor > maxDim) {
+      const factor = maxDim / mayor
+      width = Math.round(width * factor)
+      height = Math.round(height * factor)
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(img, 0, 0, width, height)
+    return await new Promise((res) => canvas.toBlob(res, 'image/jpeg', quality))
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+async function prepareImages(file, onProgress) {
+  if (file.type === 'application/pdf') {
+    return renderPdfToBlobs(file, onProgress)
+  }
+  return [await fileToJpegBlob(file)]
+}
+
+async function blobToBase64(blob) {
+  const buf = await blob.arrayBuffer()
+  const bytes = new Uint8Array(buf)
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+// ---- Extracción del JSON de la respuesta ----
 const AI_PROMPT = `Eres un asistente experto en leer documentos de almacén, remisiones, packing slips y facturas (en español e inglés).
-Analiza la imagen y extrae ÚNICAMENTE los productos/renglones listados.
+Analiza la IMAGEN del documento y extrae ÚNICAMENTE los productos/renglones listados.
 Devuelve EXCLUSIVAMENTE un objeto JSON válido, sin explicaciones ni markdown, con esta forma:
 {"items":[{"code":"","description":"","quantity":0,"pallets":0}]}
 Reglas:
@@ -125,13 +117,11 @@ Reglas:
 - "description": el nombre o descripción del producto. No repitas el código aquí.
 - "quantity": la cantidad (CTD/QTY/unidades/piezas). Si hay varias columnas de cantidad, usa la de unidades. Si no aparece, usa 1.
 - "pallets": número de tarimas/pallets/bultos/cajas si aparece. Si no, usa 0.
+- Lee la imagen completa: puede estar rotada o ser una foto de papel.
 - NO incluyas filas de totales, subtotales, direcciones, fechas ni encabezados.
 - Si un renglón no tiene cantidad clara, asume 1.
 - Responde solo con el JSON.`
 
-// ---- Reparación de JSON (respuestas truncadas o con fences) ----
-// Igual que TiReport: quita ```json, aísla el objeto {...} externo y cierra
-// cadenas/comas/llaves abiertas cuando la respuesta se corta por límite de tokens.
 function normalizarJson(texto) {
   const t = (texto || '').trim()
   let cuerpo = t
@@ -198,7 +188,6 @@ function parseAiItems(raw) {
   if (raw == null) return null
   let text = raw
   if (typeof raw === 'object') {
-    // Puter: { message: { content } } | Gemini u otros: { text } / { content }.
     text = raw?.message?.content ?? raw?.text ?? raw?.content ?? raw
     if (Array.isArray(text)) {
       text = text.map((b) => (typeof b === 'string' ? b : b?.text || '')).join('')
@@ -216,58 +205,19 @@ function parseAiItems(raw) {
 }
 
 function toRows(items) {
-  return items.map((it) => ({
-    code: String(it.code || it.codigo || '').trim(),
-    description: String(it.description || it.descripcion || '').trim(),
-    quantity: Math.max(parseInt(it.quantity, 10) || 1, 1),
-    pallets: Math.max(parseInt(it.pallets, 10) || 0, 0),
-  }))
-}
-
-async function blobToBase64(blob) {
-  const buf = await blob.arrayBuffer()
-  let binary = ''
-  const bytes = new Uint8Array(buf)
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
-  }
-  return btoa(binary)
-}
-
-async function leerRespuesta(res) {
-  const texto = await res.text()
-  if (!res.ok) {
-    let msg = texto.slice(0, 400)
-    try {
-      msg = JSON.parse(texto)?.error?.message || JSON.parse(texto)?.detail || msg
-    } catch {
-      /* usa el texto crudo */
-    }
-    throw new Error(`El proveedor de IA respondió ${res.status}: ${msg}`)
-  }
-  return texto
+  return items
+    .map((it) => ({
+      code: String(it.code || it.codigo || '').trim(),
+      description: String(it.description || it.descripcion || '').trim(),
+      quantity: Math.max(parseInt(it.quantity, 10) || 1, 1),
+      pallets: Math.max(parseInt(it.pallets, 10) || 0, 0),
+    }))
+    .filter((r) => r.code || r.description)
 }
 
 // ---- Proveedor Puter (REST) ----
 async function puterExtractImage(token, blob, model) {
-  const mime = blob.type || 'image/jpeg'
   const b64 = await blobToBase64(blob)
-  const args = {
-    model: model || DEFAULT_PUTER_MODEL,
-    temperature: 0.1,
-    max_tokens: 1500,
-    messages: [
-      { role: 'system', content: AI_PROMPT },
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: 'Extrae los productos de esta imagen.' },
-          { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } },
-        ],
-      },
-    ],
-  }
   const res = await fetch(PUTER_DRIVERS_URL, {
     method: 'POST',
     headers: {
@@ -277,39 +227,59 @@ async function puterExtractImage(token, blob, model) {
     body: JSON.stringify({
       interface: 'puter-chat-completion',
       method: 'complete',
-      args,
+      args: {
+        model: model || DEFAULT_PUTER_MODEL,
+        temperature: 0.1,
+        max_tokens: 2048,
+        messages: [
+          { role: 'system', content: AI_PROMPT },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Extrae los productos de esta imagen (lee la foto del documento).' },
+              { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${b64}` } },
+            ],
+          },
+        ],
+      },
       auth_token: token,
     }),
   })
-  const texto = await leerRespuesta(res)
-  const raiz = JSON.parse(texto)
+  const texto = await res.text()
+  if (!res.ok) {
+    throw new Error(`Puter respondió ${res.status}: ${texto.slice(0, 300)}`)
+  }
+  let raiz
+  try {
+    raiz = JSON.parse(texto)
+  } catch {
+    throw new Error('Puter devolvió una respuesta no válida')
+  }
   if (raiz.success === false) {
     const err = raiz.error || {}
     const code = String(err.code || '')
     if (code.includes('insufficient_funds') || code.includes('no_usage')) {
-      throw new Error('Se agotó la cuota gratuita de Puter. Revisa tu saldo o cambia a Gemini.')
+      throw new Error('Se agotó la cuota de Puter. Revisa tu saldo o cambia a Gemini.')
     }
-    if (code.includes('subscription_required') || res.status === 401 || res.status === 403) {
-      throw new Error(`Token de Puter inválido o sin permiso: ${err.message || code || 'sin detalle'}`)
+    if (code.includes('subscription_required')) {
+      throw new Error(`Puter exige plan de pago: ${err.message || code}`)
     }
     throw new Error(`Puter: ${err.message || code || 'respuesta vacía'}`)
   }
-  const content = raiz?.result?.message?.content
-  const items = parseAiItems(content)
+  const items = parseAiItems(raiz?.result?.message?.content)
   if (!items) throw new Error('La IA no devolvió un JSON válido (Puter)')
   return toRows(items)
 }
 
 // ---- Proveedor Gemini (REST) ----
 async function geminiExtractImage(token, blob, model) {
-  const mime = blob.type || 'image/jpeg'
   const b64 = await blobToBase64(blob)
   const payload = {
     contents: [
       {
         parts: [
           { text: AI_PROMPT },
-          { inline_data: { mime_type: mime, data: b64 } },
+          { inline_data: { mime_type: 'image/jpeg', data: b64 } },
         ],
       },
     ],
@@ -342,7 +312,16 @@ async function geminiExtractImage(token, blob, model) {
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify(payload),
   })
-  const texto = await leerRespuesta(res)
+  const texto = await res.text()
+  if (!res.ok) {
+    let msg = texto.slice(0, 300)
+    try {
+      msg = JSON.parse(texto)?.error?.message || msg
+    } catch {
+      /* texto crudo */
+    }
+    throw new Error(`Gemini respondió ${res.status}: ${msg}`)
+  }
   const crudo = JSON.parse(texto)?.candidates?.[0]?.content?.parts?.[0]?.text
   const items = parseAiItems(crudo)
   if (!items) throw new Error('La IA no devolvió un JSON válido (Gemini)')
@@ -355,219 +334,41 @@ async function aiExtractImage(provider, token, blob, model) {
 }
 
 /**
- * Motor IA: renderiza (si es PDF) y manda cada página al proveedor configurado.
- * @param provider 'puter' | 'gemini'.
+ * Reconoce un documento con IA (visión). Renderiza PDFs y baja cada página.
+ * @param aiProvider 'puter' | 'gemini'.
  * @param token token/API key del proveedor del cliente.
  * @param model modelo a usar.
- * @returns {Promise<{rows:Array, usedAi:true}>}
+ * @returns {Promise<{rows:Array, engine:'ai', pages:number}>}
  */
-async function aiExtract(file, onProgress, { provider = 'puter', token, model } = {}) {
-  if (!token) throw new Error('La IA no tiene token configurado para este cliente')
-  const isPdf = file.type === 'application/pdf'
-  const images = isPdf ? await renderPdfToBlob(file, onProgress) : [file]
+export async function extractDocument(file, { onProgress, aiProvider = 'puter', token, model } = {}) {
+  if (!file) throw new Error('No se recibió ningún archivo')
+  if (!token) throw new Error('La IA no tiene token configurado para este cliente. Pídelo al administrador.')
+
+  const images = await prepareImages(file, onProgress)
   const all = []
   for (let i = 0; i < images.length; i++) {
     if (onProgress) {
       onProgress({ status: `Analizando con IA (${i + 1}/${images.length})`, progress: (i + 1) / (images.length + 1) })
     }
-    const rows = await aiExtractImage(provider, token, images[i], model)
+    const rows = await aiExtractImage(aiProvider, token, images[i], model)
     all.push(...rows)
   }
-  return { rows: all, usedAi: true }
+  return { rows: all, text: '', confidence: 100, pages: images.length, engine: 'ai' }
 }
 
 /**
- * Extrae texto de una imagen o PDF.
- * @param engine 'ai' => IA | 'ocr' => Tesseract | 'auto' => IA con respaldo Tesseract
- * @param aiProvider 'puter' | 'gemini' (proveedor de IA).
- * @param token token/API key del proveedor del cliente (opcional).
- * @param model modelo de IA a usar (opcional).
- * @param provider adaptador personalizado que reemplaza todo (opcional).
- * @returns {Promise<{text:string, confidence:number, pages:number, rows?:Array, engine?:string}>}
- */
-export async function extractDocument(
-  file,
-  { onProgress, provider, engine = 'ocr', aiProvider = 'puter', token, model } = {},
-) {
-  if (provider) return provider(file, { onProgress })
-  if (!file) throw new Error('No se recibió ningún archivo')
-
-  if (engine === 'ai' || engine === 'auto') {
-    try {
-      const { rows } = await aiExtract(file, onProgress, { provider: aiProvider, token, model })
-      return { text: '', confidence: 100, pages: 1, rows, engine: 'ai' }
-    } catch (err) {
-      if (engine === 'ai') throw err
-      if (onProgress) onProgress({ status: 'IA no disponible, usando OCR…', progress: 0 })
-      // cae a Tesseract
-    }
-  }
-
-  const isPdf = file.type === 'application/pdf'
-  const images = isPdf ? await renderPdfToBlob(file, onProgress) : [file]
-
-  const texts = []
-  let confidenceSum = 0
-  for (let i = 0; i < images.length; i++) {
-    const { text, confidence } = await tesseractExtract(images[i], (p) => {
-      if (onProgress) {
-        const base = isPdf ? 1 / (images.length + 1) : 0
-        onProgress({
-          status: p.status,
-          progress: base + (p.progress || 0) * (1 - base),
-        })
-      }
-    })
-    texts.push(text)
-    confidenceSum += confidence || 0
-  }
-
-  return {
-    text: texts.join('\n'),
-    confidence: images.length ? confidenceSum / images.length : 0,
-    pages: images.length,
-    engine: 'ocr',
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Parser heurístico: convierte el texto OCR en filas estructuradas.
-// Columnas soportadas: CÓDIGO/SKU, DESCRIPCIÓN/PRODUCTO, CANTIDAD/QTY/CTD,
-// TARIMAS/PALLETS. Tolerante a documentos variables (packing slips, facturas).
-// ---------------------------------------------------------------------------
-
-const CODE_KEYS = ['codigo', 'código', 'code', 'sku', 'clave', 'item', 'art', 'articulo', 'referencia']
-const DESC_KEYS = ['descripcion', 'descripción', 'descrip', 'producto', 'nombre', 'detalle', 'concepto', 'material']
-const QTY_KEYS = ['cantidad', 'cant', 'qty', 'ctd', 'quantity', 'unidades', 'pzs', 'piezas', 'uds']
-const PALLET_KEYS = ['tarima', 'tarimas', 'pallet', 'pallets', 'bulto', 'bultos', 'cajas']
-
-function fold(s) {
-  return (s || '')
-    .toString()
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-}
-
-function keyIndex(headerCells, keys) {
-  for (let i = 0; i < headerCells.length; i++) {
-    const h = fold(headerCells[i])
-    if (keys.some((k) => h === k || h.includes(k))) return i
-  }
-  return -1
-}
-
-// Divide una línea en celdas. Prioriza separadores de tabla; si no hay,
-// usa 2+ espacios o tabuladores (muy común en OCR de columnas).
-function splitCells(line) {
-  let cells = line.split(/[|\t;]+/)
-  if (cells.length < 2) cells = line.split(/\s{2,}/)
-  return cells.map((c) => c.trim()).filter((c) => c.length > 0)
-}
-
-function toInt(s) {
-  const m = (s || '').toString().match(/\d[\d.,]*/)
-  if (!m) return null
-  return parseInt(m[0].replace(/[.,]/g, ''), 10)
-}
-
-function looksLikeCode(s) {
-  const t = (s || '').trim()
-  if (t.length < 2 || t.length > 20) return false
-  if (/\s/.test(t)) return false
-  return /[0-9]/.test(t) || /^[A-Z0-9][A-Z0-9._/-]+$/i.test(t)
-}
-
-/**
- * Parsea el texto OCR en filas { code, description, quantity, pallets }.
- * Estrategia:
- *  1) Detectar una fila de encabezado y mapear columnas por su nombre.
- *  2) Para líneas siguientes, extraer según el mapeo.
- *  3) Fallback por heurística: primer token tipo código, primer entero como cantidad.
- */
-export function parseDocumentRows(text) {
-  const rawLines = (text || '')
-    .split(/\r?\n/)
-    .map((l) => l.replace(/\s+$/g, ''))
-    .filter((l) => l.trim().length > 0)
-  if (!rawLines.length) return { rows: [], mapping: null }
-
-  let mapping = null
-  let headerIdx = -1
-  for (let i = 0; i < Math.min(rawLines.length, 15); i++) {
-    const cells = splitCells(rawLines[i])
-    if (cells.length < 2) continue
-    const code = keyIndex(cells, CODE_KEYS)
-    const desc = keyIndex(cells, DESC_KEYS)
-    const qty = keyIndex(cells, QTY_KEYS)
-    const pal = keyIndex(cells, PALLET_KEYS)
-    // Consideramos encabezado si reconocemos código/descripción y cantidad.
-    if ((code >= 0 || desc >= 0) && qty >= 0) {
-      mapping = { code, desc, qty, pal }
-      headerIdx = i
-      break
-    }
-  }
-
-  const rows = []
-  const start = headerIdx >= 0 ? headerIdx + 1 : 0
-  for (let i = start; i < rawLines.length; i++) {
-    const line = rawLines[i]
-    if (/^(total|subtotal|suma|gran total|observ|firma|pagina|page)/i.test(line.trim())) continue
-    const cells = splitCells(line)
-
-    let code = ''
-    let description = ''
-    let quantity = null
-    let pallets = null
-
-    if (mapping && cells.length > 1) {
-      if (mapping.code >= 0 && cells[mapping.code] !== undefined) code = cells[mapping.code]
-      if (mapping.desc >= 0 && cells[mapping.desc] !== undefined) description = cells[mapping.desc]
-      if (mapping.qty >= 0 && cells[mapping.qty] !== undefined) quantity = toInt(cells[mapping.qty])
-      if (mapping.pal >= 0 && cells[mapping.pal] !== undefined) pallets = toInt(cells[mapping.pal])
-    }
-
-    // Fallback heurístico por línea.
-    const tokens = line.split(/\s+/).filter(Boolean)
-    if (!code) {
-      const idx = tokens.findIndex(looksLikeCode)
-      if (idx >= 0) {
-        code = tokens[idx]
-        if (!description) description = tokens.slice(idx + 1).join(' ')
-      }
-    }
-    if (quantity == null) {
-      const nums = tokens
-        .map((t) => ({ t, n: toInt(t) }))
-        .filter((x) => x.n != null)
-      if (nums.length) quantity = nums[nums.length - 1].n
-    }
-    if (!description && tokens.length > 1) {
-      description = tokens.slice(1).filter((t) => !/^\d+$/.test(t)).join(' ')
-    }
-
-    if (!code && !description) continue
-    if (!code && !quantity) continue
-
-    rows.push({
-      code: (code || '').trim(),
-      description: (description || '').replace(/\s{2,}/g, ' ').trim(),
-      quantity: quantity && quantity > 0 ? quantity : 1,
-      pallets: pallets && pallets > 0 ? pallets : 0,
-    })
-  }
-
-  return { rows, mapping }
-}
-
-/**
- * Cruza las filas OCR contra un catálogo para marcar existentes/desconocidos.
- * @param rows filas de parseDocumentRows
+ * Cruza las filas contra un catálogo para marcar existentes/desconocidos.
+ * @param rows filas { code, description, quantity, pallets }
  * @param products lista con { code, name, stock }
  */
 export function matchRows(rows, products) {
+  const fold = (s) =>
+    (s || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
   const byCode = new Map()
   const byName = new Map()
   for (const p of products || []) {
@@ -580,7 +381,6 @@ export function matchRows(rows, products) {
       ...r,
       product: hit,
       exists: !!hit,
-      // Confianza local de la fila (para la advertencia <80%).
       ok: !!(r.code || r.description) && r.quantity > 0,
     }
   })

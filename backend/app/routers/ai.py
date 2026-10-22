@@ -23,16 +23,24 @@ from app.schemas import AiConfigOut, AiModelOut
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
-# Catálogo curado de modelos con visión útiles para OCR/documentos.
-# El sufijo ":free" indica variante gratuita (sin costo, con límites).
+# Catálogo curado de modelos con visión (leen imágenes) para OCR/documentos.
+# El campo ``id`` es el valor EXACTO que se envía a Puter (puterId) o a Gemini.
+# ``free=True`` = variante sin costo (sufijo :free de Puter/OpenRouter).
 CURATED_MODELS: list[tuple[str, str, str, bool]] = [
-    # Puter (ids de la pasarela api.puter.com)
-    ("google/gemini-3.8-flash", "Gemini 3.8 Flash (Puter)", "puter", False),
-    ("google/gemini-2.0-flash:free", "Gemini 2.0 Flash — GRATIS (Puter)", "puter", True),
-    ("gpt-5.4-nano", "GPT-5.4 Nano (Puter)", "puter", False),
-    ("gpt-4o-mini", "GPT-4o mini (Puter)", "puter", False),
-    ("meta-llama/llama-3.2-11b-vision-instruct:free", "Llama 3.2 11B Vision — GRATIS (Puter)", "puter", True),
-    # Gemini directo (ids de Google AI Studio)
+    # --- GRATIS (Puter) ---
+    ("openrouter:google/gemma-4-31b-it:free", "Gemma 4 31B — GRATIS (Puter/OpenRouter)", "puter", True),
+    ("openrouter:google/gemma-4-26b-a4b-it:free", "Gemma 4 26B A4B — GRATIS (Puter/OpenRouter)", "puter", True),
+    ("openrouter:nvidia/nemotron-3.5-super-vl:free", "Nemotron 3.5 Super VL — GRATIS (Puter/OpenRouter)", "puter", True),
+    ("openrouter:thinkingmachines/inkling:free", "Inkling — GRATIS (Puter/OpenRouter)", "puter", True),
+    ("openrouter:thinkingmachines/inkling-small:free", "Inkling Small — GRATIS (Puter/OpenRouter)", "puter", True),
+    ("openrouter:minimax/minimax-m3.1-flash:free", "MiniMax M3.1 Flash — GRATIS (Puter/OpenRouter)", "puter", True),
+    # --- Puter (de pago, buena calidad) ---
+    ("google:google/gemini-3.8-flash", "Gemini 3.8 Flash (Puter)", "puter", False),
+    ("google:google/gemini-2.5-flash", "Gemini 2.5 Flash (Puter)", "puter", False),
+    ("azure:openai/gpt-5.4-nano", "GPT-5.4 Nano (Puter)", "puter", False),
+    ("azure:openai/gpt-4o-mini", "GPT-4o mini (Puter)", "puter", False),
+    ("anthropic:anthropic/claude-haiku-4-5", "Claude Haiku 4.5 (Puter)", "puter", False),
+    # --- Gemini directo (API key de Google AI Studio) ---
     ("gemini-2.5-flash", "Gemini 2.5 Flash (Google)", "gemini", False),
     ("gemini-2.0-flash", "Gemini 2.0 Flash (Google)", "gemini", False),
     ("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite (Google)", "gemini", False),

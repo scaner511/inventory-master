@@ -3,11 +3,9 @@ import toast from 'react-hot-toast'
 import Modal from './ui/Modal.jsx'
 import { Button, Field, Input, Select } from './ui/Form.jsx'
 import { getAiConfig } from '../api/index.js'
-import { extractDocument, isAccepted, matchRows, parseDocumentRows } from '../ocr/index.js'
+import { extractDocument, isAccepted, matchRows } from '../ocr/index.js'
 
 // Umbral de confianza a partir del cual pedimos verificación manual.
-const CONFIDENCE_WARN = 80
-
 const EMPTY_ROW = { code: '', description: '', quantity: 1, pallets: 0, exists: false, product: null, ok: true }
 
 /**
@@ -25,17 +23,13 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState(0)
   const [statusText, setStatusText] = useState('')
-  const [confidence, setConfidence] = useState(null)
-  const [rawText, setRawText] = useState('')
   const [engine, setEngine] = useState('')
   const [rows, setRows] = useState([])
   const [fileName, setFileName] = useState('')
   const [previewUrl, setPreviewUrl] = useState('')
-  const [showText, setShowText] = useState(false)
   const [aiConfig, setAiConfig] = useState({ enabled: false, provider: 'puter', token: null, model: null })
 
   const isStorage = mode === 'storage'
-  const lowConfidence = confidence !== null && confidence < CONFIDENCE_WARN
 
   // Carga la config de IA del cliente (habilitada por el Super Admin).
   useEffect(() => {
@@ -49,14 +43,11 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
     setBusy(false)
     setProgress(0)
     setStatusText('')
-    setConfidence(null)
-    setRawText('')
     setEngine('')
     setRows([])
     setFileName('')
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     setPreviewUrl('')
-    setShowText(false)
   }
 
   function close() {
@@ -72,7 +63,6 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
     }
     setBusy(true)
     setRows([])
-    setConfidence(null)
     setFileName(file.name)
     if (file.type.startsWith('image/')) {
       if (previewUrl) URL.revokeObjectURL(previewUrl)
@@ -82,7 +72,6 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
     }
     try {
       const result = await extractDocument(file, {
-        engine: aiConfig.enabled ? 'auto' : 'ocr',
         aiProvider: aiConfig.provider || 'puter',
         token: aiConfig.token,
         model: aiConfig.model,
@@ -91,11 +80,8 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
           setProgress(Math.round((p || 0) * 100))
         },
       })
-      setRawText(result.text || '')
-      setConfidence(Math.round(result.confidence || 0))
-      setEngine(result.engine || 'ocr')
-      // Si la IA ya devolvió filas estructuradas, se usan tal cual.
-      const baseRows = result.rows?.length ? result.rows : parseDocumentRows(result.text || '').rows
+      setEngine(result.engine || 'ai')
+      const baseRows = result.rows || []
       const matched = matchRows(baseRows, products).map((r) => ({
         ...r,
         quantity: r.quantity || 1,
@@ -103,14 +89,14 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
         ok: !!(r.code || r.description) && (r.quantity || 0) > 0,
       }))
       if (!matched.length) {
-        toast.error('No se detectaron filas. Revisa el texto o agrega filas manualmente.')
+        toast.error('La IA no detectó filas. Toma otra foto más nítida o agrega filas manualmente.')
         setRows([{ ...EMPTY_ROW }])
       } else {
         setRows(matched)
-        toast.success(`${matched.length} fila(s) detectadas`)
+        toast.success(`${matched.length} fila(s) detectadas por IA`)
       }
     } catch (err) {
-      toast.error(err?.message || 'Error al procesar el documento')
+      toast.error(err?.message || 'Error al procesar el documento con IA')
     } finally {
       setBusy(false)
       setStatusText('')
@@ -167,16 +153,30 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
       <div className="space-y-4">
         <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4">
           <p className="text-sm text-slate-300">
-            Sube una <span className="text-slate-100">foto, imagen o PDF</span> (remisión, packing slip, factura). El
-            sistema detecta código, descripción, cantidad y tarimas. <span className="text-amber-400">Nada se
-            guarda</span> hasta que valides y confirmes la tabla.
+            <span className="text-slate-100">Toma una foto</span> o sube una imagen/PDF (remisión, packing slip, factura).
+            La <span className="text-blue-300">IA analiza el documento</span> y detecta código, descripción, cantidad y
+            tarimas. <span className="text-amber-400">Nada se guarda</span> hasta que valides y confirmes la tabla.
           </p>
+          {!aiConfig.enabled && (
+            <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+              ⚠️ La IA no está configurada para este cliente. Pide al administrador que la habilite en Super Admin.
+            </p>
+          )}
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button type="button" onClick={() => fileRef.current?.click()} disabled={busy}>
-              📄 Elegir archivo / PDF
+            <Button
+              type="button"
+              onClick={() => cameraRef.current?.click()}
+              disabled={busy || !aiConfig.enabled}
+            >
+              📷 Reconocer foto con IA
             </Button>
-            <Button type="button" variant="ghost" onClick={() => cameraRef.current?.click()} disabled={busy}>
-              📷 Tomar foto
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => fileRef.current?.click()}
+              disabled={busy || !aiConfig.enabled}
+            >
+              📄 Subir archivo / PDF
             </Button>
             <Button type="button" variant="ghost" onClick={reset} disabled={busy}>
               Limpiar
@@ -215,37 +215,18 @@ export default function SmartReceptionModal({ open, onClose, mode = 'inventory',
         {fileName && !busy && (
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
             <span>Archivo: <span className="text-slate-200">{fileName}</span></span>
-            {engine === 'ai' ? (
+            {engine === 'ai' && (
               <span className="rounded-md bg-blue-500/15 px-2 py-0.5 font-semibold text-blue-300">
                 🤖 Analizado con IA
               </span>
-            ) : confidence !== null ? (
-              <span
-                className={`rounded-md px-2 py-0.5 font-semibold ${
-                  lowConfidence ? 'bg-amber-500/15 text-amber-400' : 'bg-emerald-500/15 text-emerald-400'
-                }`}
-              >
-                Confianza OCR: {confidence}%
-              </span>
-            ) : null}
-            {rawText && (
-              <button className="text-blue-400 hover:underline" onClick={() => setShowText((v) => !v)}>
-                {showText ? 'Ocultar texto' : 'Ver texto detectado'}
-              </button>
             )}
           </div>
         )}
 
-        {(lowConfidence || (engine === 'ai' && rows.length > 0)) && (
+        {engine === 'ai' && rows.length > 0 && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
             ⚠️ Verifique los datos antes de guardar.
           </div>
-        )}
-
-        {showText && (
-          <pre className="max-h-40 overflow-auto rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs text-slate-400">
-            {rawText || '(sin texto)'}
-          </pre>
         )}
 
         {previewUrl && (

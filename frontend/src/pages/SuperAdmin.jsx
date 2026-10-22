@@ -484,9 +484,9 @@ function TenantsTab() {
                     autoComplete="new-password"
                   />
                 </Field>
-                <Field label="Modelo de IA" hint="Modelos con visión (leen imágenes). Los marcados 🆓 no generan costo.">
+                <Field label="Modelo de IA" hint="Modelos con visión (leen imágenes). Los marcados 🆓 son gratis.">
                   <Select value={form.ai_model} onChange={(e) => setForm({ ...form, ai_model: e.target.value })}>
-                    <option value="">— Predeterminado —</option>
+                    <option value="">— Predeterminado (Gemini 3.8 Flash) —</option>
                     {aiModels
                       .filter((m) => (m.provider || 'puter') === form.ai_provider)
                       .map((m) => (
@@ -501,7 +501,7 @@ function TenantsTab() {
                   <Input
                     value={form.ai_model}
                     onChange={(e) => setForm({ ...form, ai_model: e.target.value })}
-                    placeholder={form.ai_provider === 'gemini' ? 'ej: gemini-2.5-flash' : 'ej: google/gemini-3.8-flash'}
+                    placeholder={form.ai_provider === 'gemini' ? 'ej: gemini-2.5-flash' : 'ej: openrouter:google/gemma-4-31b-it:free'}
                     className="font-mono text-xs"
                   />
                 </Field>
