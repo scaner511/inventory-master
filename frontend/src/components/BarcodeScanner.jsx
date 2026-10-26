@@ -172,10 +172,17 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
     scannerRef.current = new Html5Qrcode('barcode-reader', { verbose: false })
     resetProbe()
     let lastCode = ''
+    // html5-qrcode solo acepta 1 clave en el primer argumento; la resolución va
+    // en videoConstraints (si no, lanza error y la cámara nunca abre en iOS).
     await scannerRef.current.start(
-      { facingMode: facing, width: { ideal: 4096 }, height: { ideal: 2160 } },
+      { facingMode: facing },
       {
         fps: 30,
+        videoConstraints: {
+          facingMode: facing,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
         qrbox: (w, h) => {
           // Recuadro amplio centrado para no cortar el código.
           const size = Math.max(180, Math.min(w, h) * 0.8)
@@ -313,12 +320,11 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
               Mantén el código quieto y bien iluminado, alineado al centro. Se confirma tras 3 lecturas
               idénticas para evitar errores. Motor: {engine === 'native' ? 'nativo (alta precisión)' : 'compatibilidad'}.
             </p>
-            <div
-              id="barcode-reader"
-              className="relative h-72 w-full overflow-hidden rounded-xl border border-slate-700"
-            >
+            <div className="relative h-72 w-full overflow-hidden rounded-xl border border-slate-700">
+              {/* Contenedor exclusivo de html5-qrcode: la librería vacía su contenido. */}
+              <div id="barcode-reader" className="h-full w-full" />
               {engine === 'native' && (
-                <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
+                <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" playsInline muted />
               )}
               <canvas ref={canvasRef} className="absolute inset-0 h-0 w-0" />
             </div>
@@ -344,7 +350,8 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
                   <p className="text-sm text-red-400">No se pudo acceder a la cámara</p>
                   <p className="text-xs text-slate-500">
                     Verifica que el sitio use HTTPS (no http ni IP) y concede el permiso de cámara al navegador.
-                    En Android, abre con Chrome. En los ajustes del navegador, revisa que la cámara no esté bloqueada.
+                    En Android, abre con Chrome. En iPhone, permite la cámara en Ajustes › Safari › Cámara (o en
+                    el ícono «aA» de la barra de direcciones). En los ajustes del navegador, revisa que la cámara no esté bloqueada.
                   </p>
                   <Button type="button" onClick={() => startCamera('environment')}>
                     🔄 Reintentar
