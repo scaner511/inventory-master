@@ -24,6 +24,7 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
   )
   const [cameraFacing, setCameraFacing] = useState('environment')
   const [torchOn, setTorchOn] = useState(false)
+  const [useFileInput, setUseFileInput] = useState(false)
 
   const scannerRef = useRef(null) // instancia html5-qrcode (respaldo)
   const nativeStreamRef = useRef(null) // MediaStream (motor nativo)
@@ -33,8 +34,10 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
   const canvasRef = useRef(null)
   const probeRef = useRef({ code: '', count: 0 }) // estabilización anti lecturas erróneas
   const activeCodeRef = useRef('')
+  const fileInputRef = useRef(null)
 
-  const NATIVE_AVAILABLE = typeof window !== 'undefined' && 'BarcodeDetector' in window
+  const IS_IOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)
+  const NATIVE_AVAILABLE = typeof window !== 'undefined' && 'BarcodeDetector' in window && !IS_IOS
 
   function resetProbe() {
     probeRef.current = { code: '', count: 0 }
@@ -103,9 +106,9 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
-        facingMode: facing,
-        width: { ideal: 4096 },
-        height: { ideal: 2160 },
+        facingMode: { ideal: facing },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
       },
     })
     nativeStreamRef.current = stream
@@ -173,14 +176,15 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
     resetProbe()
     let lastCode = ''
     await scannerRef.current.start(
-      { facingMode: facing, width: { ideal: 4096 }, height: { ideal: 2160 } },
+      { facingMode: facing },
       {
-        fps: 30,
+        fps: 10,
         qrbox: (w, h) => {
           // Recuadro amplio centrado para no cortar el código.
-          const size = Math.max(180, Math.min(w, h) * 0.8)
+          const size = Math.max(200, Math.min(w, h) * 0.7)
           return { width: size, height: size }
         },
+        aspectRatio: 1.0,
       },
       (decodedText) => {
         const value = String(decodedText || '').trim()
@@ -270,6 +274,37 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
     setMode(next)
     setCode('')
     setCameraStatus('idle')
+    setUseFileInput(false)
+  }
+
+  async function handleFileScan(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      setCameraStatus('starting')
+      if (IS_IOS && 'BarcodeDetector' in window) {
+        const detector = new BarcodeDetector()
+        const img = await createImageBitmap(file)
+        const codes = await detector.detect(img)
+        if (codes && codes.length) {
+          submit(String(codes[0].rawValue || '').trim())
+          return
+        }
+      }
+      // Fallback to html5-qrcode
+      const html5QrCode = new Html5Qrcode('barcode-reader-file')
+      const result = await html5QrCode.scanFile(file, true)
+      if (result) {
+        submit(result)
+      } else {
+        setCameraStatus('error')
+      }
+    } catch (err) {
+      console.error(err)
+      setCameraStatus('error')
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
   }
 
   return (
@@ -311,7 +346,7 @@ export default function BarcodeScanner({ open, onClose, onCode }) {
           <div className="space-y-3">
             <p className="text-xs text-slate-400">
               Mantén el código quieto y bien iluminado, alineado al centro. Se confirma tras 3 lecturas
-              idénticas para evitar errores. Motor: {engine === 'native' ? 'nativo (alta precisión)' : 'compatibilidad'}.
+              idénticas para evitar errores.
             </p>
             <div
               id="barcode-reader"
