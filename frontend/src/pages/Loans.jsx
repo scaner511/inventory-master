@@ -5,9 +5,15 @@ import { openAuthenticatedUrl } from '../api/client.js'
 import Modal from '../components/ui/Modal.jsx'
 import Table, { EmptyState } from '../components/ui/Table.jsx'
 import Badge from '../components/ui/Badge.jsx'
+import BarcodeScanner from '../components/BarcodeScanner.jsx'
 import { Button, Field, Input, Select } from '../components/ui/Form.jsx'
 
 const EMPTY_FORM = { seller: '', phone: '', due_date: '', note: '' }
+
+function findProductByCode(list, code) {
+  const clean = String(code || '').trim().toLowerCase()
+  return list.find((p) => String(p.code || '').trim().toLowerCase() === clean)
+}
 
 function loanTotals(loan) {
   const quantity = loan.items.reduce((s, i) => s + i.quantity, 0)
@@ -30,9 +36,8 @@ export default function Loans() {
   const [saving, setSaving] = useState(false)
 
   const [returnTarget, setReturnTarget] = useState(null)
-  const [returnItemId, setReturnItemId] = useState(null)
-  const [returnQty, setReturnQty] = useState(1)
-  const [returnLocation, setReturnLocation] = useState('')
+  const [returnSel, setReturnSel] = useState({}) // { [itemId]: { checked, qty, location } }
+  const [scanTarget, setScanTarget] = useState(null) // 'loan' | 'return'
   const [returnProducts, setReturnProducts] = useState([])
   const [extendTarget, setExtendTarget] = useState(null)
   const [extendDays, setExtendDays] = useState(7)
@@ -194,34 +199,91 @@ export default function Loans() {
   function openReturn(loan) {
     const pendingItems = loan.items.filter((i) => i.pending > 0)
     if (pendingItems.length === 0) return
-    const first = pendingItems[0]
+    const sel = {}
+    pendingItems.forEach((it) => {
+      sel[it.id] = { checked: pendingItems.length === 1, qty: it.pending, location: it.location_out || '' }
+    })
     setReturnTarget(loan)
-    setReturnItemId(first.id)
-    setReturnQty(first.pending)
-    setReturnLocation(first.location_out || '')
+    setReturnSel(sel)
     getProducts()
       .then((p) => setReturnProducts(p))
       .catch(() => setReturnProducts([]))
   }
 
-  const returnItem = returnTarget?.items.find((i) => i.id === returnItemId)
+  const pendingReturnItems = returnTarget ? returnTarget.items.filter((i) => i.pending > 0) : []
+  const selectedReturnItems = pendingReturnItems.filter((i) => returnSel[i.id]?.checked)
+  const allReturnSelected =
+    pendingReturnItems.length > 0 && selectedReturnItems.length === pendingReturnItems.length
+
+  function updateReturnSel(itemId, patch) {
+    setReturnSel((prev) => ({ ...prev, [itemId]: { ...prev[itemId], ...patch } }))
+  }
+
+  function toggleAllReturn(checked) {
+    setReturnSel((prev) => {
+      const next = { ...prev }
+      pendingReturnItems.forEach((it) => {
+        next[it.id] = { ...next[it.id], checked }
+      })
+      return next
+    })
+  }
 
   async function handleReturn() {
-    if (!returnTarget || !returnItem) return
-    const qty = Number(returnQty)
-    if (!qty || qty < 1 || qty > returnItem.pending) {
-      return toast.error(`La cantidad debe estar entre 1 y ${returnItem.pending}`)
+    if (!returnTarget) return
+    if (selectedReturnItems.length === 0) {
+      return toast.error('Selecciona al menos un producto a devolver')
+    }
+    for (const it of selectedReturnItems) {
+      const qty = Number(returnSel[it.id]?.qty)
+      if (!qty || qty < 1 || qty > it.pending) {
+        return toast.error(`La cantidad de "${it.product_name}" debe estar entre 1 y ${it.pending}`)
+      }
     }
     setSaving(true)
+    let done = 0
     try {
-      await returnLoan(returnTarget.id, returnItem.id, qty, returnLocation)
-      toast.success('Devolución registrada')
+      for (const it of selectedReturnItems) {
+        const sel = returnSel[it.id]
+        await returnLoan(returnTarget.id, it.id, Number(sel.qty), sel.location)
+        done += 1
+      }
+      toast.success(done === 1 ? 'Devolución registrada' : `Devolución registrada (${done} productos)`)
       setReturnTarget(null)
-      load()
     } catch {
       /* interceptor */
+      if (done > 0) {
+        toast(`Se registraron ${done} de ${selectedReturnItems.length} productos`, { icon: '⚠️' })
+        setReturnTarget(null)
+      }
     } finally {
       setSaving(false)
+      if (done > 0) load()
+    }
+  }
+
+  function handleScanCode(code) {
+    const target = scanTarget
+    setScanTarget(null)
+    if (target === 'loan') {
+      const p = findProductByCode(products, code)
+      if (!p) {
+        setProductSearch(code)
+        return toast.error(`No se encontró ningún producto con el código "${code}"`)
+      }
+      const existing = cart.find((it) => String(it.product_id) === String(p.id))
+      if (existing) {
+        updateCartItem(existing.key, { quantity: (Number(existing.quantity) || 0) + 1 })
+      } else {
+        addToCart(p.id)
+      }
+      toast.success(`Agregado: ${p.name}`)
+    } else if (target === 'return' && returnTarget) {
+      const p = findProductByCode(returnProducts, code)
+      const it = p && pendingReturnItems.find((i) => String(i.product_id) === String(p.id))
+      if (!it) return toast.error(`El código "${code}" no está pendiente en este préstamo`)
+      updateReturnSel(it.id, { checked: true })
+      toast.success(`Seleccionado: ${it.product_name}`)
     }
   }
 
@@ -545,14 +607,21 @@ export default function Loans() {
       {/* Modal registrar préstamo */}
       <Modal open={registerOpen} onClose={() => setRegisterOpen(false)} title="Registrar préstamo" wide>
         <form onSubmit={handleCreate} className="space-y-4">
-          <Field label="Buscar producto">
-            <Input
-              type="text"
-              value={productSearch}
-              onChange={(e) => setProductSearch(e.target.value)}
-              placeholder="🔍 Buscar producto..."
-            />
-          </Field>
+          <div className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <Field label="Buscar producto">
+                <Input
+                  type="text"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  placeholder="🔍 Buscar producto..."
+                />
+              </Field>
+            </div>
+            <Button type="button" variant="ghost" onClick={() => setScanTarget('loan')}>
+              📷 Escanear
+            </Button>
+          </div>
 
           {filteredProducts.length > 0 && (
             <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-slate-700/60 p-2">
@@ -798,57 +867,79 @@ export default function Loans() {
               Devolución de <span className="font-bold">{returnTarget.seller}</span> · vence el{' '}
               <span className="font-semibold text-amber-400">{returnTarget.due_date}</span>
             </p>
-            <Field label="Producto a devolver">
-              <Select
-                value={String(returnItemId)}
-                onChange={(e) => {
-                  const id = Number(e.target.value)
-                  const it = returnTarget.items.find((i) => i.id === id)
-                  if (it) {
-                    setReturnItemId(id)
-                    setReturnQty(it.pending)
-                    setReturnLocation(it.location_out || '')
-                  }
-                }}
-              >
-                {returnTarget.items
-                  .filter((i) => i.pending > 0)
-                  .map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.product_name} (pendiente: {it.pending})
-                    </option>
-                  ))}
-              </Select>
-            </Field>
-            {returnItem && (
-              <p className="text-xs text-slate-500">Pendiente por devolver: {returnItem.pending} unidades</p>
-            )}
-            <Field label="Cantidad que entrega hoy">
-              <Input
-                type="number"
-                min="1"
-                max={returnItem?.pending || 1}
-                value={returnQty}
-                onChange={(e) => setReturnQty(e.target.value)}
-              />
-            </Field>
-            <Field label="Ubicación donde se recibe">
-              <Select value={returnLocation} onChange={(e) => setReturnLocation(e.target.value)}>
-                <option value="">Misma de salida ({returnItem?.location_out || '—'})</option>
-                {returnItem?.location_out && <option value={returnItem.location_out}>{returnItem.location_out}</option>}
-                {(returnProducts.find((p) => String(p.id) === String(returnItem?.product_id))?.locations || []).map((l) => (
-                  <option key={l.location} value={l.location}>
-                    {l.location} (disponible: {l.quantity})
-                  </option>
-                ))}
-              </Select>
-            </Field>
+            <div className="flex items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={allReturnSelected}
+                  onChange={(e) => toggleAllReturn(e.target.checked)}
+                  className="h-4 w-4 accent-emerald-500"
+                />
+                Seleccionar todos
+              </label>
+              <Button type="button" variant="ghost" onClick={() => setScanTarget('return')}>
+                📷 Escanear
+              </Button>
+            </div>
+            <div className="max-h-[50vh] space-y-2 overflow-y-auto">
+              {pendingReturnItems.map((it) => {
+                const sel = returnSel[it.id] || {}
+                const productLocations =
+                  returnProducts.find((p) => String(p.id) === String(it.product_id))?.locations || []
+                return (
+                  <div
+                    key={it.id}
+                    className={`rounded-lg border p-3 ${
+                      sel.checked ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-slate-700/60'
+                    }`}
+                  >
+                    <label className="flex items-center gap-2 text-sm text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(sel.checked)}
+                        onChange={(e) => updateReturnSel(it.id, { checked: e.target.checked })}
+                        className="h-4 w-4 accent-emerald-500"
+                      />
+                      <span className="flex-1">{it.product_name}</span>
+                      <span className="text-xs text-slate-500">pendiente: {it.pending}</span>
+                    </label>
+                    {sel.checked && (
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <Field label="Cantidad que entrega hoy">
+                          <Input
+                            type="number"
+                            min="1"
+                            max={it.pending}
+                            value={sel.qty}
+                            onChange={(e) => updateReturnSel(it.id, { qty: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="Ubicación donde se recibe">
+                          <Select
+                            value={sel.location}
+                            onChange={(e) => updateReturnSel(it.id, { location: e.target.value })}
+                          >
+                            <option value="">Misma de salida ({it.location_out || '—'})</option>
+                            {it.location_out && <option value={it.location_out}>{it.location_out}</option>}
+                            {productLocations.map((l) => (
+                              <option key={l.location} value={l.location}>
+                                {l.location} (disponible: {l.quantity})
+                              </option>
+                            ))}
+                          </Select>
+                        </Field>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setReturnTarget(null)}>
                 Cancelar
               </Button>
-              <Button variant="success" onClick={handleReturn} disabled={saving}>
-                Confirmar entrega
+              <Button variant="success" onClick={handleReturn} disabled={saving || selectedReturnItems.length === 0}>
+                {saving ? 'Registrando...' : `Confirmar entrega (${selectedReturnItems.length})`}
               </Button>
             </div>
           </div>
@@ -877,6 +968,8 @@ export default function Loans() {
           </div>
         )}
       </Modal>
+
+      <BarcodeScanner open={scanTarget !== null} onClose={() => setScanTarget(null)} onCode={handleScanCode} />
     </div>
   )
 }
