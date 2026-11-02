@@ -154,4 +154,3 @@ export default function WarehouseTransferModal({ open, onClose, products = [], o
     </Modal>
   )
 }
-PY
