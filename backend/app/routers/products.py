@@ -56,10 +56,12 @@ def _to_out(db: Session, p: Product, threshold: int) -> ProductOut:
         out.status = "STOCK_BAJO"
     else:
         out.status = "DISPONIBLE"
+    loc_utils.ensure_seed(db, p)
     rows = loc_utils.rows_for(db, p)
     if rows:
         out.locations = [{"location": r.location, "quantity": r.quantity} for r in rows]
         out.location = " | ".join(f"{r.location} = {r.quantity}" for r in rows)
+        out.stock_slots = loc_utils.slot_quantities(db, p)
     else:
         # Datos antiguos sin desglose: se muestran las columnas legacy
         out.location = " | ".join(l for l in (p.location1, p.location2, p.location3) if l and l.strip()) or "Sin asignar"
@@ -395,15 +397,16 @@ def create_product(data: ProductCreate, db: Session = Depends(get_tenant_db), us
     ):
         raise HTTPException(status_code=400, detail=f"Ya existe un producto con el código '{data.code}'")
 
-    payload = data.model_dump(exclude={"locations"})
+    payload = data.model_dump(exclude={"locations", "stock_slots"})
     product = Product(tenant_id=user.tenant_id, **payload)
     db.add(product)
     db.flush()
 
-    if data.locations:
+    if data.stock_slots is not None:
+        loc_utils.set_slot_quantities(db, product, data.stock_slots)
+    elif data.locations:
         loc_utils.set_locations(db, product, [l.model_dump() for l in data.locations])
     else:
-        # Falla hacia el comportamiento antiguo: todo el stock en una sola fila
         loc_utils.ensure_seed(db, product)
 
     db.commit()
@@ -439,10 +442,14 @@ def update_product(
         setattr(product, field, value)
     db.flush()
 
-    if data.locations is not None:
+    if data.stock_slots is not None:
+        loc_utils.set_slot_quantities(db, product, data.stock_slots)
+    elif data.locations is not None:
         loc_utils.set_locations(db, product, [l.model_dump() for l in data.locations])
     else:
         loc_utils.ensure_seed(db, product)
+        if "stock" in updates:
+            loc_utils.reconcile_stock(db, product)
 
     db.commit()
     db.refresh(product)

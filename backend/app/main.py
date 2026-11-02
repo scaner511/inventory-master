@@ -34,6 +34,7 @@ from app.routers import (
     superadmin,
     temporary_storage,
     users,
+    warehouse_transfers,
 )
 from app.utils.security import decode_access_token, hash_password
 from app.utils import offline_license
@@ -145,6 +146,34 @@ def _migrate_tenant_ai(db: Session) -> None:
         except Exception as exc:  # no romper el arranque por una columna
             db.rollback()
             print(f"[AVISO] No se pudo agregar tenants.{column}: {exc}")
+
+
+def _migrate_settings_warehouses(db: Session) -> None:
+    """Agrega las columnas de nombres de almacenes a la tabla settings."""
+    if not _table_columns("settings"):
+        return
+    cols = _table_columns("settings")
+    migrations = [
+        ("warehouse1_name", "VARCHAR(120)"),
+        ("warehouse2_name", "VARCHAR(120)"),
+        ("warehouse3_name", "VARCHAR(120)"),
+    ]
+    for column, definition in migrations:
+        if column in cols:
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE settings ADD COLUMN {column} {definition}"))
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            print(f"[AVISO] No se pudo agregar settings.{column}: {exc}")
+    try:
+        db.execute(text("UPDATE settings SET warehouse1_name = COALESCE(NULLIF(warehouse1_name,''),'Almacén Principal')"))
+        db.execute(text("UPDATE settings SET warehouse2_name = COALESCE(NULLIF(warehouse2_name,''),'Vehículo')"))
+        db.execute(text("UPDATE settings SET warehouse3_name = COALESCE(NULLIF(warehouse3_name,''),'Almacén Secundario')"))
+        db.commit()
+    except Exception:
+        db.rollback()
 
 
 def _migrate_drive_per_tenant(db: Session) -> None:
@@ -680,6 +709,7 @@ def init_db() -> None:
         _migrate_user_modules(db)
         _migrate_tenant_modules(db)
         _migrate_tenant_ai(db)
+        _migrate_settings_warehouses(db)
         _migrate_tenant_max_users(db)
         _migrate_drive_per_tenant(db)
         _migrate_user_active_session(db)
@@ -1034,6 +1064,7 @@ app.include_router(backup.router, dependencies=business_deps)
 app.include_router(backup.oauth_router)
 app.include_router(audit.router, dependencies=business_deps)
 app.include_router(ai_router.router, dependencies=business_deps)
+app.include_router(warehouse_transfers.router, dependencies=business_deps)
 
 
 @app.get("/api/health")

@@ -205,6 +205,10 @@ class ProductStockLocation(BaseBusiness):
 
     El stock total del producto (products.stock) es SIEMPRE la suma de las
     cantidades de sus filas de ubicación.
+
+    En el nuevo modelo, cada producto tiene exactamente 3 filas, una por cada
+    almacén global del sistema (slot 1/2/3). La columna `location` guarda el
+    nombre actual del almacén (se sincroniza cuando el admin renombra).
     """
 
     __tablename__ = "product_stock_locations"
@@ -219,6 +223,44 @@ class ProductStockLocation(BaseBusiness):
     )
     location: Mapped[str] = mapped_column(String(255))
     quantity: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class WarehouseTransfer(BaseBusiness):
+    """Transferencia de stock entre dos almacenes globales del sistema."""
+
+    __tablename__ = "warehouse_transfers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    from_slot: Mapped[int] = mapped_column(Integer)  # 1, 2 o 3
+    to_slot: Mapped[int] = mapped_column(Integer)
+    from_name: Mapped[str] = mapped_column(String(120))  # snapshot del nombre
+    to_name: Mapped[str] = mapped_column(String(120))
+    transfer_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    items: Mapped[list["WarehouseTransferItem"]] = relationship(
+        back_populates="transfer", cascade="all, delete-orphan", order_by="WarehouseTransferItem.id"
+    )
+
+
+class WarehouseTransferItem(BaseBusiness):
+    __tablename__ = "warehouse_transfer_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    transfer_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouse_transfers.id", ondelete="CASCADE"), index=True
+    )
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
+    product_name: Mapped[str] = mapped_column(String(255))
+    product_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    quantity: Mapped[int] = mapped_column(Integer)
+
+    transfer: Mapped["WarehouseTransfer"] = relationship(back_populates="items")
 
 
 class Loan(BaseBusiness):
@@ -318,6 +360,10 @@ class Setting(BaseBusiness):
     company_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     logo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     low_stock_threshold: Mapped[int] = mapped_column(Integer, default=5)
+    # --- Almacenes globales del sistema (3 slots fijos) ---
+    warehouse1_name: Mapped[str] = mapped_column(String(120), default="Almacén Principal")
+    warehouse2_name: Mapped[str] = mapped_column(String(120), default="Vehículo")
+    warehouse3_name: Mapped[str] = mapped_column(String(120), default="Almacén Secundario")
 
 
 # ==============================================================================

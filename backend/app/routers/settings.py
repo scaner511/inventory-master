@@ -21,6 +21,9 @@ ALLOWED_LOGO_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 class SettingsUpdate(BaseModel):
     company_name: str | None = None
     low_stock_threshold: int | None = None
+    warehouse1_name: str | None = None
+    warehouse2_name: str | None = None
+    warehouse3_name: str | None = None
 
 
 class SecurityQuestionUpdate(BaseModel):
@@ -31,6 +34,9 @@ class SecurityQuestionUpdate(BaseModel):
 class SettingsOut(BaseModel):
     company_name: str | None
     low_stock_threshold: int
+    warehouse1_name: str
+    warehouse2_name: str
+    warehouse3_name: str
     logo_url: str | None = None
     has_logo: bool = False
 
@@ -41,6 +47,9 @@ def get_settings(db: Session = Depends(get_tenant_db), user: User = Depends(get_
     return SettingsOut(
         company_name=setting.company_name,
         low_stock_threshold=setting.low_stock_threshold,
+        warehouse1_name=setting.warehouse1_name or "Almacén Principal",
+        warehouse2_name=setting.warehouse2_name or "Vehículo",
+        warehouse3_name=setting.warehouse3_name or "Almacén Secundario",
         has_logo=bool(setting.logo_path),
         logo_url=f"/api/settings/logo" if setting.logo_path else None,
     )
@@ -59,10 +68,19 @@ def update_settings(
         if data.low_stock_threshold < 1:
             raise HTTPException(status_code=400, detail="El umbral de stock debe ser al menos 1")
         setting.low_stock_threshold = data.low_stock_threshold
+    if data.warehouse1_name is not None:
+        setting.warehouse1_name = data.warehouse1_name.strip() or "Almacén Principal"
+    if data.warehouse2_name is not None:
+        setting.warehouse2_name = data.warehouse2_name.strip() or "Vehículo"
+    if data.warehouse3_name is not None:
+        setting.warehouse3_name = data.warehouse3_name.strip() or "Almacén Secundario"
     db.commit()
     return SettingsOut(
         company_name=setting.company_name,
         low_stock_threshold=setting.low_stock_threshold,
+        warehouse1_name=setting.warehouse1_name or "Almacén Principal",
+        warehouse2_name=setting.warehouse2_name or "Vehículo",
+        warehouse3_name=setting.warehouse3_name or "Almacén Secundario",
         has_logo=bool(setting.logo_path),
         logo_url=f"/api/settings/logo" if setting.logo_path else None,
     )

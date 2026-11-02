@@ -283,6 +283,8 @@ class ProductBase(BaseModel):
     # Desglose por ubicación (con cantidades). Si se envía, el stock total se
     # recalcula como la suma de estas filas.
     locations: list[LocationEntry] = []
+    # Cantidades por almacén global (3 slots). Si se envía, recalcula el stock total.
+    stock_slots: list[int] | None = None
 
 
 class ProductCreate(ProductBase):
@@ -300,6 +302,7 @@ class ProductUpdate(BaseModel):
     location3: str | None = None
     condition: str | None = Field(default=None, max_length=30)
     locations: list[LocationEntry] | None = None
+    stock_slots: list[int] | None = None
 
 
 class ProductOut(ProductBase):
@@ -311,6 +314,8 @@ class ProductOut(ProductBase):
     # Estado calculado para la UI
     status: str | None = None
     location: str | None = None
+    # Cantidades por almacén global (3 slots fijos): [q1, q2, q3]
+    stock_slots: list[int] = Field(default_factory=list)
 
 
 class StockEntryLine(BaseModel):

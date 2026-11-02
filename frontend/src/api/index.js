@@ -703,3 +703,13 @@ export async function publicCaptureRegister(payload, token) {
   const { data } = await api.post('/capture/public/register', payload, captureTokenHeaders(token))
   return data
 }
+
+export async function createWarehouseTransfer(payload) {
+  const { data } = await api.post('/warehouse-transfers', payload)
+  return data
+}
+
+export async function listWarehouseTransfers(params = {}) {
+  const { data } = await api.get('/warehouse-transfers', { params })
+  return data
+}

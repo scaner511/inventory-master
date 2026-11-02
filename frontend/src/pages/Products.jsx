@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { createProduct, deleteAllProducts, deleteProduct, getProducts, stockEntry, updateProduct } from '../api/index.js'
+import { createProduct, deleteAllProducts, deleteProduct, getProducts, getSettings, stockEntry, updateProduct } from '../api/index.js'
+import WarehouseTransferModal from '../components/WarehouseTransferModal.jsx'
 import { api, formatMoney, openAuthenticatedUrl } from '../api/client.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import Modal from '../components/ui/Modal.jsx'
@@ -16,7 +17,7 @@ const EMPTY_FORM = {
   purchase_price: '',
   sale_price: '',
   condition: 'buen_estado',
-  locations: [{ location: '', quantity: 0 }],
+  stock_slots: [0, 0, 0],
 }
 
 const CONDITION_LABELS = {
@@ -50,14 +51,24 @@ export default function Products() {
   const fileRef = useRef(null)
 
   const [smartOpen, setSmartOpen] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
   const [smartRows, setSmartRows] = useState(null)
   const [entryForm, setEntryForm] = useState({ location: '', newLocation: '', document: '' })
   const [entrySaving, setEntrySaving] = useState(false)
+  const [warehouseNames, setWarehouseNames] = useState(['Almacén Principal', 'Vehículo', 'Almacén Secundario'])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       setProducts(await getProducts({}))
+      try {
+        const s = await getSettings()
+        setWarehouseNames([
+          s.warehouse1_name || 'Almacén Principal',
+          s.warehouse2_name || 'Vehículo',
+          s.warehouse3_name || 'Almacén Secundario',
+        ])
+      } catch {}
     } catch {
       /* interceptor */
     } finally {
@@ -117,9 +128,9 @@ export default function Products() {
       purchase_price: p.purchase_price,
       sale_price: p.sale_price,
       condition: p.condition || 'buen_estado',
-      locations: (Array.isArray(p.locations) && p.locations.length
-        ? p.locations.map((l) => ({ location: l.location, quantity: l.quantity }))
-        : [{ location: p.location1 || '', quantity: p.stock }]),
+      stock_slots: (Array.isArray(p.stock_slots) && p.stock_slots.length === 3
+        ? p.stock_slots.map((n) => Number(n) || 0)
+        : [p.stock || 0, 0, 0]),
     })
     setModalOpen(true)
   }
@@ -142,12 +153,11 @@ export default function Products() {
     }))
   }
 
-  const totalStock = form.locations.reduce((acc, l) => acc + (Number(l.quantity) || 0), 0)
+  const totalStock = (form.stock_slots || []).reduce((acc, n) => acc + (Number(n) || 0), 0)
 
   async function handleSave(e) {
     e.preventDefault()
     if (!form.code.trim() || !form.name.trim()) return toast.error('Código y nombre son obligatorios')
-    if (form.locations.every((l) => !l.location.trim())) return toast.error('Agrega al menos una ubicación con su cantidad')
     setSaving(true)
     const payload = {
       code: form.code.trim(),
@@ -155,9 +165,7 @@ export default function Products() {
       purchase_price: Number(form.purchase_price) || 0,
       sale_price: Number(form.sale_price) || 0,
       condition: form.condition || 'buen_estado',
-      locations: form.locations
-        .map((l) => ({ location: l.location.trim(), quantity: Number(l.quantity) || 0 }))
-        .filter((l) => l.location),
+      stock_slots: (form.stock_slots || [0, 0, 0]).map((n) => Number(n) || 0),
     }
     try {
       if (editing) {
@@ -290,14 +298,13 @@ export default function Products() {
     }
   }
 
-  function renderLocations(p) {
-    const locs = Array.isArray(p.locations) && p.locations.length ? p.locations : []
-    if (!locs.length) return <span className="text-slate-500">Sin ubicaciones</span>
+  function renderSlots(p) {
+    const slots = Array.isArray(p.stock_slots) && p.stock_slots.length === 3 ? p.stock_slots : [p.stock || 0, 0, 0]
     return (
       <div className="flex flex-wrap gap-1">
-        {locs.map((l) => (
-          <span key={l.location} className="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
-            {l.location}: <span className="font-bold text-slate-100">{l.quantity}</span>
+        {slots.map((q, i) => (
+          <span key={i} className="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+            {warehouseNames[i]}: <span className="font-bold text-slate-100">{q}</span>
           </span>
         ))}
       </div>
@@ -333,6 +340,9 @@ export default function Products() {
           </Button>
           <Button variant="success" onClick={openSmart}>
             🤖 Recepción Inteligente
+          </Button>
+          <Button variant="ghost" onClick={() => setTransferOpen(true)}>
+            🔄 Transferir entre almacenes
           </Button>
           <Button onClick={openCreate}>➕ Nuevo producto</Button>
         </div>
@@ -399,7 +409,7 @@ export default function Products() {
               <td className={`px-4 py-3 text-center font-bold ${p.stock === 0 ? 'text-red-400' : p.stock <= 5 ? 'text-amber-400' : 'text-slate-200'}`}>
                 {p.stock}
               </td>
-              <td className="px-4 py-3">{renderLocations(p)}</td>
+              <td className="px-4 py-3">{renderSlots(p)}</td>
               <td className="px-4 py-3 text-center text-slate-300">{formatMoney(p.purchase_price)}</td>
               <td className="px-4 py-3 text-center text-slate-300">{formatMoney(p.sale_price)}</td>
               <td className="px-4 py-3 text-center">
@@ -477,37 +487,26 @@ export default function Products() {
               </span>
             </div>
             <div className="space-y-2 rounded-xl border border-slate-700 bg-slate-800/40 p-3">
-              {form.locations.map((l, i) => (
+              {[0, 1, 2].map((i) => (
                 <div key={i} className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
-                    <Input
-                      value={l.location}
-                      onChange={(e) => setLocation(i, 'location', e.target.value)}
-                      placeholder="Ubicación (ej: Estante A, Bodega...)"
-                    />
+                    <span className="text-sm text-slate-200">{warehouseNames[i]}</span>
                   </div>
                   <Input
                     type="number"
                     min="0"
-                    value={l.quantity}
-                    onChange={(e) => setLocation(i, 'quantity', e.target.value)}
+                    value={form.stock_slots?.[i] ?? 0}
+                    onChange={(e) => {
+                      const next = [...(form.stock_slots || [0, 0, 0])]
+                      next[i] = e.target.value
+                      setForm((f) => ({ ...f, stock_slots: next }))
+                    }}
                     placeholder="Cantidad"
                     className="shrink-0"
                     style={{ width: '6.5rem' }}
                   />
-                  <button
-                    type="button"
-                    onClick={() => removeLocation(i)}
-                    className="rounded-lg bg-red-500/10 p-2 text-red-400 transition hover:bg-red-500/20"
-                    title="Quitar ubicación"
-                  >
-                    ✕
-                  </button>
                 </div>
               ))}
-              <Button type="button" variant="ghost" onClick={addLocation}>
-                ➕ Agregar ubicación
-              </Button>
             </div>
             <p className="mt-1 text-xs text-slate-500">
               La cantidad total se recalcula como la suma de las ubicaciones.
@@ -533,6 +532,13 @@ export default function Products() {
         mode="inventory"
         products={products}
         onApply={handleSmartApply}
+      />
+
+      <WarehouseTransferModal
+        open={transferOpen}
+        onClose={() => setTransferOpen(false)}
+        products={products}
+        onDone={load}
       />
 
       <Modal open={!!smartRows} onClose={() => setSmartRows(null)} title="Confirmar entrada de inventario" wide>

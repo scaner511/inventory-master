@@ -317,6 +317,9 @@ export function CompanyTab() {
   const [settings, setSettings] = useState(null)
   const [name, setName] = useState('')
   const [threshold, setThreshold] = useState(5)
+  const [w1, setW1] = useState('Almacén Principal')
+  const [w2, setW2] = useState('Vehículo')
+  const [w3, setW3] = useState('Almacén Secundario')
   const [saving, setSaving] = useState(false)
   const [logoBlobUrl, setLogoBlobUrl] = useState(null)
   const fileRef = useRef(null)
@@ -327,6 +330,9 @@ export function CompanyTab() {
       setSettings(s)
       setName(s.company_name || '')
       setThreshold(s.low_stock_threshold)
+      setW1(s.warehouse1_name || 'Almacén Principal')
+      setW2(s.warehouse2_name || 'Vehículo')
+      setW3(s.warehouse3_name || 'Almacén Secundario')
       if (s.has_logo) {
         const url = await getLogoUrl()
         setLogoBlobUrl(url)
@@ -341,7 +347,13 @@ export function CompanyTab() {
   async function handleSave() {
     setSaving(true)
     try {
-      await updateSettings({ company_name: name, low_stock_threshold: Number(threshold) })
+      await updateSettings({
+        company_name: name,
+        low_stock_threshold: Number(threshold),
+        warehouse1_name: w1,
+        warehouse2_name: w2,
+        warehouse3_name: w3,
+      })
       toast.success('Configuración guardada')
     } catch {
       /* interceptor */
@@ -377,6 +389,16 @@ export function CompanyTab() {
         </Field>
         <Field label="Umbral de stock bajo" hint="Productos con stock igual o menor a este valor se alertan">
           <Input type="number" min="1" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
+        </Field>
+        <h4 className="pt-2 font-semibold text-slate-200">Nombres de almacenes (3 slots fijos)</h4>
+        <Field label="Almacén 1 (slot 1)">
+          <Input value={w1} onChange={(e) => setW1(e.target.value)} />
+        </Field>
+        <Field label="Almacén 2 (slot 2)">
+          <Input value={w2} onChange={(e) => setW2(e.target.value)} />
+        </Field>
+        <Field label="Almacén 3 (slot 3)">
+          <Input value={w3} onChange={(e) => setW3(e.target.value)} />
         </Field>
         <Button onClick={handleSave} disabled={saving}>
           {saving ? 'Guardando...' : 'Guardar cambios'}
