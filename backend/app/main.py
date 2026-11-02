@@ -780,6 +780,9 @@ TENANT_COLUMN_MIGRATIONS = [
     ("prospects", "prospector_name", "VARCHAR(120)"),
     ("temporary_storage_items", "description", "VARCHAR(255)"),
     ("temporary_storage_items", "pallets", "INTEGER DEFAULT 0"),
+    ("settings", "warehouse1_name", "VARCHAR(120)"),
+    ("settings", "warehouse2_name", "VARCHAR(120)"),
+    ("settings", "warehouse3_name", "VARCHAR(120)"),
 ]
 
 
@@ -819,6 +822,23 @@ def _ensure_tenant_databases() -> None:
                 BaseBusiness.metadata.create_all(bind=tenant_engine)
                 # Agrega columnas nuevas a tablas ya existentes.
                 _migrate_tenant_columns(tenant_engine)
+                # Siembra los 3 slots de almacén en productos existentes.
+                try:
+                    from sqlalchemy.orm import sessionmaker
+                    from app.utils import locations as loc_utils
+                    from app import models as _m
+
+                    SessionT = sessionmaker(bind=tenant_engine)
+                    s = SessionT()
+                    try:
+                        for p in s.query(_m.Product).all():
+                            loc_utils.ensure_seed(s, p)
+                            loc_utils.reconcile_stock(s, p)
+                        s.commit()
+                    finally:
+                        s.close()
+                except Exception as exc:
+                    print(f"[AVISO] seed slots: {exc}")
             except Exception as exc:  # no romper el arranque por un cliente
                 print(
                     f"[AVISO] No se pudo preparar la base de datos del cliente "

@@ -163,8 +163,22 @@ def get_or_create_settings(db: Session, tenant_id: int | None = None) -> Setting
             company_name=base.company_name if base else "Mi Empresa",
             logo_path=base.logo_path if base else None,
             low_stock_threshold=base.low_stock_threshold if base else settings.low_stock_threshold,
+            warehouse1_name=base.warehouse1_name if base else "Almacén Principal",
+            warehouse2_name=base.warehouse2_name if base else "Vehículo",
+            warehouse3_name=base.warehouse3_name if base else "Almacén Secundario",
         )
         db.add(setting)
+        db.commit()
+        db.refresh(setting)
+    # Backfill de nombres vacíos en filas existentes.
+    changed = False
+    if not (setting.warehouse1_name or "").strip():
+        setting.warehouse1_name = "Almacén Principal"; changed = True
+    if not (setting.warehouse2_name or "").strip():
+        setting.warehouse2_name = "Vehículo"; changed = True
+    if not (setting.warehouse3_name or "").strip():
+        setting.warehouse3_name = "Almacén Secundario"; changed = True
+    if changed:
         db.commit()
         db.refresh(setting)
     return setting
