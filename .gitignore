@@ -39,3 +39,5 @@ desktop.ini
 *.log
 *.log.err
 logs/
+
+.vercel
