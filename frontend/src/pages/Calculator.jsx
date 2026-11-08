@@ -203,6 +203,10 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
   const [paymentFrequency, setPaymentFrequency] = useState('monthly')
   const [discount, setDiscount] = useState('')
   const [discountType, setDiscountType] = useState('amount')
+  const [discountEnabled, setDiscountEnabled] = useState(false)
+  // Precios personalizados por código de producto. Si no hay valor, se usa el precio de lista.
+  const [customPrices, setCustomPrices] = useState({})
+  const [hydrated, setHydrated] = useState(false)
 
   // Cargar desde localStorage (clave distinta por enlace/cliente)
   useEffect(() => {
@@ -220,7 +224,12 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
       setPaymentFrequency(data.paymentFrequency || 'monthly')
       setDiscount(data.discount || '')
       setDiscountType(data.discountType || 'amount')
+      setDiscountEnabled(
+        data.discountEnabled ?? (parseFloat(data.discount || 0) > 0)
+      )
+      setCustomPrices(data.customPrices || {})
     }
+    setHydrated(true)
   }, [storageKey])
 
   // Guardar en localStorage
@@ -236,16 +245,40 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
       termType,
       paymentFrequency,
       discount,
-      discountType
+      discountType,
+      discountEnabled,
+      customPrices
     }
     localStorage.setItem(storageKey, JSON.stringify(data))
-  }, [storageKey, selectedProducts, clientName, clientPhone, initialPayment, interestRate, term, paymentType, termType, paymentFrequency, discount, discountType])
+  }, [storageKey, selectedProducts, clientName, clientPhone, initialPayment, interestRate, term, paymentType, termType, paymentFrequency, discount, discountType, discountEnabled, customPrices])
+
+  // Descartar precios personalizados de productos que ya no están seleccionados.
+  useEffect(() => {
+    if (!hydrated) return
+    setCustomPrices(prev => {
+      const next = Object.fromEntries(
+        Object.entries(prev).filter(([code]) => (selectedProducts[code] || 0) > 0)
+      )
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next
+    })
+  }, [selectedProducts, hydrated])
 
   // Filtrar productos
   const filteredProducts = products.filter(p => 
     p.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  // Precio unitario efectivo: precio personalizado o precio de lista.
+  function unitPrice(code) {
+    const product = products.find(p => p.code === code)
+    const custom = customPrices[code]
+    if (custom !== undefined && custom !== null && String(custom).trim() !== '') {
+      const value = parseFloat(custom)
+      if (Number.isFinite(value) && value >= 0) return value
+    }
+    return product ? product.price : 0
+  }
 
   // Actualizar cantidad
   function updateQuantity(code, change) {
@@ -259,22 +292,63 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
     })
   }
 
+  // Quitar un producto seleccionado por completo.
+  function removeProduct(code) {
+    setSelectedProducts(prev => {
+      const { [code]: _, ...rest } = prev
+      return rest
+    })
+    setCustomPrices(prev => {
+      const { [code]: _, ...rest } = prev
+      return rest
+    })
+  }
+
+  // Modificar el precio unitario de un producto seleccionado.
+  function updateProductPrice(code, value) {
+    setCustomPrices(prev => ({ ...prev, [code]: value }))
+  }
+
+  // Al salir del campo, normalizar el precio (vacío o inválido vuelve al de lista).
+  function normalizeProductPrice(code) {
+    const raw = customPrices[code]
+    if (raw === undefined) return
+    if (String(raw).trim() === '' || !Number.isFinite(parseFloat(raw))) {
+      setCustomPrices(prev => {
+        const { [code]: _, ...rest } = prev
+        return rest
+      })
+      return
+    }
+    const value = Math.max(0, parseFloat(raw))
+    setCustomPrices(prev => ({ ...prev, [code]: String(value) }))
+  }
+
+  // Restaurar el precio de lista del producto.
+  function resetProductPrice(code) {
+    setCustomPrices(prev => {
+      const { [code]: _, ...rest } = prev
+      return rest
+    })
+  }
+
   // Calcular totales
   const totalProducts = Object.entries(selectedProducts).reduce((sum, [code, qty]) => {
-    const product = products.find(p => p.code === code)
-    return sum + (product.price * qty)
+    return sum + (unitPrice(code) * qty)
   }, 0)
 
   const purchasePrice = totalProducts / 1.18
   const itbis = purchasePrice * 0.18
   const totalPrice = totalProducts
 
-  // Descuento
+  // Descuento (solo se aplica si la casilla está marcada)
   let discountAmount = 0
-  if (discountType === 'percentage') {
-    discountAmount = (totalPrice * parseFloat(discount || 0)) / 100
-  } else {
-    discountAmount = parseFloat(discount) || 0
+  if (discountEnabled) {
+    if (discountType === 'percentage') {
+      discountAmount = (totalPrice * parseFloat(discount || 0)) / 100
+    } else {
+      discountAmount = parseFloat(discount) || 0
+    }
   }
   const priceAfterDiscount = Math.max(0, totalPrice - discountAmount)
 
@@ -342,15 +416,17 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
     Object.entries(selectedProducts).forEach(([code, qty]) => {
       if (qty > 0) {
         const product = products.find(p => p.code === code)
-        const subtotal = product.price * qty
-        message += `• ${product.name} (${qty}x): ${formatCurrency(subtotal)}\n`
+        const subtotal = unitPrice(code) * qty
+        message += `• ${product.name} (${qty}x ${formatCurrency(unitPrice(code))}): ${formatCurrency(subtotal)}\n`
       }
     })
     
     message += `\n💰 *Resumen:*\n`
     message += `Precio Total: ${formatCurrency(totalPrice)}\n`
-    message += `Descuento: ${formatCurrency(discountAmount)}\n`
-    message += `Precio con Descuento: ${formatCurrency(priceAfterDiscount)}\n`
+    if (discountEnabled) {
+      message += `Descuento: ${formatCurrency(discountAmount)}\n`
+      message += `Precio con Descuento: ${formatCurrency(priceAfterDiscount)}\n`
+    }
     message += `Depósito: ${formatCurrency(depositDelivered)}\n`
     message += `Saldo a Financiar: ${formatCurrency(balanceToFinance)}\n`
     message += `Tasa: ${annualRate}%\n`
@@ -376,6 +452,8 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
       setPaymentFrequency('monthly')
       setDiscount('')
       setDiscountType('amount')
+      setDiscountEnabled(false)
+      setCustomPrices({})
       toast.success('Datos limpiados')
     }
   }
@@ -434,7 +512,12 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
                     <div className="flex-1">
                       <div className="font-semibold text-blue-400">{product.code}</div>
                       <div className="text-slate-200">{product.name}</div>
-                      <div className="font-bold text-white">{formatCurrency(product.price)}</div>
+                      <div className="font-bold text-white">
+                        {formatCurrency(unitPrice(product.code))}
+                        {customPrices[product.code] !== undefined && (
+                          <span className="ml-2 text-xs font-normal text-amber-400">precio modificado</span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -460,18 +543,88 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
           {/* Productos Seleccionados */}
           {Object.keys(selectedProducts).length > 0 && (
             <div className="mt-4 rounded-lg bg-slate-600 p-4">
-              <h3 className="mb-3 font-semibold text-white">Productos Seleccionados</h3>
+              <div className="mb-3">
+                <h3 className="font-semibold text-white">Productos Seleccionados</h3>
+                <p className="text-xs text-slate-400">
+                  Puedes ajustar la cantidad, cambiar el precio o quitar el producto aquí mismo.
+                </p>
+              </div>
               {Object.entries(selectedProducts).map(([code, qty]) => {
                 if (qty === 0) return null
                 const product = products.find(p => p.code === code)
-                const subtotal = product.price * qty
+                const hasCustomPrice = customPrices[code] !== undefined
+                const subtotal = unitPrice(code) * qty
                 return (
-                  <div key={code} className="mb-2 flex items-center justify-between rounded bg-slate-700 p-2 last:mb-0">
-                    <div>
-                      <div className="font-semibold text-white">{product.name}</div>
-                      <div className="text-sm text-slate-300">{qty} x {formatCurrency(product.price)}</div>
+                  <div key={code} className="mb-2 rounded bg-slate-700 p-3 last:mb-0">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-white">{product.name}</div>
+                        <div className="text-xs text-slate-400">{product.code}</div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => updateQuantity(code, -1)}
+                            title="Reducir cantidad"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-lg font-bold text-white transition hover:bg-blue-700"
+                          >
+                            -
+                          </button>
+                          <span className="w-8 text-center font-semibold text-white">{qty}</span>
+                          <button
+                            type="button"
+                            onClick={() => updateQuantity(code, 1)}
+                            title="Aumentar cantidad"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-lg font-bold text-white transition hover:bg-blue-700"
+                          >
+                            +
+                          </button>
+                        </div>
+
+                        <label className="flex items-center gap-1 text-xs text-slate-300">
+                          <span>Precio</span>
+                          <input
+                            type="number"
+                            value={customPrices[code] ?? String(product.price)}
+                            onChange={(e) => updateProductPrice(code, e.target.value)}
+                            onBlur={() => normalizeProductPrice(code)}
+                            min="0"
+                            step="0.01"
+                            title="Precio unitario"
+                            className="w-24 rounded-lg border border-slate-500 bg-slate-800 px-2 py-1 text-right text-white focus:border-blue-500 focus:outline-none"
+                          />
+                        </label>
+
+                        {hasCustomPrice && (
+                          <button
+                            type="button"
+                            onClick={() => resetProductPrice(code)}
+                            title="Restaurar precio de lista"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-500 text-white transition hover:bg-slate-400"
+                          >
+                            ↺
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => removeProduct(code)}
+                          title="Quitar producto"
+                          className="flex h-8 items-center justify-center rounded-lg bg-red-600 px-3 text-sm font-semibold text-white transition hover:bg-red-700"
+                        >
+                          Quitar
+                        </button>
+                      </div>
                     </div>
-                    <div className="font-bold text-blue-400">{formatCurrency(subtotal)}</div>
+
+                    <div className="mt-2 flex items-center justify-between text-sm">
+                      <span className="text-slate-300">
+                        {qty} x {formatCurrency(unitPrice(code))}
+                      </span>
+                      <span className="font-bold text-blue-400">{formatCurrency(subtotal)}</span>
+                    </div>
                   </div>
                 )
               })}
@@ -494,40 +647,61 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
           </div>
 
           <div className="mb-4">
-            <label className="mb-2 block text-sm font-semibold text-slate-300">Descuento</label>
-            <div className="mb-2 flex gap-4">
-              <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <span className="block text-sm font-semibold text-slate-300">Descuento</span>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
                 <input
-                  type="radio"
-                  name="discountType"
-                  value="amount"
-                  checked={discountType === 'amount'}
-                  onChange={(e) => setDiscountType(e.target.value)}
-                  className="accent-blue-500"
+                  type="checkbox"
+                  checked={discountEnabled}
+                  onChange={(e) => setDiscountEnabled(e.target.checked)}
+                  className="h-4 w-4 accent-blue-500"
                 />
-                Monto Fijo (RD$)
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                <input
-                  type="radio"
-                  name="discountType"
-                  value="percentage"
-                  checked={discountType === 'percentage'}
-                  onChange={(e) => setDiscountType(e.target.value)}
-                  className="accent-blue-500"
-                />
-                Porcentaje (%)
+                Aplicar descuento
               </label>
             </div>
-            <input
-              type="number"
-              value={discount}
-              onChange={(e) => setDiscount(e.target.value)}
-              className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-blue-500 focus:outline-none"
-              placeholder="0.00"
-              min="0"
-              step="0.01"
-            />
+            <div className={discountEnabled ? '' : 'pointer-events-none opacity-40'}>
+              <div className="mb-2 flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                  <input
+                    type="radio"
+                    name="discountType"
+                    value="amount"
+                    checked={discountType === 'amount'}
+                    onChange={(e) => setDiscountType(e.target.value)}
+                    disabled={!discountEnabled}
+                    className="accent-blue-500"
+                  />
+                  Monto Fijo (RD$)
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                  <input
+                    type="radio"
+                    name="discountType"
+                    value="percentage"
+                    checked={discountType === 'percentage'}
+                    onChange={(e) => setDiscountType(e.target.value)}
+                    disabled={!discountEnabled}
+                    className="accent-blue-500"
+                  />
+                  Porcentaje (%)
+                </label>
+              </div>
+              <input
+                type="number"
+                value={discount}
+                onChange={(e) => setDiscount(e.target.value)}
+                disabled={!discountEnabled}
+                className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed"
+                placeholder="0.00"
+                min="0"
+                step="0.01"
+              />
+            </div>
+            {!discountEnabled && (
+              <p className="mt-1 text-xs text-slate-400">
+                Marca la casilla para aplicar un descuento.
+              </p>
+            )}
           </div>
 
           <div className="mb-4">
@@ -676,10 +850,12 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
                 <div className="text-xs text-slate-400">ITBIS 18%</div>
                 <div className="font-semibold text-white">{formatCurrency(itbis)}</div>
               </div>
-              <div className="rounded bg-white/5 p-3">
-                <div className="text-xs text-slate-400">Descuento</div>
-                <div className="font-semibold text-white">{formatCurrency(discountAmount)}</div>
-              </div>
+              {discountEnabled && (
+                <div className="rounded bg-white/5 p-3">
+                  <div className="text-xs text-slate-400">Descuento</div>
+                  <div className="font-semibold text-white">{formatCurrency(discountAmount)}</div>
+                </div>
+              )}
               <div className="rounded bg-white/5 p-3">
                 <div className="text-xs text-slate-400">Precio Compra (s/ITBIS)</div>
                 <div className="font-semibold text-white">{formatCurrency(purchasePrice)}</div>
@@ -694,7 +870,7 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
               </div>
               <div className="rounded bg-white/5 p-3">
                 <div className="text-xs text-slate-400">Tasa Anual</div>
-                <div className="font-semibold text-white">26%</div>
+                <div className="font-semibold text-white">{annualRate}%</div>
               </div>
               <div className="rounded bg-white/5 p-3">
                 <div className="text-xs text-slate-400">Plazo</div>
