@@ -1,0 +1,24 @@
+{
+  "name": "Inventory Master - Calculadora",
+  "short_name": "Calculadora",
+  "description": "Calculadora de cotizaciones de Inventory Master",
+  "start_url": "/calculator/public",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

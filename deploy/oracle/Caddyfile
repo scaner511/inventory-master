@@ -1,0 +1,17 @@
+# ============================================================
+# Caddyfile - HTTPS automático (Let's Encrypt) con dominio Docker
+# La variable API_DOMAIN se inyecta desde docker-compose.yml
+# (la define tu archivo deploy/oracle/.env).
+# ============================================================
+
+{$API_DOMAIN} {
+	encode gzip
+	reverse_proxy api:8000
+}
+
+# Si prefieres probar sin dominio (HTTP simple con la IP pública),
+# comenta el bloque anterior y descomenta este:
+# :80 {
+# 	encode gzip
+# 	reverse_proxy api:8000
+# }

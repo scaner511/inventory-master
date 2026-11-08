@@ -1,0 +1,117 @@
+"""Configuración central de la aplicación.
+
+Los valores se leen desde variables de entorno (archivo .env si existe).
+"""
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=str(BASE_DIR / ".env"), env_file_encoding="utf-8", extra="ignore")
+
+    # Base de datos
+    database_url: str = "postgresql+psycopg2://inventario:inventario_secreto@localhost:5432/inventario_db"
+
+    # Seguridad
+    secret_key: str = "cambia-esta-clave-secreta-por-una-aleatoria"
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 480
+    # Sesión única: la liberación ocurre al cerrar sesión o cerrar la pestaña.
+    # El cierre es diferido con este margen de gracia: si la misma sesión vuelve
+    # a usarse dentro de él (p. ej. un recargado con F5), el cierre se cancela.
+    session_close_grace_seconds: int = 5
+    # Tope de seguridad para que una sesión no quede viva indefinidamente si el
+    # cierre de pestaña nunca llegó al servidor.
+    active_session_idle_minutes: int = 1440
+    active_session_expire_minutes: int = 1440
+
+    # App
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # CORS adicional: expresión regular de orígenes (p. ej. cualquier dominio de Vercel).
+    # Los dominios personalizados se agregan como orígenes exactos en CORS_ORIGINS.
+    cors_origin_regex: str = r"https://.*\.vercel\.app"
+    admin_username: str = "admin"
+    admin_password: str = "admin1234"
+    admin_email: str = "admin@mccea.local"
+
+    # Super Admin global: crea clientes (tenants) y administra todo el sistema.
+    # Si no se configuran variables de entorno, se usan estos valores de desarrollo.
+    superadmin_username: str = "superadmin"
+    superadmin_password: str = "SuperAdmin123!"
+    superadmin_email: str = "superadmin@mccea.local"
+
+    # Multi-cliente
+    default_tenant_name: str = "Cliente Principal"
+    max_users_per_tenant: int = 4
+
+    # Backups
+    backup_dir: str = str(BASE_DIR / "backups")
+    backup_hour: str = "03:00"
+    backup_retention_days: int = 30
+
+    # Google Drive (respaldos en la nube, opcional)
+    google_drive_folder_id: str = ""
+    google_service_account_json: str = ""
+    google_service_account_file: str = ""
+    google_drive_auto_upload: bool = False
+
+    # Google Drive OAuth ("Conectar con Google Drive", opcional)
+    # Cliente OAuth creado UNA vez en Google Cloud Console por el desarrollador.
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    # URL pública de esta API (ej. https://mi-api.onrender.com). Si se define,
+    # la URL de retorno de OAuth se construye con ella; si no, se deduce del request.
+    public_base_url: str = ""
+    # Origen del panel (ej. https://mi-panel.vercel.app). Opcional: si se deja
+    # vacío, el retorno tras conectar Google Drive deduce el origen del Referer
+    # capturado al iniciar el flujo y lo viaja firmado dentro del estado.
+    frontend_origin: str = ""
+
+    # Uploads (logo)
+    uploads_dir: str = str(BASE_DIR / "uploads" / "logos")
+
+    # Adjuntos del módulo comercial (prospectos): evidencias y firmas
+    prospect_files_dir: str = str(BASE_DIR / "uploads" / "prospects")
+
+    # Licencia
+    license_prefix: str = "MC26"
+    license_duration_days: int = 30
+
+    # Umbral de stock bajo por defecto
+    low_stock_threshold: int = 5
+
+    # Contraseña genérica para usuarios nuevos (se pide cambiarla al primer login)
+    default_generic_password: str = "Cambiar123!"
+
+    # Suscripción: días de vigencia por usuario (los paga el cliente). Al vencer
+    # sin renovar, se bloquea la app para ese usuario hasta que el Super Admin
+    # registre el pago y extienda la suscripción. El Super Admin queda exento.
+    subscription_days: int = 30
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def backup_path(self) -> Path:
+        p = Path(self.backup_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def uploads_path(self) -> Path:
+        p = Path(self.uploads_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def prospect_files_path(self) -> Path:
+        p = Path(self.prospect_files_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+
+settings = Settings()
