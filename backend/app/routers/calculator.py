@@ -379,6 +379,7 @@ def public_status(
 @public_router.get("/{token}", response_model=CalculatorPublicStatusOut)
 def public_info(token: str, db: Session = Depends(get_db)):
     """Datos básicos del enlace (sin revelar el dispositivo vinculado)."""
+    link = db.query(CalculatorLink).filter(CalculatorLink.token == token).first()
     if link is None:
         raise HTTPException(status_code=404, detail="Enlace de calculadora no encontrado")
     tenant = db.get(Tenant, link.tenant_id)
