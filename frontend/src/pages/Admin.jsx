@@ -3,8 +3,11 @@ import toast from 'react-hot-toast'
 import { changePassword } from '../api/auth.js'
 import {
   adminResetPassword,
+  approveCalculatorLink,
   connectDriveUrl,
+  createCalculatorLink,
   createUser,
+  deleteCalculatorLink,
   deleteUser,
   disconnectDrive,
   generateCaptureLink,
@@ -14,10 +17,14 @@ import {
   getUsers,
   getTermsAcceptances,
   listBackups,
+  listCalculatorLinks,
   listDriveBackups,
   purgeBackups,
+  rejectCalculatorLink,
+  resetCalculatorDevice,
   restoreBackup,
   restoreFromDrive,
+  revokeCalculatorLink,
   runBackup,
   setSecurityQuestion,
   testDriveConnection,
@@ -45,10 +52,19 @@ const TABS = [
 export default function Admin() {
   const { user } = useAuth()
 
+  // La pestaña de la calculadora solo aparece si el Super Admin habilitó el
+  // módulo para el cliente (los módulos vienen del tenant en el login).
+  const visibleTabs = TABS.filter(
+    (t) =>
+      t.id !== 'calculator' ||
+      !Array.isArray(user?.modules) ||
+      user.modules.includes('calculator'),
+  )
+
   // Permite abrir directamente en una pestaña: /admin?tab=backups
   const [tab, setTab] = useState(() => {
     const t = new URLSearchParams(window.location.search).get('tab')
-    return TABS.some((x) => x.id === t) ? t : 'users'
+    return visibleTabs.some((x) => x.id === t) ? t : 'users'
   })
 
   if (user?.role !== 'admin') {
@@ -61,6 +77,8 @@ export default function Admin() {
     )
   }
 
+  const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : 'users'
+
   return (
     <div className="space-y-6">
       <div>
@@ -69,12 +87,12 @@ export default function Admin() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
             className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
-              tab === t.id ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              activeTab === t.id ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             }`}
           >
             {t.label}
@@ -82,12 +100,12 @@ export default function Admin() {
         ))}
       </div>
 
-      {tab === 'users' && <UsersTab />}
-      {tab === 'company' && <CompanyTab />}
-      {tab === 'backups' && <BackupsTab />}
-      {tab === 'terms' && <TermsTab />}
-      {tab === 'account' && <AccountTab />}
-      {tab === 'calculator' && <CalculatorTab />}
+      {activeTab === 'users' && <UsersTab />}
+      {activeTab === 'company' && <CompanyTab />}
+      {activeTab === 'backups' && <BackupsTab />}
+      {activeTab === 'terms' && <TermsTab />}
+      {activeTab === 'account' && <AccountTab />}
+      {activeTab === 'calculator' && <CalculatorTab />}
     </div>
   )
 }
@@ -917,44 +935,327 @@ export function AccountTab() {
 
 /* ================= CALCULADORA ================= */
 
-export function CalculatorTab() {
-  const calculatorUrl = `${window.location.origin}/calculator/public`
+const CALCULATOR_LINK_STATUS = {
+  available: { label: 'Disponible', className: 'bg-slate-500/10 text-slate-300' },
+  pending: { label: 'Pendiente', className: 'bg-amber-500/10 text-amber-300' },
+  active: { label: 'Activo', className: 'bg-emerald-500/10 text-emerald-300' },
+  revoked: { label: 'Revocado', className: 'bg-red-500/10 text-red-300' },
+}
 
-  async function handleCopyLink() {
+function calculatorUrlFor(link) {
+  return `${window.location.origin}/calculator/public/${link.token}`
+}
+
+function formatCalculatorDate(value) {
+  if (!value) return ''
+  return new Date(value).toLocaleString()
+}
+
+export function CalculatorTab() {
+  const [data, setData] = useState({ limit: 10, used: 0, links: [] })
+  const [label, setLabel] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [busy, setBusy] = useState('')
+
+  const load = useCallback(async (silent = false) => {
     try {
-      await navigator.clipboard.writeText(calculatorUrl)
-      toast.success('Enlace de la calculadora copiado al portapapeles')
+      const res = await listCalculatorLinks()
+      setData({
+        limit: res?.limit ?? 10,
+        used: res?.used ?? 0,
+        links: Array.isArray(res?.links) ? res.links : [],
+      })
     } catch {
-      window.prompt('Enlace de la calculadora', calculatorUrl)
+      /* el interceptor muestra el error */
+    } finally {
+      if (!silent) setLoading(false)
     }
+  }, [])
+
+  useEffect(() => {
+    load()
+    // Sondeo para detectar solicitudes de dispositivos sin recargar la página.
+    const id = setInterval(() => load(true), 8000)
+    return () => clearInterval(id)
+  }, [load])
+
+  async function handleCreate(e) {
+    e.preventDefault()
+    setCreating(true)
+    try {
+      await createCalculatorLink({ label: label.trim() })
+      setLabel('')
+      toast.success('Enlace creado')
+      await load(true)
+    } catch {
+      /* el interceptor muestra el error */
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function copyLink(link) {
+    const url = calculatorUrlFor(link)
+    try {
+      await navigator.clipboard.writeText(url)
+      toast.success('Enlace copiado al portapapeles')
+    } catch {
+      window.prompt('Copia el enlace de la calculadora', url)
+    }
+  }
+
+  async function runAction(kind, link, action, successMessage) {
+    const key = `${kind}:${link.id}`
+    setBusy(key)
+    try {
+      await action(link.id)
+      toast.success(successMessage)
+      await load(true)
+    } catch {
+      /* el interceptor muestra el error */
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function handleDelete(link) {
+    const name = link.label || `Enlace #${link.id}`
+    if (!window.confirm(`Se eliminará definitivamente "${name}". ¿Continuar?`)) return
+    const key = `delete:${link.id}`
+    setBusy(key)
+    try {
+      await deleteCalculatorLink(link.id)
+      toast.success('Enlace eliminado')
+      await load(true)
+    } catch {
+      /* el interceptor muestra el error */
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const pending = data.links.filter((l) => l.status === 'pending')
+  const limitReached = data.used >= data.limit
+
+  if (loading) {
+    return <p className="text-sm text-slate-400">Cargando enlaces de la calculadora…</p>
   }
 
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-        <h3 className="mb-4 font-bold text-slate-100">Enlace público de la calculadora</h3>
-        <p className="mb-4 text-sm text-slate-400">
-          Comparte este enlace con tus clientes para que puedan usar la calculadora de cotizaciones sin necesidad de iniciar sesión.
-        </p>
-        <div className="flex gap-3">
-          <input
-            type="text"
-            value={calculatorUrl}
-            readOnly
-            className="flex-1 rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-slate-300"
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-slate-100">Enlaces públicos de la calculadora</h3>
+            <p className="mt-1 max-w-2xl text-sm text-slate-400">
+              Cada enlace se autoriza en un solo dispositivo. Cuando un equipo nuevo abre el
+              enlace, aparecerá aquí para que apruebes o rechaces su acceso.
+            </p>
+          </div>
+          <span
+            className={`rounded-full px-3 py-1 text-sm font-bold ${
+              limitReached ? 'bg-red-500/10 text-red-300' : 'bg-blue-500/10 text-blue-300'
+            }`}
+          >
+            {data.used} / {data.limit} enlaces
+          </span>
+        </div>
+
+        <form onSubmit={handleCreate} className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Nombre del enlace (ej: Tablet del mostrador)"
+            maxLength={120}
+            disabled={limitReached}
           />
-          <Button onClick={handleCopyLink}>📋 Copiar</Button>
-        </div>
-        <div className="mt-4 rounded-lg border border-blue-500/20 bg-blue-500/5 p-4">
-          <h4 className="mb-2 font-semibold text-blue-400">📱 Características del enlace público:</h4>
-          <ul className="space-y-1 text-sm text-slate-300">
-            <li>✓ Funciona offline después de cargar</li>
-            <li>✓ Se puede instalar como app en Android/iPhone</li>
-            <li>✓ No requiere inicio de sesión</li>
-            <li>✓ Los datos se guardan localmente en el dispositivo</li>
-          </ul>
-        </div>
+          <Button type="submit" disabled={creating || limitReached}>
+            {creating ? 'Creando…' : '+ Crear enlace'}
+          </Button>
+        </form>
+
+        {limitReached && (
+          <p className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-sm text-red-300">
+            Alcanzaste el límite de {data.limit} enlaces. Revoca un enlace que ya no uses o pide
+            al Super Admin que amplíe el límite.
+          </p>
+        )}
+
+        {pending.length > 0 && (
+          <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-300">
+            Hay {pending.length} dispositivo{pending.length === 1 ? '' : 's'} esperando
+            aprobación.
+          </p>
+        )}
       </div>
+
+      {data.links.length === 0 ? (
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center">
+          <p className="text-4xl">🔗</p>
+          <p className="mt-3 font-semibold text-slate-200">Aún no hay enlaces</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Crea el primer enlace y compártelo con el dispositivo que usará la calculadora.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {data.links.map((link) => {
+            const badge = CALCULATOR_LINK_STATUS[link.status] || {
+              label: link.status,
+              className: 'bg-slate-500/10 text-slate-300',
+            }
+            const url = calculatorUrlFor(link)
+            const isBusy = (kind) => busy === `${kind}:${link.id}`
+
+            return (
+              <div
+                key={link.id}
+                className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900 p-5"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="font-semibold text-slate-100">
+                      {link.label || `Enlace #${link.id}`}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Creado el {formatCalculatorDate(link.created_at)}
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${badge.className}`}>
+                    {badge.label}
+                  </span>
+                </div>
+
+                {link.status !== 'revoked' && (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="text"
+                      value={url}
+                      readOnly
+                      onFocus={(e) => e.target.select()}
+                      className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-300"
+                    />
+                    <Button type="button" variant="ghost" onClick={() => copyLink(link)}>
+                      📋 Copiar
+                    </Button>
+                  </div>
+                )}
+
+                {link.status === 'pending' && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                    <p className="text-sm text-amber-200">
+                      Solicitud de:{' '}
+                      <span className="font-semibold">
+                        {link.pending_device_name || 'Dispositivo sin nombre'}
+                      </span>
+                    </p>
+                    {link.pending_requested_at && (
+                      <p className="mt-1 text-xs text-amber-300/70">
+                        Solicitado el {formatCalculatorDate(link.pending_requested_at)}
+                      </p>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="success"
+                        disabled={isBusy('approve')}
+                        onClick={() =>
+                          runAction('approve', link, approveCalculatorLink, 'Dispositivo aprobado')
+                        }
+                      >
+                        {isBusy('approve') ? 'Aprobando…' : '✓ Aprobar'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={isBusy('reject')}
+                        onClick={() =>
+                          runAction('reject', link, rejectCalculatorLink, 'Solicitud rechazada')
+                        }
+                      >
+                        {isBusy('reject') ? 'Rechazando…' : '✕ Rechazar'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {link.status === 'active' && (
+                  <p className="text-sm text-slate-400">
+                    Vinculado a:{' '}
+                    <span className="font-semibold text-slate-200">
+                      {link.device_name || 'Dispositivo autorizado'}
+                    </span>
+                    {link.approved_at && (
+                      <span className="text-xs text-slate-500">
+                        {' '}
+                        · aprobado el {formatCalculatorDate(link.approved_at)}
+                      </span>
+                    )}
+                  </p>
+                )}
+
+                {link.status === 'available' && (
+                  <p className="text-sm text-slate-400">
+                    Sin dispositivo vinculado. Comparte el enlace; el primer equipo que lo abra
+                    quedará pendiente de tu aprobación.
+                  </p>
+                )}
+
+                {link.status === 'revoked' && (
+                  <p className="text-sm text-slate-400">
+                    Enlace revocado. Ya no permite el acceso de ningún dispositivo.
+                  </p>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  {link.status === 'active' && (
+                    <Button
+                      type="button"
+                      variant="warning"
+                      disabled={isBusy('reset')}
+                      onClick={() =>
+                        runAction(
+                          'reset',
+                          link,
+                          resetCalculatorDevice,
+                          'Dispositivo liberado; el enlace puede autorizarse en otro equipo',
+                        )
+                      }
+                    >
+                      {isBusy('reset') ? 'Liberando…' : 'Liberar dispositivo'}
+                    </Button>
+                  )}
+
+                  {link.status !== 'revoked' && (
+                    <Button
+                      type="button"
+                      variant="danger"
+                      disabled={isBusy('revoke')}
+                      onClick={() =>
+                        runAction('revoke', link, revokeCalculatorLink, 'Enlace revocado')
+                      }
+                    >
+                      {isBusy('revoke') ? 'Revocando…' : 'Revocar enlace'}
+                    </Button>
+                  )}
+
+                  {link.status === 'revoked' && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={isBusy('delete')}
+                      onClick={() => handleDelete(link)}
+                    >
+                      {isBusy('delete') ? 'Eliminando…' : 'Eliminar'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

@@ -190,7 +190,7 @@ function formatCurrency(amount) {
   return 'RD$ ' + formatted.toString()
 }
 
-export default function Calculator() {
+export default function Calculator({ storageKey = 'masterCalculadora' }) {
   const [selectedProducts, setSelectedProducts] = useState({})
   const [searchTerm, setSearchTerm] = useState('')
   const [clientName, setClientName] = useState('')
@@ -204,9 +204,9 @@ export default function Calculator() {
   const [discount, setDiscount] = useState('')
   const [discountType, setDiscountType] = useState('amount')
 
-  // Cargar desde localStorage
+  // Cargar desde localStorage (clave distinta por enlace/cliente)
   useEffect(() => {
-    const saved = localStorage.getItem('masterCalculadora')
+    const saved = localStorage.getItem(storageKey)
     if (saved) {
       const data = JSON.parse(saved)
       setSelectedProducts(data.selectedProducts || {})
@@ -221,7 +221,7 @@ export default function Calculator() {
       setDiscount(data.discount || '')
       setDiscountType(data.discountType || 'amount')
     }
-  }, [])
+  }, [storageKey])
 
   // Guardar en localStorage
   useEffect(() => {
@@ -238,8 +238,8 @@ export default function Calculator() {
       discount,
       discountType
     }
-    localStorage.setItem('masterCalculadora', JSON.stringify(data))
-  }, [selectedProducts, clientName, clientPhone, initialPayment, interestRate, term, paymentType, termType, paymentFrequency, discount, discountType])
+    localStorage.setItem(storageKey, JSON.stringify(data))
+  }, [storageKey, selectedProducts, clientName, clientPhone, initialPayment, interestRate, term, paymentType, termType, paymentFrequency, discount, discountType])
 
   // Filtrar productos
   const filteredProducts = products.filter(p => 

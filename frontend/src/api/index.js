@@ -713,3 +713,70 @@ export async function listWarehouseTransfers(params = {}) {
   const { data } = await api.get('/warehouse-transfers', { params })
   return data
 }
+
+// ===================== CALCULADORA PÚBLICA =====================
+
+export async function listCalculatorLinks() {
+  const { data } = await api.get('/calculator/links')
+  return data
+}
+
+export async function createCalculatorLink(payload = {}) {
+  const { data } = await api.post('/calculator/links', payload)
+  return data
+}
+
+export async function approveCalculatorLink(id) {
+  const { data } = await api.post(`/calculator/links/${id}/approve`)
+  return data
+}
+
+export async function rejectCalculatorLink(id) {
+  const { data } = await api.post(`/calculator/links/${id}/reject`)
+  return data
+}
+
+export async function resetCalculatorDevice(id) {
+  const { data } = await api.post(`/calculator/links/${id}/reset-device`)
+  return data
+}
+
+export async function revokeCalculatorLink(id) {
+  const { data } = await api.post(`/calculator/links/${id}/revoke`)
+  return data
+}
+
+export async function deleteCalculatorLink(id) {
+  await api.delete(`/calculator/links/${id}`)
+}
+
+// Acceso público: se usa fetch (no el axios con interceptor) para que los
+// estados esperados (pendiente, en uso, revocado) no disparen toasts rojos.
+export async function requestPublicCalculatorAccess(token, deviceId, deviceName) {
+  const res = await fetch(`${API_BASE}/calculator/public/${encodeURIComponent(token)}/access`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: deviceId, device_name: deviceName }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const message = typeof data?.detail === 'string' ? data.detail : 'No se pudo abrir el enlace'
+    throw new Error(message)
+  }
+  return data
+}
+
+// Sondeo: consulta el estado sin reclamar el enlace (no vuelve a solicitar
+// acceso si el administrador lo liberó desde otro equipo).
+export async function getPublicCalculatorStatus(token, deviceId) {
+  const res = await fetch(
+    `${API_BASE}/calculator/public/${encodeURIComponent(token)}/status?device_id=${encodeURIComponent(deviceId)}`,
+    { method: 'GET' },
+  )
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const message = typeof data?.detail === 'string' ? data.detail : 'No se pudo consultar el enlace'
+    throw new Error(message)
+  }
+  return data
+}

@@ -18,6 +18,7 @@ import SuperAdmin from './pages/SuperAdmin.jsx'
 import License from './pages/License.jsx'
 import ChangePassword from './pages/ChangePassword.jsx'
 import Calculator from './pages/Calculator.jsx'
+import PublicCalculator from './pages/PublicCalculator.jsx'
 import { useEffect, useState } from 'react'
 import { getLicenseStatus } from './api/index.js'
 import TermsModal from './components/TermsModal.jsx'
@@ -196,7 +197,8 @@ export default function App() {
         />
       </Route>
       <Route path="/captacion/tablet" element={<CapturePublic />} />
-      <Route path="/calculator/public" element={<Calculator />} />
+      <Route path="/calculator/public" element={<PublicCalculator />} />
+      <Route path="/calculator/public/:token" element={<PublicCalculator />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

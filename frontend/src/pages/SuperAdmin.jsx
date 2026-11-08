@@ -56,7 +56,7 @@ function TenantsTab() {
   const [tenants, setTenants] = useState([])
   const [editOpen, setEditOpen] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: [], ai_enabled: false, ai_provider: 'puter', ai_api_key: '', ai_model: '', ai_api_key_set: false })
+  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', calculator_link_limit: '10', modules: [], ai_enabled: false, ai_provider: 'puter', ai_api_key: '', ai_model: '', ai_api_key_set: false })
   const [saving, setSaving] = useState(false)
   const [aiModels, setAiModels] = useState([])
   const [usersOpen, setUsersOpen] = useState(null)
@@ -96,6 +96,8 @@ function TenantsTab() {
         await updateTenant(editing.id, {
           name: form.name,
           max_users: form.max_users === '' ? null : Number(form.max_users),
+          calculator_link_limit:
+            form.calculator_link_limit === '' ? null : Number(form.calculator_link_limit),
           modules: form.modules,
           ai_enabled: form.ai_enabled,
           ai_provider: form.ai_provider,
@@ -111,6 +113,8 @@ function TenantsTab() {
           admin_password: form.admin_password,
           admin_email: form.admin_email,
           max_users: form.max_users === '' ? null : Number(form.max_users),
+          calculator_link_limit:
+            form.calculator_link_limit === '' ? null : Number(form.calculator_link_limit),
           modules: form.modules,
         })
         toast.success('Cliente creado')
@@ -132,6 +136,8 @@ function TenantsTab() {
       admin_password: '',
       admin_email: '',
       max_users: t.max_users ? String(t.max_users) : '',
+      calculator_link_limit:
+        t.calculator_link_limit == null ? '10' : String(t.calculator_link_limit),
       modules: Array.isArray(t.modules) ? t.modules : MODULES.map((m) => m.key),
       ai_enabled: !!t.ai_enabled,
       ai_provider: t.ai_provider || 'puter',
@@ -144,7 +150,7 @@ function TenantsTab() {
 
   function openCreate() {
     setEditing(null)
-    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', modules: MODULES.map((m) => m.key), ai_enabled: false, ai_provider: 'puter', ai_api_key: '', ai_model: '', ai_api_key_set: false })
+    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', calculator_link_limit: '10', modules: MODULES.map((m) => m.key), ai_enabled: false, ai_provider: 'puter', ai_api_key: '', ai_model: '', ai_api_key_set: false })
     setEditOpen(true)
   }
 
@@ -413,6 +419,23 @@ function TenantsTab() {
               value={form.max_users}
               onChange={(e) => setForm({ ...form, max_users: e.target.value })}
               placeholder="Ej: 5"
+            />
+          </Field>
+          <Field
+            label="Límite de enlaces de la calculadora"
+            hint={
+              editing
+                ? `Actualmente usa ${editing.calculator_links_used ?? 0} enlaces. Este límite solo lo puede cambiar el Super Admin.`
+                : 'Por defecto 10 enlaces públicos por cliente.'
+            }
+          >
+            <Input
+              type="number"
+              min="1"
+              max="1000"
+              value={form.calculator_link_limit}
+              onChange={(e) => setForm({ ...form, calculator_link_limit: e.target.value })}
+              placeholder="Ej: 10"
             />
           </Field>
           {!editing && (

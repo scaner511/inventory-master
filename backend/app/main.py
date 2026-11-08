@@ -23,6 +23,7 @@ from app.routers import (
     backup,
     capture_admin,
     capture_public,
+    calculator as calculator_router,
     dashboard,
     license as license_router,
     loans,
@@ -120,6 +121,32 @@ def _migrate_tenant_modules(db: Session) -> None:
         return
     if "modules" not in _table_columns("tenants"):
         db.execute(text("ALTER TABLE tenants ADD COLUMN modules TEXT"))
+        db.commit()
+
+
+def _migrate_tenant_calculator_link_limit(db: Session) -> None:
+    """Agrega el límite de enlaces públicos de la calculadora por cliente.
+
+    El valor por defecto es 10 y solo el Super Admin puede modificarlo.
+    """
+    if not _table_columns("tenants"):
+        return
+    if engine.dialect.name == "postgresql":
+        db.execute(
+            text(
+                "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS "
+                "calculator_link_limit INTEGER NOT NULL DEFAULT 10"
+            )
+        )
+        db.commit()
+        return
+    if "calculator_link_limit" not in _table_columns("tenants"):
+        db.execute(
+            text(
+                "ALTER TABLE tenants ADD COLUMN calculator_link_limit "
+                "INTEGER NOT NULL DEFAULT 10"
+            )
+        )
         db.commit()
 
 
@@ -708,6 +735,7 @@ def init_db() -> None:
         _migrate_accept_terms(db)
         _migrate_user_modules(db)
         _migrate_tenant_modules(db)
+        _migrate_tenant_calculator_link_limit(db)
         _migrate_tenant_ai(db)
         _migrate_settings_warehouses(db)
         _migrate_tenant_max_users(db)
@@ -1078,6 +1106,10 @@ app.include_router(capture_admin.router, dependencies=business_deps)
 # El router público de captación (tablet) NO usa license/JWT: se autentica con
 # el token de jornada del propio endpoint.
 app.include_router(capture_public.router)
+# Enlaces públicos de la calculadora: la gestión (admin) valida licencia; el
+# acceso público se identifica por token + aprobación manual del dispositivo.
+app.include_router(calculator_router.admin_router, dependencies=business_deps)
+app.include_router(calculator_router.public_router)
 app.include_router(backup.router, dependencies=business_deps)
 # El flujo OAuth de Drive lo inicia/retoma Google desde el navegador: sin
 # bloqueo de licencia ni JWT (se valida por otros medios dentro de cada ruta).

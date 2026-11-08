@@ -186,6 +186,9 @@ class TenantCreate(BaseModel):
     # NULL, se usa MAX_USERS_PER_TENANT (global). Debe ser >= 1 porque el
     # administrador siempre ocupa uno.
     max_users: int | None = Field(default=None, ge=1)
+    # Límite de enlaces públicos de la calculadora para este cliente (lo define
+    # el Super Admin). Por defecto 10.
+    calculator_link_limit: int | None = Field(default=None, ge=1, le=1000)
     # Módulos habilitados al cliente (solo el Super Admin los define). Esquema
     # separado del Super Admin, por eso no se reutiliza TenantUpdate.
     modules: list[str] | None = None
@@ -202,6 +205,8 @@ class TenantUpdate(BaseModel):
     max_users: int | None = Field(default=None, ge=1)
     # Para poder "limpiar" el límite de un proveedor (volver al global).
     clear_max_users: bool | None = None
+    # Límite de enlaces públicos de la calculadora (solo Super Admin).
+    calculator_link_limit: int | None = Field(default=None, ge=1, le=1000)
     # Módulos habilitados al cliente (solo el Super Admin los define).
     modules: list[str] | None = None
     # --- IA de Recepción Inteligente (solo Super Admin) ---
@@ -227,6 +232,9 @@ class TenantOut(BaseModel):
     id: int
     name: str
     max_users: int | None = None
+    # Límite y uso actual de enlaces públicos de la calculadora.
+    calculator_link_limit: int | None = None
+    calculator_links_used: int = 0
     is_active: bool
     created_at: datetime
     # Licencia del cliente (visible solo para el Super Admin).
@@ -264,6 +272,60 @@ class TenantUserCreate(BaseModel):
     @classmethod
     def empty_str_to_none(cls, v):
         return None if v == "" else v
+
+
+# ===================== CALCULADORA PÚBLICA =====================
+
+
+class CalculatorLinkCreate(BaseModel):
+    """Datos para crear un enlace público de la calculadora."""
+
+    label: str | None = Field(default=None, max_length=120)
+
+
+class CalculatorLinkOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    token: str
+    label: str | None = None
+    status: str
+    device_id: str | None = None
+    device_name: str | None = None
+    pending_device_id: str | None = None
+    pending_device_name: str | None = None
+    pending_requested_at: datetime | None = None
+    created_at: datetime
+    approved_at: datetime | None = None
+    last_seen_at: datetime | None = None
+
+    @field_serializer("pending_requested_at", "created_at", "approved_at", "last_seen_at")
+    def _serialize_dt(self, value: datetime | None) -> str | None:
+        return _utc_iso(value)
+
+
+class CalculatorLinksOut(BaseModel):
+    """Listado de enlaces del cliente junto con su límite y uso."""
+
+    limit: int
+    used: int
+    links: list[CalculatorLinkOut] = Field(default_factory=list)
+
+
+class CalculatorPublicAccessIn(BaseModel):
+    """Identificación del dispositivo que intenta abrir un enlace público."""
+
+    device_id: str = Field(min_length=8, max_length=128)
+    device_name: str | None = Field(default=None, max_length=200)
+
+
+class CalculatorPublicStatusOut(BaseModel):
+    """Estado del enlace para un dispositivo concreto."""
+
+    status: str
+    tenant_name: str | None = None
+    label: str | None = None
+    message: str | None = None
 
 
 # ===================== PRODUCTS =====================

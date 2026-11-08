@@ -49,6 +49,11 @@ class Tenant(Base):
     database_name: Mapped[str | None] = mapped_column(String(80), unique=True, nullable=True)
     # Límite de usuarios permitidos para este cliente (NULL = global).
     max_users: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Límite de enlaces públicos de la calculadora (solo lo ajusta el Super
+    # Admin). Por defecto 10. Cuenta los enlaces no revocados del cliente.
+    calculator_link_limit: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=10
+    )
     # Licencia del cliente (30 días renovables). Fuente de verdad: los usuarios
     # del cliente heredan este vencimiento. Solo el Super Admin la ve.
     subscription_expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -169,6 +174,43 @@ class PlatformAuditLog(Base):
     tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(60))
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CalculatorLink(Base):
+    """Enlace público de la calculadora de cotizaciones de un cliente.
+
+    Cada enlace se vincula a UN solo dispositivo, aprobado manualmente por el
+    administrador del cliente. Los enlaces viven en la base de plataforma
+    porque son parte del control de acceso (no son datos de negocio).
+
+    Estados:
+    - ``available``: creado, sin ningún dispositivo vinculado.
+    - ``pending``: un dispositivo pidió acceso y espera aprobación.
+    - ``active``: dispositivo aprobado y vinculado al enlace.
+    - ``revoked``: enlace anulado; ya no permite acceso.
+    """
+
+    __tablename__ = "calculator_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), index=True)
+    # Token público que va en la URL (/calculator/public/<token>).
+    token: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    # Nombre descriptivo opcional (ej: "Tablet mostrador").
+    label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="available")
+    # Dispositivo ya aprobado y vinculado.
+    device_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    device_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Solicitud pendiente de aprobación (solo una a la vez por enlace).
+    pending_device_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    pending_device_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    pending_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
 
 
 # ==============================================================================

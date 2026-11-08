@@ -19,6 +19,7 @@ from app.database import (
 from app.deps import require_superadmin
 from app.models import (
     AuditLog,
+    CalculatorLink,
     DriveConnection,
     Loan,
     LoanItem,
@@ -55,6 +56,19 @@ def _tenant_users_count(db: Session, tenant_id: int) -> int:
     return (
         db.query(func.count(User.id))
         .filter(User.tenant_id == tenant_id, User.role.in_(("admin", "user")))
+        .scalar()
+        or 0
+    )
+
+
+def _tenant_calculator_links_count(db: Session, tenant_id: int) -> int:
+    """Enlaces de calculadora que ocupan cupo (los revocados no cuentan)."""
+    return (
+        db.query(func.count(CalculatorLink.id))
+        .filter(
+            CalculatorLink.tenant_id == tenant_id,
+            CalculatorLink.status != "revoked",
+        )
         .scalar()
         or 0
     )
@@ -100,6 +114,8 @@ def _fill_tenant_out(out: TenantOut, db: Session, tenant: Tenant) -> TenantOut:
     """Completa los campos calculados del cliente (no persistidos)."""
     out.users_count = _tenant_users_count(db, tenant.id)
     out.subscription_days_left = _subscription_days_left(tenant)
+    out.calculator_link_limit = tenant.calculator_link_limit or 10
+    out.calculator_links_used = _tenant_calculator_links_count(db, tenant.id)
     out.ai_api_key_set = bool((tenant.ai_api_key or "").strip())
     out.ai_enabled = bool(tenant.ai_enabled)
     out.ai_provider = tenant.ai_provider or "puter"
@@ -182,6 +198,7 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
     tenant = Tenant(
         name=data.name,
         max_users=data.max_users,
+        calculator_link_limit=data.calculator_link_limit or 10,
         modules=modules_to_raw(data.modules),
         database_name=database_name,
         subscription_expires_at=start,
@@ -243,6 +260,17 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
                 detail=f"No se puede fijar {data.max_users} usuarios: el cliente ya tiene {_tenant_users_count(db, tenant_id)}",
             )
         tenant.max_users = data.max_users
+    if data.calculator_link_limit is not None:
+        links_used = _tenant_calculator_links_count(db, tenant_id)
+        if links_used > data.calculator_link_limit:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"No se puede fijar {data.calculator_link_limit} enlaces: "
+                    f"el cliente ya tiene {links_used} enlaces activos"
+                ),
+            )
+        tenant.calculator_link_limit = data.calculator_link_limit
     if data.ai_enabled is not None:
         tenant.ai_enabled = data.ai_enabled
     if "ai_provider" in (data.model_fields_set or set()):
@@ -268,6 +296,7 @@ def delete_tenant(tenant_id: int, db: Session = Depends(get_db)):
     name = tenant.name
     db.query(User).filter(User.tenant_id == tenant_id).delete(synchronize_session=False)
     db.query(DriveConnection).filter(DriveConnection.tenant_id == tenant_id).delete(synchronize_session=False)
+    db.query(CalculatorLink).filter(CalculatorLink.tenant_id == tenant_id).delete(synchronize_session=False)
     # Los datos de negocio del cliente viven en SU PROPIA base: se elimina toda.
     drop_tenant_database(tenant.id, tenant.database_name)
     record_platform_audit(
