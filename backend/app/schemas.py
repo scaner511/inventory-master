@@ -16,7 +16,14 @@ def _utc_iso(dt: datetime | None) -> str | None:
 
 
 # Módulos que un administrador puede habilitar/deshabilitar por usuario.
-ALLOWED_MODULES = ("capture", "calendar", "temporary_storage", "prospects", "commercial")
+ALLOWED_MODULES = (
+    "capture",
+    "calendar",
+    "temporary_storage",
+    "prospects",
+    "commercial",
+    "calculator",
+)
 
 
 def modules_from_raw(raw: str | None) -> list[str]:
