@@ -870,7 +870,7 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
               </div>
               <div className="rounded bg-white/5 p-3">
                 <div className="text-xs text-slate-400">Tasa Anual</div>
-                <div className="font-semibold text-white">{annualRate}%</div>
+                <div className="font-semibold text-white">26%</div>
               </div>
               <div className="rounded bg-white/5 p-3">
                 <div className="text-xs text-slate-400">Plazo</div>
