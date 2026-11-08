@@ -188,9 +188,7 @@ export default function App() {
           path="/calculator"
           element={
             <LicenseGate>
-              <ModuleGate module="calculator">
-                <Calculator />
-              </ModuleGate>
+              <Calculator />
             </LicenseGate>
           }
         />
