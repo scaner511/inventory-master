@@ -37,6 +37,7 @@ const MODULES = [
   { key: 'temporary_storage', label: 'Recepción de Mercancía' },
   { key: 'capture', label: 'Captación' },
   { key: 'commercial', label: 'Dashboard Comercial' },
+  { key: 'calculator', label: 'Calculadora de Cotizaciones' },
 ]
 
 function roleBadge(role) {

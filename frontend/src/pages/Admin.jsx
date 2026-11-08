@@ -37,6 +37,7 @@ const TABS = [
   { id: 'backups', label: '💾 Backups' },
   { id: 'terms', label: '⚖️ Términos' },
   { id: 'account', label: '🔑 Mi cuenta' },
+  { id: 'calculator', label: '🧮 Calculadora' },
 ]
 
 // Los módulos son del CLIENTE (los habilita el Super Admin), no de cada usuario.
@@ -86,6 +87,7 @@ export default function Admin() {
       {tab === 'backups' && <BackupsTab />}
       {tab === 'terms' && <TermsTab />}
       {tab === 'account' && <AccountTab />}
+      {tab === 'calculator' && <CalculatorTab />}
     </div>
   )
 }
@@ -909,6 +911,50 @@ export function AccountTab() {
           Guardar pregunta
         </Button>
       </form>
+    </div>
+  )
+}
+
+/* ================= CALCULADORA ================= */
+
+export function CalculatorTab() {
+  const calculatorUrl = `${window.location.origin}/calculator/public`
+
+  async function handleCopyLink() {
+    try {
+      await navigator.clipboard.writeText(calculatorUrl)
+      toast.success('Enlace de la calculadora copiado al portapapeles')
+    } catch {
+      window.prompt('Enlace de la calculadora', calculatorUrl)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+        <h3 className="mb-4 font-bold text-slate-100">Enlace público de la calculadora</h3>
+        <p className="mb-4 text-sm text-slate-400">
+          Comparte este enlace con tus clientes para que puedan usar la calculadora de cotizaciones sin necesidad de iniciar sesión.
+        </p>
+        <div className="flex gap-3">
+          <input
+            type="text"
+            value={calculatorUrl}
+            readOnly
+            className="flex-1 rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-slate-300"
+          />
+          <Button onClick={handleCopyLink}>📋 Copiar</Button>
+        </div>
+        <div className="mt-4 rounded-lg border border-blue-500/20 bg-blue-500/5 p-4">
+          <h4 className="mb-2 font-semibold text-blue-400">📱 Características del enlace público:</h4>
+          <ul className="space-y-1 text-sm text-slate-300">
+            <li>✓ Funciona offline después de cargar</li>
+            <li>✓ Se puede instalar como app en Android/iPhone</li>
+            <li>✓ No requiere inicio de sesión</li>
+            <li>✓ Los datos se guardan localmente en el dispositivo</li>
+          </ul>
+        </div>
+      </div>
     </div>
   )
 }

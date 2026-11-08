@@ -17,6 +17,7 @@ import Admin from './pages/Admin.jsx'
 import SuperAdmin from './pages/SuperAdmin.jsx'
 import License from './pages/License.jsx'
 import ChangePassword from './pages/ChangePassword.jsx'
+import Calculator from './pages/Calculator.jsx'
 import { useEffect, useState } from 'react'
 import { getLicenseStatus } from './api/index.js'
 import TermsModal from './components/TermsModal.jsx'
@@ -183,8 +184,19 @@ export default function App() {
         <Route path="/admin" element={<Admin />} />
         <Route path="/superadmin" element={<SuperAdmin />} />
         <Route path="/change-password" element={<ChangePassword />} />
+        <Route
+          path="/calculator"
+          element={
+            <LicenseGate>
+              <ModuleGate module="calculator">
+                <Calculator />
+              </ModuleGate>
+            </LicenseGate>
+          }
+        />
       </Route>
       <Route path="/captacion/tablet" element={<CapturePublic />} />
+      <Route path="/calculator/public" element={<Calculator />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
