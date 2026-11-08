@@ -59,7 +59,7 @@ export default function Layout() {
   return (
     <div className="flex min-h-screen bg-[#0b1220]">
       {/* Sidebar escritorio */}
-      <aside className="sticky top-0 hidden h-screen w-64 flex-col border-r border-slate-800 bg-[#050a18] p-4 md:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 flex-col overflow-y-auto border-r border-slate-800 bg-[#050a18] p-3 md:flex">
         <SidebarContent user={user} logoUrl={logoUrl} />
       </aside>
 
@@ -67,7 +67,7 @@ export default function Layout() {
       {open && (
         <div className="fixed inset-0 z-40 md:hidden">
           <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
-          <aside className="absolute left-0 top-0 h-full w-64 bg-[#050a18] p-4 shadow-xl">
+          <aside className="absolute left-0 top-0 h-full w-64 overflow-y-auto bg-[#050a18] p-3 shadow-xl">
             <SidebarContent user={user} logoUrl={logoUrl} onNavigate={() => setOpen(false)} />
           </aside>
         </div>
@@ -117,23 +117,23 @@ export default function Layout() {
 function SidebarContent({ user, logoUrl, onNavigate }) {
   return (
     <>
-      <div className="mb-8 mt-2 flex flex-col items-center gap-1">
+      <div className="mb-3 mt-1 flex flex-col items-center gap-0.5">
         {logoUrl ? (
-          <div className="flex h-[168px] w-[168px] items-center justify-center overflow-hidden rounded-3xl border border-slate-700 bg-white">
-            <img src={logoUrl} alt="Logo" className="h-full w-full object-contain p-2" />
+          <div className="flex h-[96px] w-[96px] items-center justify-center overflow-hidden rounded-2xl border border-slate-700 bg-white">
+            <img src={logoUrl} alt="Logo" className="h-full w-full object-contain p-1.5" />
           </div>
         ) : (
-          <div className="flex h-[168px] w-[168px] items-center justify-center rounded-3xl bg-gradient-to-br from-blue-500 to-indigo-600 text-6xl">
+          <div className="flex h-[96px] w-[96px] items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-4xl">
             📦
           </div>
         )}
-        <p className="mt-2 font-bold text-slate-100">{user?.username}</p>
-        <span className="rounded-full bg-blue-500/10 px-3 py-0.5 text-xs font-semibold text-blue-400">
+        <p className="mt-1 text-[10px] font-bold text-slate-100">{user?.username}</p>
+        <span className="rounded-full bg-blue-500/10 px-2 py-0 text-[8px] font-semibold text-blue-400">
           {roleLabel(user?.role)}
         </span>
       </div>
 
-      <nav className="flex flex-col gap-1">
+      <nav className="flex flex-col gap-0.5">
         {NAV.filter((item) => {
           if (item.superadminOnly) return user?.role === 'superadmin'
           if (item.adminOnly) return user?.role === 'admin'
@@ -150,14 +150,14 @@ function SidebarContent({ user, logoUrl, onNavigate }) {
             end={item.to === '/' || item.to === '/captacion'}
             onClick={onNavigate}
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+              `flex items-center gap-2 rounded-md px-2 py-1.5 text-[9px] font-medium leading-tight transition ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
                   : 'text-slate-300 hover:bg-slate-800 hover:text-white'
               }`
             }
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d={item.icon} />
             </svg>
             {item.label}
