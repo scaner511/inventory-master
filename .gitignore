@@ -30,6 +30,10 @@ backend/backups/*
 *.sqlite3
 *.db
 
+# ===== Claves y secretos locales =====
+*.key
+*.pem
+
 # ===== SO =====
 Thumbs.db
 .DS_Store
