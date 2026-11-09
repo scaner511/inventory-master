@@ -119,16 +119,16 @@ function SidebarContent({ user, logoUrl, onNavigate }) {
     <>
       <div className="mb-3 mt-1 flex flex-col items-center gap-0.5">
         {logoUrl ? (
-          <div className="flex h-[96px] w-[96px] items-center justify-center overflow-hidden rounded-2xl border border-slate-700 bg-white">
-            <img src={logoUrl} alt="Logo" className="h-full w-full object-contain p-1.5" />
+          <div className="flex h-[168px] w-[168px] items-center justify-center overflow-hidden rounded-3xl border border-slate-700 bg-white">
+            <img src={logoUrl} alt="Logo" className="h-full w-full object-contain p-2" />
           </div>
         ) : (
-          <div className="flex h-[96px] w-[96px] items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-4xl">
+          <div className="flex h-[168px] w-[168px] items-center justify-center rounded-3xl bg-gradient-to-br from-blue-500 to-indigo-600 text-6xl">
             📦
           </div>
         )}
-        <p className="mt-1 text-[10px] font-bold text-slate-100">{user?.username}</p>
-        <span className="rounded-full bg-blue-500/10 px-2 py-0 text-[8px] font-semibold text-blue-400">
+        <p className="mt-1 text-[11px] font-bold text-slate-100">{user?.username}</p>
+        <span className="rounded-full bg-blue-500/10 px-2 py-0 text-[9px] font-semibold text-blue-400">
           {roleLabel(user?.role)}
         </span>
       </div>
@@ -150,14 +150,14 @@ function SidebarContent({ user, logoUrl, onNavigate }) {
             end={item.to === '/' || item.to === '/captacion'}
             onClick={onNavigate}
             className={({ isActive }) =>
-              `flex items-center gap-2 rounded-md px-2 py-1.5 text-[9px] font-medium leading-tight transition ${
+              `flex items-center gap-2 rounded-md px-2 py-[7px] text-[10px] font-medium leading-tight transition ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
                   : 'text-slate-300 hover:bg-slate-800 hover:text-white'
               }`
             }
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d={item.icon} />
             </svg>
             {item.label}
