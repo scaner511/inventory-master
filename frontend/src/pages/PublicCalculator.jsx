@@ -196,6 +196,23 @@ export default function PublicCalculator() {
     )
   }
 
+  if (info?.status === 'expired') {
+    return (
+      <Centered>
+        <div className="mb-4 text-4xl">⏰</div>
+        <h1 className="mb-2 text-xl font-bold text-white">Enlace vencido</h1>
+        <p className="text-sm text-slate-400">
+          {info.message || 'Este enlace alcanzó su fecha de vencimiento.'}
+        </p>
+        {info.expires_at && (
+          <p className="mt-3 text-xs text-slate-500">
+            Venció el {new Date(info.expires_at).toLocaleString()}
+          </p>
+        )}
+      </Centered>
+    )
+  }
+
   if (info?.status === 'revoked') {
     return (
       <Centered>

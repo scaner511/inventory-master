@@ -26,6 +26,7 @@ import {
   restoreFromDrive,
   revokeCalculatorLink,
   runBackup,
+  updateCalculatorLinkExpiration,
   setSecurityQuestion,
   testDriveConnection,
   updateSettings,
@@ -960,9 +961,71 @@ function formatCalculatorDate(value) {
   return new Date(value).toLocaleString()
 }
 
+const CALCULATOR_EXPIRY_OPTIONS = [
+  { value: '', label: 'No expira (hasta revocar)' },
+  { value: '1', label: '1 día' },
+  { value: '7', label: '7 días' },
+  { value: '15', label: '15 días' },
+  { value: '30', label: '30 días' },
+  { value: '60', label: '60 días' },
+  { value: '90', label: '90 días' },
+  { value: '180', label: '180 días' },
+  { value: '365', label: '365 días' },
+]
+
+function initialExpiryValue(link) {
+  if (!link?.expires_at) return ''
+  const daysLeft = Math.ceil((new Date(link.expires_at) - Date.now()) / 86400000)
+  return daysLeft >= 1 && daysLeft <= 365 ? String(daysLeft) : ''
+}
+
+function LinkExpirationEditor({ link, onSaved }) {
+  const [value, setValue] = useState(() => initialExpiryValue(link))
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    try {
+      await updateCalculatorLinkExpiration(link.id, value === '' ? null : Number(value))
+      toast.success('Vigencia actualizada')
+      onSaved()
+    } catch {
+      /* el interceptor muestra el error */
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs text-slate-500">
+        {link.expires_at
+          ? `Vence: ${formatCalculatorDate(link.expires_at)}`
+          : 'Este enlace no expira hasta que lo revoques.'}
+      </span>
+      <Select
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="!w-auto px-2 py-1 text-xs"
+        disabled={saving}
+      >
+        {CALCULATOR_EXPIRY_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </Select>
+      <Button type="button" variant="ghost" className="!px-3 !py-1 text-xs" onClick={save} disabled={saving}>
+        {saving ? 'Guardando…' : 'Guardar vigencia'}
+      </Button>
+    </div>
+  )
+}
+
 export function CalculatorTab() {
   const [data, setData] = useState({ limit: 10, used: 0, links: [] })
   const [label, setLabel] = useState('')
+  const [expiresDays, setExpiresDays] = useState('')
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState('')
@@ -993,8 +1056,12 @@ export function CalculatorTab() {
     e.preventDefault()
     setCreating(true)
     try {
-      await createCalculatorLink({ label: label.trim() })
+      await createCalculatorLink({
+        label: label.trim(),
+        expires_in_days: expiresDays === '' ? null : Number(expiresDays),
+      })
       setLabel('')
+      setExpiresDays('')
       toast.success('Enlace creado')
       await load(true)
     } catch {
@@ -1079,6 +1146,18 @@ export function CalculatorTab() {
             maxLength={120}
             disabled={limitReached}
           />
+          <Select
+            value={expiresDays}
+            onChange={(e) => setExpiresDays(e.target.value)}
+            disabled={limitReached}
+            className="sm:!w-56"
+          >
+            {CALCULATOR_EXPIRY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </Select>
           <Button type="submit" disabled={creating || limitReached}>
             {creating ? 'Creando…' : '+ Crear enlace'}
           </Button>
@@ -1215,6 +1294,10 @@ export function CalculatorTab() {
                   <p className="text-sm text-slate-400">
                     Enlace revocado. Ya no permite el acceso de ningún dispositivo.
                   </p>
+                )}
+
+                {link.status !== 'revoked' && (
+                  <LinkExpirationEditor link={link} onSaved={() => load(true)} />
                 )}
 
                 <div className="flex flex-wrap gap-2">

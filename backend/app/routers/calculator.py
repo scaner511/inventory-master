@@ -267,6 +267,7 @@ def _public_status(
         tenant_name=tenant.name if tenant else None,
         label=link.label,
         message=message,
+        expires_at=link.expires_at,
     )
 
 
@@ -300,6 +301,10 @@ def public_access(
     if link.status == "revoked":
         return _public_status(
             link, tenant, "revoked", "Este enlace fue revocado por el administrador."
+        )
+    if _is_expired(link):
+        return _public_status(
+            link, tenant, "expired", "Este enlace venció. Pide al administrador uno nuevo."
         )
 
     device_id = data.device_id.strip()
@@ -379,6 +384,10 @@ def public_status(
         return _public_status(
             link, tenant, "revoked", "Este enlace fue revocado por el administrador."
         )
+    if _is_expired(link):
+        return _public_status(
+            link, tenant, "expired", "Este enlace venció. Pide al administrador uno nuevo."
+        )
 
     device_id = device_id.strip()
     if link.status == "active":
@@ -425,5 +434,9 @@ def public_info(token: str, db: Session = Depends(get_db)):
     if link.status == "revoked":
         return _public_status(
             link, tenant, "revoked", "Este enlace fue revocado por el administrador."
+        )
+    if _is_expired(link):
+        return _public_status(
+            link, tenant, "expired", "Este enlace venció. Pide al administrador uno nuevo."
         )
     return _public_status(link, tenant, link.status)

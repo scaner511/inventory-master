@@ -429,7 +429,6 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
     }
     message += `Depósito: ${formatCurrency(depositDelivered)}\n`
     message += `Saldo a Financiar: ${formatCurrency(balanceToFinance)}\n`
-    message += `Tasa: ${annualRate}%\n`
     message += `Plazo: ${termMonths} meses (${frequencyName})\n`
     message += `Cuotas: ${Math.round(numPayments)}\n`
     message += `Pago por cuota: ${formatCurrency(monthlyPayment)}`
