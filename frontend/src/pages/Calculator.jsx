@@ -409,9 +409,9 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
   function shareWhatsApp() {
     const name = clientName || 'Cliente'
     
-    let message = `🧾 *Cotización Master Calculadora*\n\n`
-    message += `👤 Cliente: ${name}\n\n`
-    message += `📦 *Productos:*\n`
+    let message = `*Cotización Master Calculadora*\n\n`
+    message += `Cliente: ${name}\n\n`
+    message += `*Productos:*\n`
     
     Object.entries(selectedProducts).forEach(([code, qty]) => {
       if (qty > 0) {
@@ -421,7 +421,7 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
       }
     })
     
-    message += `\n💰 *Resumen:*\n`
+    message += `\n*Resumen:*\n`
     message += `Precio Total: ${formatCurrency(totalPrice)}\n`
     if (discountEnabled) {
       message += `Descuento: ${formatCurrency(discountAmount)}\n`
