@@ -41,10 +41,10 @@ import { Button, Field, Input, Select } from '../components/ui/Form.jsx'
 const TABS = [
   { id: 'users', label: '👥 Usuarios' },
   { id: 'company', label: '🏢 Empresa' },
-  { id: 'backups', label: '💾 Backups' },
+  { id: 'backups', label: '💾 Backups', module: 'inventory' },
   { id: 'terms', label: '⚖️ Términos' },
   { id: 'account', label: '🔑 Mi cuenta' },
-  { id: 'calculator', label: '🧮 Calculadora' },
+  { id: 'calculator', label: '🧮 Calculadora', module: 'calculator' },
 ]
 
 // Los módulos son del CLIENTE (los habilita el Super Admin), no de cada usuario.
@@ -52,13 +52,13 @@ const TABS = [
 export default function Admin() {
   const { user } = useAuth()
 
-  // La pestaña de la calculadora solo aparece si el Super Admin habilitó el
-  // módulo para el cliente (los módulos vienen del tenant en el login).
+  // Cada pestaña ligada a un módulo solo aparece si el Super Admin habilitó
+  // ese módulo para el cliente (los módulos vienen del tenant en el login).
   const visibleTabs = TABS.filter(
     (t) =>
-      t.id !== 'calculator' ||
+      !t.module ||
       !Array.isArray(user?.modules) ||
-      user.modules.includes('calculator'),
+      user.modules.includes(t.module),
   )
 
   // Permite abrir directamente en una pestaña: /admin?tab=backups
@@ -334,6 +334,11 @@ function UsersTab() {
 /* ================= EMPRESA ================= */
 
 export function CompanyTab() {
+  const { user } = useAuth()
+  const hasInventory =
+    user?.role === 'superadmin' ||
+    !Array.isArray(user?.modules) ||
+    user.modules.includes('inventory')
   const [settings, setSettings] = useState(null)
   const [name, setName] = useState('')
   const [threshold, setThreshold] = useState(5)
@@ -407,19 +412,23 @@ export function CompanyTab() {
         <Field label="Nombre de la empresa" hint="Se usa en los comprobantes PDF">
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="Umbral de stock bajo" hint="Productos con stock igual o menor a este valor se alertan">
-          <Input type="number" min="1" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
-        </Field>
-        <h4 className="pt-2 font-semibold text-slate-200">Nombres de almacenes (3 slots fijos)</h4>
-        <Field label="Almacén 1 (slot 1)">
-          <Input value={w1} onChange={(e) => setW1(e.target.value)} />
-        </Field>
-        <Field label="Almacén 2 (slot 2)">
-          <Input value={w2} onChange={(e) => setW2(e.target.value)} />
-        </Field>
-        <Field label="Almacén 3 (slot 3)">
-          <Input value={w3} onChange={(e) => setW3(e.target.value)} />
-        </Field>
+        {hasInventory && (
+          <>
+            <Field label="Umbral de stock bajo" hint="Productos con stock igual o menor a este valor se alertan">
+              <Input type="number" min="1" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
+            </Field>
+            <h4 className="pt-2 font-semibold text-slate-200">Nombres de almacenes (3 slots fijos)</h4>
+            <Field label="Almacén 1 (slot 1)">
+              <Input value={w1} onChange={(e) => setW1(e.target.value)} />
+            </Field>
+            <Field label="Almacén 2 (slot 2)">
+              <Input value={w2} onChange={(e) => setW2(e.target.value)} />
+            </Field>
+            <Field label="Almacén 3 (slot 3)">
+              <Input value={w3} onChange={(e) => setW3(e.target.value)} />
+            </Field>
+          </>
+        )}
         <Button onClick={handleSave} disabled={saving}>
           {saving ? 'Guardando...' : 'Guardar cambios'}
         </Button>

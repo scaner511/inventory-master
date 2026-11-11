@@ -32,6 +32,7 @@ const TABS = [
 
 // Módulos que el Super Admin habilita por cliente. Sin selección = todos.
 const MODULES = [
+  { key: 'inventory', label: 'Inventario y Préstamos' },
   { key: 'prospects', label: 'Prospectos' },
   { key: 'calendar', label: 'Calendario' },
   { key: 'temporary_storage', label: 'Recepción de Mercancía' },

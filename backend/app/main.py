@@ -111,16 +111,45 @@ def _migrate_tenant_modules(db: Session) -> None:
     """Agrega la columna modules a la tabla tenants (módulos por cliente).
 
     Cada ALTER se commitea de inmediato para no dejar una transacción abierta
-    sosteniendo un lock sobre ``tenants``.
+    sosteniendo un lock sobre ``tenants``. También asegura una única vez que
+    los clientes existentes antes de existir el módulo ``inventory`` lo
+    conserven activo sin pisar cambios futuros del Super Admin.
     """
-    if not _table_columns("tenants"):
+    cols = _table_columns("tenants")
+    if not cols:
         return
     if engine.dialect.name == "postgresql":
         db.execute(text("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS modules TEXT"))
         db.commit()
-        return
-    if "modules" not in _table_columns("tenants"):
+    elif "modules" not in cols:
         db.execute(text("ALTER TABLE tenants ADD COLUMN modules TEXT"))
+        db.commit()
+
+    cols = _table_columns("tenants")
+    if "inventory_module_migrated" not in cols:
+        default = "0" if engine.dialect.name == "sqlite" else "FALSE"
+        db.execute(
+            text(
+                f"ALTER TABLE tenants ADD COLUMN inventory_module_migrated "
+                f"BOOLEAN NOT NULL DEFAULT {default}"
+            )
+        )
+        db.commit()
+
+        from app.schemas import modules_from_raw, modules_to_raw
+
+        for tenant in db.query(models.Tenant).all():
+            if tenant.modules is not None:
+                mods = modules_from_raw(tenant.modules)
+                if "inventory" not in mods:
+                    mods = ["inventory", *mods]
+                tenant.modules = modules_to_raw(mods)
+        db.execute(
+            text(
+                "UPDATE tenants SET inventory_module_migrated = "
+                + ("1" if engine.dialect.name == "sqlite" else "TRUE")
+            )
+        )
         db.commit()
 
 

@@ -17,6 +17,7 @@ def _utc_iso(dt: datetime | None) -> str | None:
 
 # Módulos que un administrador puede habilitar/deshabilitar por usuario.
 ALLOWED_MODULES = (
+    "inventory",
     "capture",
     "calendar",
     "temporary_storage",

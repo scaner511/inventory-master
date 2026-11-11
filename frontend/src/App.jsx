@@ -55,6 +55,20 @@ function LicenseGate({ children }) {
   return children
 }
 
+function defaultRouteFor(user) {
+  if (user?.role === 'superadmin' || !Array.isArray(user?.modules) || user.modules.includes('inventory')) {
+    return '/'
+  }
+  if (user.modules.includes('calculator')) return '/calculator'
+  if (user.modules.includes('temporary_storage')) return '/temporary-storage'
+  if (user.modules.includes('prospects')) return '/prospects'
+  if (user.modules.includes('calendar')) return '/calendar'
+  if (user.modules.includes('commercial')) return '/commercial'
+  if (user.modules.includes('capture')) return '/captacion'
+  if (user?.role === 'admin') return '/admin'
+  return null
+}
+
 function ModuleGate({ module, children }) {
   const { user } = useAuth()
   if (
@@ -62,7 +76,18 @@ function ModuleGate({ module, children }) {
     Array.isArray(user?.modules) &&
     !user.modules.includes(module)
   ) {
-    return <Navigate to="/" replace />
+    const fallback = defaultRouteFor(user)
+    if (!fallback) {
+      return (
+        <div className="mx-auto mt-20 max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center">
+          <h2 className="text-lg font-bold text-slate-100">Sin módulos asignados</h2>
+          <p className="mt-2 text-sm text-slate-400">
+            Tu cuenta no tiene módulos activos en este momento. Contacta al administrador.
+          </p>
+        </div>
+      )
+    }
+    return <Navigate to={fallback} replace />
   }
   return children
 }
@@ -93,7 +118,9 @@ export default function App() {
           path="/"
           element={
             <LicenseGate>
-              <Dashboard />
+              <ModuleGate module="inventory">
+                <Dashboard />
+              </ModuleGate>
             </LicenseGate>
           }
         />
@@ -101,7 +128,9 @@ export default function App() {
           path="/products"
           element={
             <LicenseGate>
-              <Products />
+              <ModuleGate module="inventory">
+                <Products />
+              </ModuleGate>
             </LicenseGate>
           }
         />
@@ -109,7 +138,9 @@ export default function App() {
           path="/loans"
           element={
             <LicenseGate>
-              <Loans />
+              <ModuleGate module="inventory">
+                <Loans />
+              </ModuleGate>
             </LicenseGate>
           }
         />
@@ -177,7 +208,9 @@ export default function App() {
           path="/history"
           element={
             <LicenseGate>
-              <History />
+              <ModuleGate module="inventory">
+                <History />
+              </ModuleGate>
             </LicenseGate>
           }
         />
