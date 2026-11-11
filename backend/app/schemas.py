@@ -282,6 +282,14 @@ class CalculatorLinkCreate(BaseModel):
     """Datos para crear un enlace público de la calculadora."""
 
     label: str | None = Field(default=None, max_length=120)
+    # Vigencia en días (desde 1 día en adelante). None = sin vencimiento (hasta revocar).
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+
+
+class CalculatorLinkExpirationUpdate(BaseModel):
+    """Actualiza la vigencia de un enlace (None = sin vencimiento hasta revocar)."""
+
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 class CalculatorLinkOut(BaseModel):
@@ -299,8 +307,11 @@ class CalculatorLinkOut(BaseModel):
     created_at: datetime
     approved_at: datetime | None = None
     last_seen_at: datetime | None = None
+    expires_at: datetime | None = None
 
-    @field_serializer("pending_requested_at", "created_at", "approved_at", "last_seen_at")
+    @field_serializer(
+        "pending_requested_at", "created_at", "approved_at", "last_seen_at", "expires_at"
+    )
     def _serialize_dt(self, value: datetime | None) -> str | None:
         return _utc_iso(value)
 
@@ -327,6 +338,11 @@ class CalculatorPublicStatusOut(BaseModel):
     tenant_name: str | None = None
     label: str | None = None
     message: str | None = None
+    expires_at: datetime | None = None
+
+    @field_serializer("expires_at")
+    def _serialize_exp(self, value: datetime | None) -> str | None:
+        return _utc_iso(value)
 
 
 # ===================== PRODUCTS =====================

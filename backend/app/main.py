@@ -154,29 +154,43 @@ def _migrate_tenant_modules(db: Session) -> None:
 
 
 def _migrate_tenant_calculator_link_limit(db: Session) -> None:
-    """Agrega el límite de enlaces públicos de la calculadora por cliente.
+    """Agrega el límite de enlaces públicos de la calculadora por cliente y
+    la columna de vigencia ``expires_at`` en ``calculator_links``.
 
-    El valor por defecto es 10 y solo el Super Admin puede modificarlo.
+    El valor por defecto del límite es 10 y solo el Super Admin puede modificarlo.
     """
-    if not _table_columns("tenants"):
-        return
-    if engine.dialect.name == "postgresql":
-        db.execute(
-            text(
-                "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS "
-                "calculator_link_limit INTEGER NOT NULL DEFAULT 10"
+    if _table_columns("tenants"):
+        if engine.dialect.name == "postgresql":
+            db.execute(
+                text(
+                    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS "
+                    "calculator_link_limit INTEGER NOT NULL DEFAULT 10"
+                )
             )
-        )
-        db.commit()
-        return
-    if "calculator_link_limit" not in _table_columns("tenants"):
-        db.execute(
-            text(
-                "ALTER TABLE tenants ADD COLUMN calculator_link_limit "
-                "INTEGER NOT NULL DEFAULT 10"
+            db.commit()
+        elif "calculator_link_limit" not in _table_columns("tenants"):
+            db.execute(
+                text(
+                    "ALTER TABLE tenants ADD COLUMN calculator_link_limit "
+                    "INTEGER NOT NULL DEFAULT 10"
+                )
             )
-        )
-        db.commit()
+            db.commit()
+
+    if _table_columns("calculator_links"):
+        if engine.dialect.name == "postgresql":
+            db.execute(
+                text(
+                    "ALTER TABLE calculator_links ADD COLUMN IF NOT EXISTS "
+                    "expires_at TIMESTAMP"
+                )
+            )
+            db.commit()
+        elif "expires_at" not in _table_columns("calculator_links"):
+            db.execute(
+                text("ALTER TABLE calculator_links ADD COLUMN expires_at TIMESTAMP")
+            )
+            db.commit()
 
 
 def _migrate_tenant_ai(db: Session) -> None:

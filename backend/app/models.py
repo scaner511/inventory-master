@@ -210,6 +210,8 @@ class CalculatorLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Fecha/hora de expiración opcional. NULL = no expira hasta que se revoque.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 

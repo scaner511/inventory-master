@@ -11,7 +11,7 @@ Diseño:
 Los enlaces viven en la base de PLATAFORMA porque son control de acceso, no
 datos de negocio del cliente.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,6 +23,7 @@ from app.deps import require_admin
 from app.models import CalculatorLink, Tenant, User
 from app.schemas import (
     CalculatorLinkCreate,
+    CalculatorLinkExpirationUpdate,
     CalculatorLinkOut,
     CalculatorLinksOut,
     CalculatorPublicAccessIn,
@@ -74,6 +75,11 @@ def _clear_pending(link: CalculatorLink) -> None:
     link.pending_requested_at = None
 
 
+def _is_expired(link: CalculatorLink) -> bool:
+    """Indica si el enlace tiene fecha de vencimiento y ya expiró."""
+    return link.expires_at is not None and datetime.utcnow() >= link.expires_at
+
+
 def _generate_token(db: Session) -> str:
     """Token público irrepetible y suficientemente largo para no adivinarse."""
     token = secrets.token_urlsafe(24)
@@ -122,14 +128,41 @@ def create_link(
         )
 
     label = (data.label or "").strip() or None
+    expires_at = (
+        datetime.utcnow() + timedelta(days=int(data.expires_in_days))
+        if data.expires_in_days is not None
+        else None
+    )
     link = CalculatorLink(
         tenant_id=user.tenant_id,
         token=_generate_token(db),
         label=label,
         status="available",
         created_by=user.id,
+        expires_at=expires_at,
     )
     db.add(link)
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+@admin_router.put("/links/{link_id}/expiration", response_model=CalculatorLinkOut)
+def update_link_expiration(
+    link_id: int,
+    data: CalculatorLinkExpirationUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Cambia o renueva la vigencia de un enlace (None = sin vencimiento hasta revocar)."""
+    link = _get_link(db, user, link_id)
+    if link.status == "revoked":
+        raise HTTPException(status_code=400, detail="El enlace está revocado")
+    link.expires_at = (
+        datetime.utcnow() + timedelta(days=int(data.expires_in_days))
+        if data.expires_in_days is not None
+        else None
+    )
     db.commit()
     db.refresh(link)
     return link
