@@ -276,7 +276,13 @@ export default function PublicCalculator() {
         {info.tenant_name ? ` · ${info.tenant_name}` : ''}
         {info.label ? ` · ${info.label}` : ''}
       </div>
-      <Calculator key={token} storageKey={`calculator:${token}`} extraProducts={info.products} />
+      <Calculator
+        key={token}
+        storageKey={`calculator:${token}`}
+        extraProducts={info.products}
+        calcSettings={{ itbis_rate: info.itbis_rate, currency: info.currency }}
+        businessName={info.tenant_name}
+      />
     </div>
   )
 }

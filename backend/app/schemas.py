@@ -395,6 +395,9 @@ class CalculatorPublicStatusOut(BaseModel):
     expires_at: datetime | None = None
     # Productos personalizados del cliente (vacío si la función está apagada).
     products: list[CalculatorProductItem] = Field(default_factory=list)
+    # Configuración monetaria del cliente para la calculadora.
+    itbis_rate: float = 18
+    currency: str = "DOP"
 
     @field_serializer("expires_at")
     def _serialize_exp(self, value: datetime | None) -> str | None:

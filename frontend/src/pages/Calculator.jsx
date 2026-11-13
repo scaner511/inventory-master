@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import toast from 'react-hot-toast'
-import { getCalculatorProducts } from '../api/index.js'
+import { getCalculatorProducts, getSettings } from '../api/index.js'
 
 // Array de productos (los mismos de master-calculadora)
 const products = [
@@ -184,23 +184,34 @@ const products = [
   { code: 'RP4811', name: 'Asa Larga Desmontable', price: 2800 }
 ]
 
+// Símbolo de moneda según código ISO (configurable por cliente).
+const CURRENCY_SYMBOLS = { DOP: 'RD$', USD: 'US$', EUR: '€', MXN: '$' }
+let currencyPrefix = 'RD$'
+
 // Formatear moneda
 function formatCurrency(amount) {
   if (typeof amount !== 'number') amount = parseFloat(amount) || 0
   const formatted = amount.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  return 'RD$ ' + formatted.toString()
+  return currencyPrefix + ' ' + formatted.toString()
 }
 
-export default function Calculator({ storageKey = 'masterCalculadora', extraProducts }) {
+export default function Calculator({ storageKey = 'masterCalculadora', extraProducts, calcSettings, businessName }) {
   // Productos personalizados del cliente (los define el Super Admin). Si la
   // página pública ya los trae en `extraProducts` no se vuelven a pedir.
   const [customProducts, setCustomProducts] = useState(extraProducts || [])
+  // Configuración monetaria: ITBIS (%) y moneda. La página pública la recibe
+  // en `calcSettings`; en el panel se consulta /settings.
+  const [moneyConfig, setMoneyConfig] = useState({
+    itbisRate: calcSettings?.itbis_rate ?? 18,
+    currency: calcSettings?.currency || 'DOP',
+  })
   const [selectedProducts, setSelectedProducts] = useState({})
   const [searchTerm, setSearchTerm] = useState('')
   const [clientName, setClientName] = useState('')
   const [clientPhone, setClientPhone] = useState('')
   const [initialPayment, setInitialPayment] = useState('')
-  const [interestRate, setInterestRate] = useState('18')
+  // La tasa anual es fija por política comercial: 26%.
+  const ANNUAL_RATE = 26
   const [term, setTerm] = useState('12')
   const [paymentType, setPaymentType] = useState('amount')
   const [termType, setTermType] = useState('months')
@@ -210,6 +221,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
   const [discountEnabled, setDiscountEnabled] = useState(false)
   // Precios personalizados por código de producto. Si no hay valor, se usa el precio de lista.
   const [customPrices, setCustomPrices] = useState({})
+  const [recentCodes, setRecentCodes] = useState([])
   const [hydrated, setHydrated] = useState(false)
 
   // Cargar productos personalizados: del prop (página pública) o del API (panel).
@@ -222,8 +234,22 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     getCalculatorProducts()
       .then((data) => { if (!cancelled) setCustomProducts(Array.isArray(data) ? data : []) })
       .catch(() => { /* sin sesión (público) o función apagada: solo lista base */ })
+    getSettings()
+      .then((s) => {
+        if (cancelled || !s) return
+        setMoneyConfig({
+          itbisRate: s.itbis_rate ?? 18,
+          currency: s.currency || 'DOP',
+        })
+      })
+      .catch(() => { /* valores por defecto */ })
     return () => { cancelled = true }
   }, [extraProducts])
+
+  // Aplicar el símbolo de moneda configurado al formateador global.
+  useEffect(() => {
+    currencyPrefix = CURRENCY_SYMBOLS[moneyConfig.currency] || moneyConfig.currency || 'RD$'
+  }, [moneyConfig.currency])
 
   // Catálogo completo: productos base + personalizados del cliente.
   const allProducts = useMemo(
@@ -240,7 +266,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
       setClientName(data.clientName || '')
       setClientPhone(data.clientPhone || '')
       setInitialPayment(data.initialPayment || '')
-      setInterestRate(data.interestRate || '18')
+      // interestRate ya no se usa: la tasa es fija (26%).
       setTerm(data.term || '12')
       setPaymentType(data.paymentType || 'amount')
       setTermType(data.termType || 'months')
@@ -252,6 +278,11 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
       )
       setCustomPrices(data.customPrices || {})
     }
+    try {
+      setRecentCodes(JSON.parse(localStorage.getItem(`${storageKey}:recent`) || '[]'))
+    } catch {
+      setRecentCodes([])
+    }
     setHydrated(true)
   }, [storageKey])
 
@@ -262,7 +293,6 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
       clientName,
       clientPhone,
       initialPayment,
-      interestRate,
       term,
       paymentType,
       termType,
@@ -273,7 +303,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
       customPrices
     }
     localStorage.setItem(storageKey, JSON.stringify(data))
-  }, [storageKey, selectedProducts, clientName, clientPhone, initialPayment, interestRate, term, paymentType, termType, paymentFrequency, discount, discountType, discountEnabled, customPrices])
+  }, [storageKey, selectedProducts, clientName, clientPhone, initialPayment, term, paymentType, termType, paymentFrequency, discount, discountType, discountEnabled, customPrices])
 
   // Descartar precios personalizados de productos que ya no están seleccionados.
   useEffect(() => {
@@ -286,11 +316,20 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     })
   }, [selectedProducts, hydrated])
 
-  // Filtrar productos
-  const filteredProducts = allProducts.filter(p =>
-    p.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // Filtrar productos; sin búsqueda, los usados recientemente van primero.
+  const recentRank = new Map(recentCodes.map((c, i) => [c, i]))
+  const filteredProducts = (() => {
+    const q = searchTerm.toLowerCase()
+    let list = q
+      ? allProducts.filter(p =>
+          p.code.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)
+        )
+      : [...allProducts]
+    if (!q && recentCodes.length) {
+      list.sort((a, b) => (recentRank.get(a.code) ?? 9999) - (recentRank.get(b.code) ?? 9999))
+    }
+    return list
+  })()
 
   // Precio unitario efectivo: precio personalizado o precio de lista.
   function unitPrice(code) {
@@ -303,8 +342,20 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     return product ? product.price : 0
   }
 
+  // Marca un producto como usado recientemente (máx. 8, más reciente primero).
+  function markRecent(code) {
+    setRecentCodes(prev => {
+      const next = [code, ...prev.filter(c => c !== code)].slice(0, 8)
+      try {
+        localStorage.setItem(`${storageKey}:recent`, JSON.stringify(next))
+      } catch { /* almacenamiento no disponible */ }
+      return next
+    })
+  }
+
   // Actualizar cantidad
   function updateQuantity(code, change) {
+    if (change > 0) markRecent(code)
     setSelectedProducts(prev => {
       const newQty = Math.max(0, (prev[code] || 0) + change)
       if (newQty === 0) {
@@ -360,32 +411,33 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     return sum + (unitPrice(code) * qty)
   }, 0)
 
-  const purchasePrice = totalProducts / 1.18
-  const itbis = purchasePrice * 0.18
+  const itbisRate = moneyConfig.itbisRate ?? 18
   const totalPrice = totalProducts
+  const purchasePrice = totalProducts / (1 + itbisRate / 100)
+  const itbis = totalProducts - purchasePrice
 
-  // Descuento (solo se aplica si la casilla está marcada)
+  // Descuento (solo se aplica si la casilla está marcada; tope 100%)
   let discountAmount = 0
   if (discountEnabled) {
     if (discountType === 'percentage') {
-      discountAmount = (totalPrice * parseFloat(discount || 0)) / 100
+      discountAmount = (totalPrice * Math.min(100, Math.max(0, parseFloat(discount) || 0))) / 100
     } else {
-      discountAmount = parseFloat(discount) || 0
+      discountAmount = Math.min(totalPrice, Math.max(0, parseFloat(discount) || 0))
     }
   }
   const priceAfterDiscount = Math.max(0, totalPrice - discountAmount)
 
-  // Pago inicial
+  // Pago inicial (el porcentaje no puede pasar de 100%)
   let initialPaymentAmount = parseFloat(initialPayment) || 0
   if (paymentType === 'percentage') {
-    initialPaymentAmount = (priceAfterDiscount * initialPaymentAmount) / 100
+    initialPaymentAmount = (priceAfterDiscount * Math.min(100, Math.max(0, initialPaymentAmount))) / 100
   }
 
   const depositDelivered = initialPaymentAmount
   const balanceToFinance = Math.max(0, priceAfterDiscount - depositDelivered)
 
   // Tasa y plazo
-  const annualRate = parseFloat(interestRate) || 0
+  const annualRate = ANNUAL_RATE
   let termMonths = parseFloat(term) || 0
   if (termType === 'years') {
     termMonths = termMonths * 12
@@ -402,7 +454,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     frequencyName = 'Quincenal'
   }
 
-  const numPayments = termMonths * (periodsPerYear / 12)
+  const numPayments = Math.max(1, Math.round(termMonths * (periodsPerYear / 12)))
   const periodRate = annualRate / periodsPerYear / 100
 
   // Calcular cuota (PMT)
@@ -413,15 +465,15 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     monthlyPayment = balanceToFinance / numPayments
   }
 
-  // Calcular cuotas en 12, 24 y 36 meses
-  const monthlyRate = annualRate / 12 / 100
-  
+  // Calcular cuotas en 12, 24 y 36 meses con la frecuencia elegida.
   function calculateInstallment(months) {
     if (balanceToFinance <= 0 || months <= 0) return 0
-    if (monthlyRate > 0) {
-      return (balanceToFinance * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -months))
+    const n = Math.max(1, Math.round(months * (periodsPerYear / 12)))
+    const r = annualRate / periodsPerYear / 100
+    if (r > 0) {
+      return (balanceToFinance * r) / (1 - Math.pow(1 + r, -n))
     }
-    return balanceToFinance / months
+    return balanceToFinance / n
   }
 
   const installment12 = calculateInstallment(12)
@@ -433,6 +485,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     const name = clientName || 'Cliente'
     
     let message = `*Cotización Master Calculadora*\n\n`
+    if (businessName) message += `Empresa: ${businessName}\n`
     message += `Cliente: ${name}\n\n`
     message += `*Productos:*\n`
     
@@ -446,6 +499,8 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     
     message += `\n*Resumen:*\n`
     message += `Precio Total: ${formatCurrency(totalPrice)}\n`
+    message += `ITBIS ${itbisRate}%: ${formatCurrency(itbis)}\n`
+    message += `Precio sin ITBIS: ${formatCurrency(purchasePrice)}\n`
     if (discountEnabled) {
       message += `Descuento: ${formatCurrency(discountAmount)}\n`
       message += `Precio con Descuento: ${formatCurrency(priceAfterDiscount)}\n`
@@ -473,7 +528,6 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
       setClientName('')
       setClientPhone('')
       setInitialPayment('')
-      setInterestRate('18')
       setTerm('12')
       setPaymentType('amount')
       setTermType('months')
@@ -538,7 +592,12 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
                 return (
                   <div key={product.code} className="flex items-center justify-between border-b border-slate-600 p-4 last:border-0">
                     <div className="flex-1">
-                      <div className="font-semibold text-blue-400">{product.code}</div>
+                      <div className="font-semibold text-blue-400">
+                        {product.code}
+                        {recentRank.has(product.code) && !searchTerm && (
+                          <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">reciente</span>
+                        )}
+                      </div>
                       <div className="text-slate-200">{product.name}</div>
                       <div className="font-bold text-white">
                         {formatCurrency(unitPrice(product.code))}
@@ -699,7 +758,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
                     disabled={!discountEnabled}
                     className="accent-blue-500"
                   />
-                  Monto Fijo (RD$)
+                  Monto Fijo ({currencyPrefix})
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer text-slate-300">
                   <input
@@ -744,7 +803,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
                   onChange={(e) => setPaymentType(e.target.value)}
                   className="accent-blue-500"
                 />
-                Monto Fijo (RD$)
+                Monto Fijo ({currencyPrefix})
               </label>
               <label className="flex items-center gap-2 cursor-pointer text-slate-300">
                 <input
@@ -774,16 +833,10 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
 
           <div className="mb-4 grid gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-300">Tasa de Interés Anual (%)</label>
-              <input
-                type="number"
-                value={interestRate}
-                onChange={(e) => setInterestRate(e.target.value)}
-                className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-blue-500 focus:outline-none"
-                placeholder="Ej: 18"
-                min="0"
-                step="0.1"
-              />
+              <label className="mb-2 block text-sm font-semibold text-slate-300">Tasa de Interés Anual</label>
+              <div className="w-full rounded-lg border border-slate-600 bg-slate-600 px-4 py-2 text-white">
+                26% <span className="text-xs text-slate-400">(fija)</span>
+              </div>
             </div>
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-300">Plazo</label>
@@ -844,21 +897,21 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
             <div className="flex items-center justify-between border-b border-slate-600 p-4 last:border-0">
               <div>
                 <div className="font-semibold text-white">12 Meses</div>
-                <div className="text-sm text-slate-400">12 cuotas mensuales</div>
+                <div className="text-sm text-slate-400">{Math.round(12 * (periodsPerYear / 12))} cuotas {frequencyName.toLowerCase()}</div>
               </div>
               <div className="text-xl font-bold text-blue-400">{formatCurrency(installment12)}</div>
             </div>
             <div className="flex items-center justify-between border-b border-slate-600 p-4 last:border-0">
               <div>
                 <div className="font-semibold text-white">24 Meses</div>
-                <div className="text-sm text-slate-400">24 cuotas mensuales</div>
+                <div className="text-sm text-slate-400">{Math.round(24 * (periodsPerYear / 12))} cuotas {frequencyName.toLowerCase()}</div>
               </div>
               <div className="text-xl font-bold text-blue-400">{formatCurrency(installment24)}</div>
             </div>
             <div className="flex items-center justify-between p-4">
               <div>
                 <div className="font-semibold text-white">36 Meses</div>
-                <div className="text-sm text-slate-400">36 cuotas mensuales</div>
+                <div className="text-sm text-slate-400">{Math.round(36 * (periodsPerYear / 12))} cuotas {frequencyName.toLowerCase()}</div>
               </div>
               <div className="text-xl font-bold text-blue-400">{formatCurrency(installment36)}</div>
             </div>
@@ -875,7 +928,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
                 <div className="font-semibold text-white">{formatCurrency(totalPrice)}</div>
               </div>
               <div className="rounded bg-white/5 p-3">
-                <div className="text-xs text-slate-400">ITBIS 18%</div>
+                <div className="text-xs text-slate-400">ITBIS {itbisRate}%</div>
                 <div className="font-semibold text-white">{formatCurrency(itbis)}</div>
               </div>
               {discountEnabled && (
@@ -898,7 +951,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
               </div>
               <div className="rounded bg-white/5 p-3">
                 <div className="text-xs text-slate-400">Tasa Anual</div>
-                <div className="font-semibold text-white">26%</div>
+                <div className="font-semibold text-white">{annualRate}%</div>
               </div>
               <div className="rounded bg-white/5 p-3">
                 <div className="text-xs text-slate-400">Plazo</div>

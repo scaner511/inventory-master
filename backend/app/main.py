@@ -875,6 +875,8 @@ TENANT_COLUMN_MIGRATIONS = [
     ("settings", "warehouse1_name", "VARCHAR(120)"),
     ("settings", "warehouse2_name", "VARCHAR(120)"),
     ("settings", "warehouse3_name", "VARCHAR(120)"),
+    ("settings", "itbis_rate", "NUMERIC(5, 2) DEFAULT 18"),
+    ("settings", "currency", "VARCHAR(10) DEFAULT 'DOP'"),
 ]
 
 

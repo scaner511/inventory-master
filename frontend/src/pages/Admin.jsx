@@ -346,6 +346,8 @@ export function CompanyTab() {
   const [w1, setW1] = useState('Almacén Principal')
   const [w2, setW2] = useState('Vehículo')
   const [w3, setW3] = useState('Almacén Secundario')
+  const [itbisRate, setItbisRate] = useState('18')
+  const [currency, setCurrency] = useState('DOP')
   const [saving, setSaving] = useState(false)
   const [logoBlobUrl, setLogoBlobUrl] = useState(null)
   const fileRef = useRef(null)
@@ -359,6 +361,8 @@ export function CompanyTab() {
       setW1(s.warehouse1_name || 'Almacén Principal')
       setW2(s.warehouse2_name || 'Vehículo')
       setW3(s.warehouse3_name || 'Almacén Secundario')
+      setItbisRate(String(s.itbis_rate ?? 18))
+      setCurrency(s.currency || 'DOP')
       if (s.has_logo) {
         const url = await getLogoUrl()
         setLogoBlobUrl(url)
@@ -379,6 +383,8 @@ export function CompanyTab() {
         warehouse1_name: w1,
         warehouse2_name: w2,
         warehouse3_name: w3,
+        itbis_rate: Number(itbisRate),
+        currency,
       })
       toast.success('Configuración guardada')
     } catch {
@@ -430,6 +436,18 @@ export function CompanyTab() {
             </Field>
           </>
         )}
+        <h4 className="pt-2 font-semibold text-slate-200">Calculadora de cotizaciones</h4>
+        <Field label="ITBIS (%)" hint="Impuesto aplicado en las cotizaciones">
+          <Input type="number" min="0" max="100" step="0.01" value={itbisRate} onChange={(e) => setItbisRate(e.target.value)} />
+        </Field>
+        <Field label="Moneda" hint="Código ISO de 3 letras para los montos">
+          <Select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            <option value="DOP">DOP — Peso dominicano (RD$)</option>
+            <option value="USD">USD — Dólar (US$)</option>
+            <option value="EUR">EUR — Euro (€)</option>
+            <option value="MXN">MXN — Peso mexicano ($)</option>
+          </Select>
+        </Field>
         <Button onClick={handleSave} disabled={saving}>
           {saving ? 'Guardando...' : 'Guardar cambios'}
         </Button>

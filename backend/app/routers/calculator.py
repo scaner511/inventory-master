@@ -18,9 +18,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import get_db, get_tenant_session
 from app.deps import require_admin
-from app.models import CalculatorLink, Tenant, User
+from app.models import CalculatorLink, Setting, Tenant, User
 from app.schemas import (
     CalculatorLinkCreate,
     CalculatorLinkExpirationUpdate,
@@ -87,6 +87,30 @@ def _custom_products(tenant: Tenant | None) -> list[CalculatorProductItem]:
     if tenant is None or not tenant.calculator_custom_enabled:
         return []
     return calculator_products_from_raw(tenant.calculator_products)
+
+
+def _money_config(tenant: Tenant | None) -> tuple[float, str]:
+    """ITBIS (%) y moneda del cliente (configuración de su base de negocio)."""
+    if tenant is None:
+        return 18.0, "DOP"
+    try:
+        tdb = get_tenant_session(tenant.id)
+        try:
+            row = (
+                tdb.query(Setting)
+                .filter(Setting.tenant_id == tenant.id)
+                .order_by(Setting.id)
+                .first()
+            )
+            if row is None:
+                return 18.0, "DOP"
+            itbis = float(row.itbis_rate) if row.itbis_rate is not None else 18.0
+            currency = (row.currency or "DOP").strip().upper() or "DOP"
+            return itbis, currency
+        finally:
+            tdb.close()
+    except Exception:
+        return 18.0, "DOP"
 
 
 def _generate_token(db: Session) -> str:
@@ -285,6 +309,7 @@ def _public_status(
     status: str,
     message: str | None = None,
 ) -> CalculatorPublicStatusOut:
+    itbis_rate, currency = _money_config(tenant)
     return CalculatorPublicStatusOut(
         status=status,
         tenant_name=tenant.name if tenant else None,
@@ -292,6 +317,8 @@ def _public_status(
         message=message,
         expires_at=link.expires_at,
         products=_custom_products(tenant),
+        itbis_rate=itbis_rate,
+        currency=currency,
     )
 
 

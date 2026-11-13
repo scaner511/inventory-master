@@ -24,6 +24,10 @@ class SettingsUpdate(BaseModel):
     warehouse1_name: str | None = None
     warehouse2_name: str | None = None
     warehouse3_name: str | None = None
+    # ITBIS (%) de la calculadora de cotizaciones (0 a 100).
+    itbis_rate: float | None = None
+    # Código ISO de la moneda (DOP, USD, EUR, MXN...).
+    currency: str | None = None
 
 
 class SecurityQuestionUpdate(BaseModel):
@@ -37,6 +41,8 @@ class SettingsOut(BaseModel):
     warehouse1_name: str
     warehouse2_name: str
     warehouse3_name: str
+    itbis_rate: float = 18
+    currency: str = "DOP"
     logo_url: str | None = None
     has_logo: bool = False
 
@@ -50,6 +56,8 @@ def get_settings(db: Session = Depends(get_tenant_db), user: User = Depends(get_
         warehouse1_name=setting.warehouse1_name or "Almacén Principal",
         warehouse2_name=setting.warehouse2_name or "Vehículo",
         warehouse3_name=setting.warehouse3_name or "Almacén Secundario",
+        itbis_rate=float(setting.itbis_rate) if setting.itbis_rate is not None else 18,
+        currency=(setting.currency or "DOP").strip().upper() or "DOP",
         has_logo=bool(setting.logo_path),
         logo_url=f"/api/settings/logo" if setting.logo_path else None,
     )
@@ -74,6 +82,15 @@ def update_settings(
         setting.warehouse2_name = data.warehouse2_name.strip() or "Vehículo"
     if data.warehouse3_name is not None:
         setting.warehouse3_name = data.warehouse3_name.strip() or "Almacén Secundario"
+    if data.itbis_rate is not None:
+        if not 0 <= data.itbis_rate <= 100:
+            raise HTTPException(status_code=400, detail="El ITBIS debe estar entre 0 y 100")
+        setting.itbis_rate = data.itbis_rate
+    if data.currency is not None:
+        code = data.currency.strip().upper()
+        if len(code) != 3 or not code.isalpha():
+            raise HTTPException(status_code=400, detail="La moneda debe ser un código ISO de 3 letras (ej. DOP, USD)")
+        setting.currency = code
     db.commit()
     return SettingsOut(
         company_name=setting.company_name,
@@ -81,6 +98,8 @@ def update_settings(
         warehouse1_name=setting.warehouse1_name or "Almacén Principal",
         warehouse2_name=setting.warehouse2_name or "Vehículo",
         warehouse3_name=setting.warehouse3_name or "Almacén Secundario",
+        itbis_rate=float(setting.itbis_rate) if setting.itbis_rate is not None else 18,
+        currency=(setting.currency or "DOP").strip().upper() or "DOP",
         has_logo=bool(setting.logo_path),
         logo_url=f"/api/settings/logo" if setting.logo_path else None,
     )

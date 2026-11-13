@@ -413,6 +413,11 @@ class Setting(BaseBusiness):
     warehouse1_name: Mapped[str] = mapped_column(String(120), default="Almacén Principal")
     warehouse2_name: Mapped[str] = mapped_column(String(120), default="Vehículo")
     warehouse3_name: Mapped[str] = mapped_column(String(120), default="Almacén Secundario")
+    # ITBIS (%) aplicado en la calculadora de cotizaciones de este cliente.
+    itbis_rate: Mapped[float] = mapped_column(Numeric(5, 2), default=18)
+    # Código de moneda ISO (DOP, USD, EUR...). La calculadora lo usa para
+    # formatear los montos.
+    currency: Mapped[str] = mapped_column(String(10), default="DOP")
 
 
 # ==============================================================================
