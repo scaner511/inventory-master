@@ -456,7 +456,14 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     message += `Pago por cuota: ${formatCurrency(monthlyPayment)}`
 
     const encodedMessage = encodeURIComponent(message)
-    window.open(`https://wa.me/?text=${encodedMessage}`, '_blank')
+    // Si hay teléfono del cliente, el mensaje va directo a su chat de WhatsApp.
+    // Formato wa.me: solo dígitos con código de país (10 dígitos 8xx → +1).
+    let digits = (clientPhone || '').replace(/\D/g, '')
+    if (digits.length === 10 && digits.startsWith('8')) digits = `1${digits}`
+    const url = digits
+      ? `https://wa.me/${digits}?text=${encodedMessage}`
+      : `https://wa.me/?text=${encodedMessage}`
+    window.open(url, '_blank')
   }
 
   // Limpiar todo
@@ -497,7 +504,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
             />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-semibold text-slate-300">Teléfono (Opcional)</label>
+            <label className="mb-2 block text-sm font-semibold text-slate-300">Teléfono para WhatsApp (opcional)</label>
             <input
               type="tel"
               value={clientPhone}
