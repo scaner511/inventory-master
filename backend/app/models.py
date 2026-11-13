@@ -54,6 +54,11 @@ class Tenant(Base):
     calculator_link_limit: Mapped[int | None] = mapped_column(
         Integer, nullable=True, default=10
     )
+    # Productos personalizados de la calculadora (JSON serializado). Solo se
+    # muestran si calculator_custom_enabled está activo. Los define el Super
+    # Admin; el cliente solo los consume.
+    calculator_custom_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    calculator_products: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Licencia del cliente (30 días renovables). Fuente de verdad: los usuarios
     # del cliente heredan este vencimiento. Solo el Super Admin la ve.
     subscription_expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)

@@ -193,6 +193,26 @@ def _migrate_tenant_calculator_link_limit(db: Session) -> None:
             db.commit()
 
 
+def _migrate_tenant_calculator_products(db: Session) -> None:
+    """Agrega la casilla y el catálogo JSON de productos personalizados de la
+    calculadora en ``tenants`` (solo los define el Super Admin)."""
+    if not _table_columns("tenants"):
+        return
+    cols = _table_columns("tenants")
+    new_cols = {
+        "calculator_custom_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "calculator_products": "TEXT",
+    }
+    for name, ddl in new_cols.items():
+        if name in cols:
+            continue
+        if engine.dialect.name == "postgresql":
+            db.execute(text(f"ALTER TABLE tenants ADD COLUMN IF NOT EXISTS {name} {ddl}"))
+        else:
+            db.execute(text(f"ALTER TABLE tenants ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
 def _migrate_tenant_ai(db: Session) -> None:
     """Agrega las columnas de IA (Recepción Inteligente) a la tabla tenants.
 
@@ -779,6 +799,7 @@ def init_db() -> None:
         _migrate_user_modules(db)
         _migrate_tenant_modules(db)
         _migrate_tenant_calculator_link_limit(db)
+        _migrate_tenant_calculator_products(db)
         _migrate_tenant_ai(db)
         _migrate_settings_warehouses(db)
         _migrate_tenant_max_users(db)

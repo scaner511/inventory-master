@@ -178,6 +178,44 @@ class SubscriptionRenew(BaseModel):
 # ===================== TENANTS (multi-proveedor) =====================
 
 
+class CalculatorProductItem(BaseModel):
+    """Producto personalizado de la calculadora (lo define el Super Admin)."""
+
+    code: str = Field(min_length=1, max_length=60)
+    name: str = Field(min_length=1, max_length=200)
+    price: float = Field(ge=0)
+
+
+def calculator_products_from_raw(raw: str | None) -> list[CalculatorProductItem]:
+    """Convierte el JSON almacenado en el tenant a lista de productos."""
+    import json
+
+    if not raw:
+        return []
+    try:
+        values = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(values, list):
+        return []
+    out = []
+    for v in values:
+        try:
+            out.append(CalculatorProductItem.model_validate(v))
+        except Exception:
+            continue
+    return out
+
+
+def calculator_products_to_raw(values: list[CalculatorProductItem] | None) -> str | None:
+    """Serializa la lista de productos para guardarla en la columna."""
+    import json
+
+    if values is None:
+        return None
+    return json.dumps([v.model_dump() for v in values])
+
+
 class TenantCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     admin_username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_.-]+$")
@@ -193,6 +231,9 @@ class TenantCreate(BaseModel):
     # Módulos habilitados al cliente (solo el Super Admin los define). Esquema
     # separado del Super Admin, por eso no se reutiliza TenantUpdate.
     modules: list[str] | None = None
+    # Productos personalizados de la calculadora (solo Super Admin).
+    calculator_custom_enabled: bool = False
+    calculator_products: list[CalculatorProductItem] | None = None
 
     @field_validator("admin_email", mode="before")
     @classmethod
@@ -212,6 +253,9 @@ class TenantUpdate(BaseModel):
     modules: list[str] | None = None
     # --- IA de Recepción Inteligente (solo Super Admin) ---
     ai_enabled: bool | None = None
+    # Productos personalizados de la calculadora (solo Super Admin).
+    calculator_custom_enabled: bool | None = None
+    calculator_products: list[CalculatorProductItem] | None = None
     # Proveedor: "puter" o "gemini".
     ai_provider: str | None = Field(default=None, max_length=20)
     # Token/API key del proveedor. Cadena vacía = borrar el token.
@@ -250,6 +294,9 @@ class TenantOut(BaseModel):
     ai_model: str | None = None
     # Solo indica si hay token guardado (no se devuelve el token completo).
     ai_api_key_set: bool = False
+    # Productos personalizados de la calculadora (solo Super Admin).
+    calculator_custom_enabled: bool = False
+    calculator_products: list[CalculatorProductItem] = Field(default_factory=list)
 
     @field_validator("modules", mode="before")
     @classmethod
@@ -259,6 +306,13 @@ class TenantOut(BaseModel):
         if isinstance(value, str):
             return modules_from_raw(value)
         return value
+
+    @field_validator("calculator_products", mode="before")
+    @classmethod
+    def _normalize_calc_products(cls, value):
+        if value is None or isinstance(value, list):
+            return value if value is not None else []
+        return calculator_products_from_raw(value)
 
 
 class TenantUserCreate(BaseModel):
@@ -339,6 +393,8 @@ class CalculatorPublicStatusOut(BaseModel):
     label: str | None = None
     message: str | None = None
     expires_at: datetime | None = None
+    # Productos personalizados del cliente (vacío si la función está apagada).
+    products: list[CalculatorProductItem] = Field(default_factory=list)
 
     @field_serializer("expires_at")
     def _serialize_exp(self, value: datetime | None) -> str | None:

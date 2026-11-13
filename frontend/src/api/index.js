@@ -716,6 +716,11 @@ export async function listWarehouseTransfers(params = {}) {
 
 // ===================== CALCULADORA PÚBLICA =====================
 
+export async function getCalculatorProducts() {
+  const { data } = await api.get('/calculator/products')
+  return data
+}
+
 export async function listCalculatorLinks() {
   const { data } = await api.get('/calculator/links')
   return data

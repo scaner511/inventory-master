@@ -39,6 +39,7 @@ from app.schemas import (
     TenantUserCreate,
     UserOut,
     UserUpdate,
+    calculator_products_to_raw,
     modules_to_raw,
     user_out,
 )
@@ -200,6 +201,10 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
         max_users=data.max_users,
         calculator_link_limit=data.calculator_link_limit or 10,
         modules=modules_to_raw(data.modules),
+        calculator_custom_enabled=bool(data.calculator_custom_enabled),
+        calculator_products=calculator_products_to_raw(data.calculator_products)
+        if data.calculator_products is not None
+        else None,
         database_name=database_name,
         subscription_expires_at=start,
     )
@@ -245,6 +250,10 @@ def update_tenant(tenant_id: int, data: TenantUpdate, db: Session = Depends(get_
         tenant.is_active = data.is_active
     if "modules" in (data.model_fields_set or set()):
         tenant.modules = modules_to_raw(data.modules)
+    if data.calculator_custom_enabled is not None:
+        tenant.calculator_custom_enabled = data.calculator_custom_enabled
+    if "calculator_products" in (data.model_fields_set or set()):
+        tenant.calculator_products = calculator_products_to_raw(data.calculator_products)
     if data.clear_max_users:
         # Volver al límite global (NULL).
         if tenant.max_users and _tenant_users_count(db, tenant_id) > settings.max_users_per_tenant:

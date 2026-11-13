@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import toast from 'react-hot-toast'
+import { getCalculatorProducts } from '../api/index.js'
 
 // Array de productos (los mismos de master-calculadora)
 const products = [
@@ -190,7 +191,10 @@ function formatCurrency(amount) {
   return 'RD$ ' + formatted.toString()
 }
 
-export default function Calculator({ storageKey = 'masterCalculadora' }) {
+export default function Calculator({ storageKey = 'masterCalculadora', extraProducts }) {
+  // Productos personalizados del cliente (los define el Super Admin). Si la
+  // página pública ya los trae en `extraProducts` no se vuelven a pedir.
+  const [customProducts, setCustomProducts] = useState(extraProducts || [])
   const [selectedProducts, setSelectedProducts] = useState({})
   const [searchTerm, setSearchTerm] = useState('')
   const [clientName, setClientName] = useState('')
@@ -207,6 +211,25 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
   // Precios personalizados por código de producto. Si no hay valor, se usa el precio de lista.
   const [customPrices, setCustomPrices] = useState({})
   const [hydrated, setHydrated] = useState(false)
+
+  // Cargar productos personalizados: del prop (página pública) o del API (panel).
+  useEffect(() => {
+    if (extraProducts !== undefined) {
+      setCustomProducts(extraProducts || [])
+      return
+    }
+    let cancelled = false
+    getCalculatorProducts()
+      .then((data) => { if (!cancelled) setCustomProducts(Array.isArray(data) ? data : []) })
+      .catch(() => { /* sin sesión (público) o función apagada: solo lista base */ })
+    return () => { cancelled = true }
+  }, [extraProducts])
+
+  // Catálogo completo: productos base + personalizados del cliente.
+  const allProducts = useMemo(
+    () => [...products, ...customProducts],
+    [customProducts]
+  )
 
   // Cargar desde localStorage (clave distinta por enlace/cliente)
   useEffect(() => {
@@ -264,14 +287,14 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
   }, [selectedProducts, hydrated])
 
   // Filtrar productos
-  const filteredProducts = products.filter(p => 
+  const filteredProducts = allProducts.filter(p =>
     p.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   // Precio unitario efectivo: precio personalizado o precio de lista.
   function unitPrice(code) {
-    const product = products.find(p => p.code === code)
+    const product = allProducts.find(p => p.code === code)
     const custom = customPrices[code]
     if (custom !== undefined && custom !== null && String(custom).trim() !== '') {
       const value = parseFloat(custom)
@@ -415,7 +438,7 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
     
     Object.entries(selectedProducts).forEach(([code, qty]) => {
       if (qty > 0) {
-        const product = products.find(p => p.code === code)
+        const product = allProducts.find(p => p.code === code)
         const subtotal = unitPrice(code) * qty
         message += `• ${product.name} (${qty}x ${formatCurrency(unitPrice(code))}): ${formatCurrency(subtotal)}\n`
       }
@@ -549,7 +572,7 @@ export default function Calculator({ storageKey = 'masterCalculadora' }) {
               </div>
               {Object.entries(selectedProducts).map(([code, qty]) => {
                 if (qty === 0) return null
-                const product = products.find(p => p.code === code)
+                const product = allProducts.find(p => p.code === code)
                 const hasCustomPrice = customPrices[code] !== undefined
                 const subtotal = unitPrice(code) * qty
                 return (

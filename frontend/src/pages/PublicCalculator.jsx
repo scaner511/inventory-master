@@ -276,7 +276,7 @@ export default function PublicCalculator() {
         {info.tenant_name ? ` · ${info.tenant_name}` : ''}
         {info.label ? ` · ${info.label}` : ''}
       </div>
-      <Calculator key={token} storageKey={`calculator:${token}`} />
+      <Calculator key={token} storageKey={`calculator:${token}`} extraProducts={info.products} />
     </div>
   )
 }

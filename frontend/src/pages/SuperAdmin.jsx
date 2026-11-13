@@ -57,7 +57,10 @@ function TenantsTab() {
   const [tenants, setTenants] = useState([])
   const [editOpen, setEditOpen] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', calculator_link_limit: '10', modules: [], ai_enabled: false, ai_provider: 'puter', ai_api_key: '', ai_model: '', ai_api_key_set: false })
+  const [form, setForm] = useState({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', calculator_link_limit: '10', calculator_custom_enabled: false, modules: [], ai_enabled: false, ai_provider: 'puter', ai_api_key: '', ai_model: '', ai_api_key_set: false })
+  const [calcProductsOpen, setCalcProductsOpen] = useState(false)
+  const [calcProducts, setCalcProducts] = useState([])
+  const [calcSaving, setCalcSaving] = useState(false)
   const [saving, setSaving] = useState(false)
   const [aiModels, setAiModels] = useState([])
   const [usersOpen, setUsersOpen] = useState(null)
@@ -100,6 +103,7 @@ function TenantsTab() {
           calculator_link_limit:
             form.calculator_link_limit === '' ? null : Number(form.calculator_link_limit),
           modules: form.modules,
+          calculator_custom_enabled: form.calculator_custom_enabled,
           ai_enabled: form.ai_enabled,
           ai_provider: form.ai_provider,
           ai_model: form.ai_model,
@@ -117,6 +121,7 @@ function TenantsTab() {
           calculator_link_limit:
             form.calculator_link_limit === '' ? null : Number(form.calculator_link_limit),
           modules: form.modules,
+          calculator_custom_enabled: form.calculator_custom_enabled,
         })
         toast.success('Cliente creado')
       }
@@ -139,6 +144,7 @@ function TenantsTab() {
       max_users: t.max_users ? String(t.max_users) : '',
       calculator_link_limit:
         t.calculator_link_limit == null ? '10' : String(t.calculator_link_limit),
+      calculator_custom_enabled: !!t.calculator_custom_enabled,
       modules: Array.isArray(t.modules) ? t.modules : MODULES.map((m) => m.key),
       ai_enabled: !!t.ai_enabled,
       ai_provider: t.ai_provider || 'puter',
@@ -151,7 +157,7 @@ function TenantsTab() {
 
   function openCreate() {
     setEditing(null)
-    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', calculator_link_limit: '10', modules: MODULES.map((m) => m.key), ai_enabled: false, ai_provider: 'puter', ai_api_key: '', ai_model: '', ai_api_key_set: false })
+    setForm({ name: '', admin_username: '', admin_password: '', admin_email: '', max_users: '', calculator_link_limit: '10', calculator_custom_enabled: false, modules: MODULES.map((m) => m.key), ai_enabled: false, ai_provider: 'puter', ai_api_key: '', ai_model: '', ai_api_key_set: false })
     setEditOpen(true)
   }
 
@@ -162,6 +168,55 @@ function TenantsTab() {
         ? prev.modules.filter((k) => k !== key)
         : [...prev.modules, key],
     }))
+  }
+
+  // ===== Productos personalizados de la calculadora (solo Super Admin) =====
+  function openCalcProducts() {
+    setCalcProducts(
+      Array.isArray(editing?.calculator_products)
+        ? editing.calculator_products.map((p) => ({ ...p }))
+        : []
+    )
+    setCalcProductsOpen(true)
+  }
+
+  function updateCalcProduct(index, field, value) {
+    setCalcProducts((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, [field]: value } : p))
+    )
+  }
+
+  function addCalcProduct() {
+    setCalcProducts((prev) => [...prev, { code: '', name: '', price: '' }])
+  }
+
+  function removeCalcProduct(index) {
+    setCalcProducts((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  async function saveCalcProducts() {
+    const rows = calcProducts
+      .map((p) => ({
+        code: String(p.code || '').trim(),
+        name: String(p.name || '').trim(),
+        price: Number(p.price),
+      }))
+      .filter((p) => p.code && p.name && Number.isFinite(p.price) && p.price >= 0)
+    if (rows.length !== calcProducts.filter((p) => String(p.code || '').trim() || String(p.name || '').trim()).length) {
+      toast.error('Revisa los productos: código, nombre y precio son obligatorios')
+      return
+    }
+    setCalcSaving(true)
+    try {
+      await updateTenant(editing.id, { calculator_products: rows })
+      toast.success('Productos de la calculadora guardados')
+      setCalcProductsOpen(false)
+      await load()
+    } catch {
+      /* interceptor */
+    } finally {
+      setCalcSaving(false)
+    }
   }
 
   async function handleToggleActive(t) {
@@ -439,6 +494,27 @@ function TenantsTab() {
               placeholder="Ej: 10"
             />
           </Field>
+          <div className="rounded-xl border border-slate-700 bg-slate-800/30 p-3">
+            <label className="flex items-center gap-3 text-sm text-slate-200">
+              <input
+                type="checkbox"
+                checked={form.calculator_custom_enabled}
+                onChange={(e) => setForm({ ...form, calculator_custom_enabled: e.target.checked })}
+                className="h-4 w-4"
+              />
+              Permitir productos personalizados en la calculadora
+            </label>
+            <p className="mt-1 text-xs text-slate-500">
+              Si está activo, los productos extra que definas se suman a los de la calculadora de este cliente.
+            </p>
+            {editing && (
+              <div className="mt-3">
+                <Button type="button" variant="ghost" onClick={openCalcProducts}>
+                  🧮 Productos de la calculadora ({Array.isArray(editing.calculator_products) ? editing.calculator_products.length : 0})
+                </Button>
+              </div>
+            )}
+          </div>
           {!editing && (
             <>
               <Field label="Usuario administrador" hint="Primer usuario del cliente (rol Administrador)">                <Input value={form.admin_username} onChange={(e) => setForm({ ...form, admin_username: e.target.value })} placeholder="Ej: juan_admin" required />
@@ -545,6 +621,64 @@ function TenantsTab() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={calcProductsOpen} onClose={() => setCalcProductsOpen(false)} title="Productos personalizados de la calculadora" wide>
+        <div className="space-y-4">
+          <p className="text-sm text-slate-400">
+            Estos productos se suman a los de la lista base en la calculadora del cliente
+            {editing ? ` "${editing.name}"` : ''}. Solo tú puedes editarlos.
+          </p>
+          {calcProducts.length === 0 ? (
+            <p className="rounded-lg border border-slate-700 bg-slate-800/40 p-4 text-center text-sm text-slate-400">
+              Aún no hay productos personalizados.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {calcProducts.map((p, i) => (
+                <div key={i} className="flex flex-wrap items-center gap-2">
+                  <Input
+                    value={p.code}
+                    onChange={(e) => updateCalcProduct(i, 'code', e.target.value)}
+                    placeholder="Código"
+                    className="w-32"
+                  />
+                  <Input
+                    value={p.name}
+                    onChange={(e) => updateCalcProduct(i, 'name', e.target.value)}
+                    placeholder="Nombre del producto"
+                    className="min-w-40 flex-1"
+                  />
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={p.price}
+                    onChange={(e) => updateCalcProduct(i, 'price', e.target.value)}
+                    placeholder="Precio"
+                    className="w-32"
+                  />
+                  <Button type="button" variant="danger" onClick={() => removeCalcProduct(i)} title="Eliminar producto">
+                    🗑️
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-2">
+            <Button type="button" variant="ghost" onClick={addCalcProduct}>
+              ➕ Agregar producto
+            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" onClick={() => setCalcProductsOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="button" variant="success" onClick={saveCalcProducts} disabled={calcSaving}>
+                {calcSaving ? 'Guardando…' : 'Guardar productos'}
+              </Button>
+            </div>
+          </div>
+        </div>
       </Modal>
 
       <Modal open={Boolean(usersOpen)} onClose={() => setUsersOpen(null)} title={`Usuarios del cliente`} wide>

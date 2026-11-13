@@ -26,8 +26,10 @@ from app.schemas import (
     CalculatorLinkExpirationUpdate,
     CalculatorLinkOut,
     CalculatorLinksOut,
+    CalculatorProductItem,
     CalculatorPublicAccessIn,
     CalculatorPublicStatusOut,
+    calculator_products_from_raw,
     modules_from_raw,
 )
 
@@ -80,6 +82,13 @@ def _is_expired(link: CalculatorLink) -> bool:
     return link.expires_at is not None and datetime.utcnow() >= link.expires_at
 
 
+def _custom_products(tenant: Tenant | None) -> list[CalculatorProductItem]:
+    """Productos personalizados del cliente (vacío si la función está apagada)."""
+    if tenant is None or not tenant.calculator_custom_enabled:
+        return []
+    return calculator_products_from_raw(tenant.calculator_products)
+
+
 def _generate_token(db: Session) -> str:
     """Token público irrepetible y suficientemente largo para no adivinarse."""
     token = secrets.token_urlsafe(24)
@@ -89,6 +98,20 @@ def _generate_token(db: Session) -> str:
 
 
 # =============================== ADMIN ===============================
+
+
+@admin_router.get("/products", response_model=list[CalculatorProductItem])
+def list_custom_products(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Productos personalizados de la calculadora del cliente actual.
+
+    Devuelve lista vacía si el Super Admin no habilitó la función para este
+    cliente. Solo el Super Admin puede definir el catálogo.
+    """
+    tenant = db.get(Tenant, user.tenant_id)
+    return _custom_products(tenant)
 
 
 @admin_router.get("/links", response_model=CalculatorLinksOut)
@@ -268,6 +291,7 @@ def _public_status(
         label=link.label,
         message=message,
         expires_at=link.expires_at,
+        products=_custom_products(tenant),
     )
 
 
