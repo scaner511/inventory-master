@@ -180,6 +180,49 @@ def adjust_quantity(session: Session, product: Product, slot: int, delta: int) -
     row.quantity = max((row.quantity or 0) + delta, 0)
 
 
+def slot_index_for_name(session: Session, name: str | None) -> int | None:
+    """Devuelve el slot (1-3) que corresponde al nombre de un almacén.
+
+    Comparación case-insensitive. Devuelve None si no coincide con
+    ninguno de los 3 almacenes globales del cliente.
+    """
+    if not name:
+        return None
+    target = name.strip().lower()
+    for i, n in enumerate(slot_names(session)):
+        if n.strip().lower() == target:
+            return i + 1
+    return None
+
+
+def set_locations(session: Session, product: Product, locations: list[dict]) -> int:
+    """Reemplaza la distribución por almacenes y recalcula products.stock.
+
+    Los nombres de ubicación se mapean a los 3 slots globales por nombre
+    (case-insensitive). Las ubicaciones que no coinciden con ningún almacén
+    registrado se acumulan en el primer slot para no perder stock.
+    Devuelve el stock total resultante.
+    """
+    ensure_seed(session, product)
+    names = [n.strip().lower() for n in slot_names(session)]
+    slot_qty = [0, 0, 0]
+    first_name = ""
+    for loc in locations:
+        name = (loc.get("location") or "").strip()
+        qty = int(loc.get("quantity") or 0)
+        if not name:
+            continue
+        if not first_name:
+            first_name = name
+        folded = name.lower()
+        idx = names.index(folded) if folded in names else 0
+        slot_qty[idx] += qty
+    set_slot_quantities(session, product, slot_qty)
+    if first_name and product.location1 != first_name:
+        product.location1 = first_name
+    return product.stock or 0
+
+
 def subtract_from_slot(session: Session, product: Product, slot: int, qty: int) -> None:
     rows = rows_for(session, product)
     if slot - 1 >= len(rows):

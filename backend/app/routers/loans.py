@@ -62,6 +62,23 @@ def _get_product(db: Session, product_id: int, tenant_id: int) -> Product | None
     )
 
 
+def _slot_for_location(db: Session, product: Product, location: str | None) -> int | None:
+    """Resuelve el nombre de almacén a su slot (1-3).
+
+    Devuelve None si la ubicación es texto libre (no corresponde a un
+    almacén registrado) o si el producto aún no tiene filas de stock.
+    """
+    if not location:
+        return None
+    loc_utils.ensure_seed(db, product)
+    rows = loc_utils.rows_for(db, product)
+    target = location.strip().lower()
+    for i, row in enumerate(rows[: loc_utils.SLOT_COUNT]):
+        if (row.location or "").strip().lower() == target:
+            return i + 1
+    return None
+
+
 @router.get("", response_model=list[LoanOut])
 def list_loans(
     q: str | None = Query(default=None, description="Filtro por vendedor o producto"),
@@ -120,20 +137,19 @@ def create_loan(
                 detail=f"Stock insuficiente. Solo hay {product.stock} unidades de '{product.name}'.",
             )
 
-        # Ubicación de salida: si el producto tiene ubicaciones y se indicó una,
-        # se descuenta de esa fila concreta.
+        # Ubicación de salida: si el producto tiene ubicaciones y se indicó una
+        # que corresponde a un almacén registrado, se descuenta de ese slot.
+        # Si es texto libre, solo queda como referencia histórica.
         location_out = (item.location_out or "").strip() or None
-        if location_out:
-            rows = loc_utils.rows_for(db, product)
-            if rows:
-                try:
-                    loc_utils.subtract_from(db, product, location_out, item.quantity)
-                except ValueError as exc:
-                    raise HTTPException(status_code=400, detail=str(exc))
-            # Sin filas registradas: se acepta la ubicación indicada para historial,
-            # pero no hay stock por ubicación que descontar.
+        slot = _slot_for_location(db, product, location_out)
+        if location_out and slot:
+            try:
+                loc_utils.subtract_from_slot(db, product, slot, item.quantity)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
 
         product.stock -= item.quantity
+        loc_utils.reconcile_stock(db, product)
         validated.append((product, item.quantity, location_out))
 
     total_qty = sum(v[1] for v in validated)
@@ -233,8 +249,10 @@ def update_loan(
                 product = _get_product(db, item.product_id, user.tenant_id)
                 if product:
                     product.stock += item.quantity
-                    if item.location_out and loc_utils.rows_for(db, product):
-                        loc_utils.adjust_quantity(db, product, item.location_out, item.quantity)
+                    slot = _slot_for_location(db, product, item.location_out)
+                    if slot:
+                        loc_utils.adjust_quantity(db, product, slot, item.quantity)
+                    loc_utils.reconcile_stock(db, product)
             loan.items.clear()
             db.flush()
 
@@ -252,15 +270,15 @@ def update_loan(
                     )
 
                 location_out = (spec.get("location_out") or "").strip() or None
-                if location_out:
-                    rows = loc_utils.rows_for(db, product)
-                    if rows:
-                        try:
-                            loc_utils.subtract_from(db, product, location_out, qty)
-                        except ValueError as exc:
-                            raise HTTPException(status_code=400, detail=str(exc))
+                slot = _slot_for_location(db, product, location_out)
+                if location_out and slot:
+                    try:
+                        loc_utils.subtract_from_slot(db, product, slot, qty)
+                    except ValueError as exc:
+                        raise HTTPException(status_code=400, detail=str(exc))
 
                 product.stock -= qty
+                loc_utils.reconcile_stock(db, product)
                 loan.items.append(
                     LoanItem(
                         product_id=product.id,
@@ -334,12 +352,10 @@ def return_loan(
     if product:
         product.stock += data.returned_qty
         dest = (data.location_in or "").strip() or item.location_out or None
-        if dest and loc_utils.rows_for(db, product):
-            loc_utils.adjust_quantity(db, product, dest, data.returned_qty)
-        elif dest and not loc_utils.rows_for(db, product):
-            # Producto sin desglose: conservar la ubicación en el préstamo
-            # para referencia (el stock total ya se actualizó arriba).
-            pass
+        slot = _slot_for_location(db, product, dest)
+        if slot:
+            loc_utils.adjust_quantity(db, product, slot, data.returned_qty)
+        loc_utils.reconcile_stock(db, product)
 
     # Sincronizar la instantánea legacy del préstamo.
     loan.returned_qty = sum(i.returned_qty for i in loan.items)

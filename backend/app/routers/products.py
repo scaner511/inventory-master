@@ -528,7 +528,9 @@ def stock_entry(
             updated += 1
 
         previous = product.stock or 0
-        loc_utils.adjust_quantity(db, product, loc, qty)
+        # ``loc`` llega como nombre de almacén; el modelo de stock usa slots 1-3.
+        loc_slot = loc_utils.slot_index_for_name(db, loc) or 1
+        loc_utils.adjust_quantity(db, product, loc_slot, qty)
         db.flush()
         # products.stock = suma de ubicaciones (invariante).
         product.stock = sum(r.quantity for r in loc_utils.rows_for(db, product))
