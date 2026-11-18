@@ -11,7 +11,7 @@ Diseño:
 Los enlaces viven en la base de PLATAFORMA porque son control de acceso, no
 datos de negocio del cliente.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -19,8 +19,17 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db, get_tenant_session
-from app.deps import require_admin
-from app.models import CalculatorLink, Setting, Tenant, User
+from app.deps import get_current_user, get_tenant_db, require_admin
+from app.models import (
+    Appointment,
+    CalculatorLink,
+    Prospect,
+    ProspectActivity,
+    ProspectHistory,
+    Setting,
+    Tenant,
+    User,
+)
 from app.schemas import (
     CalculatorLinkBulkCreate,
     CalculatorLinkCreate,
@@ -28,6 +37,9 @@ from app.schemas import (
     CalculatorLinkOut,
     CalculatorLinksOut,
     CalculatorProductItem,
+    CalculatorProspectMini,
+    CalculatorVisitIn,
+    CalculatorVisitOut,
     CalculatorPublicAccessIn,
     CalculatorPublicStatusOut,
     calculator_products_from_raw,
@@ -542,3 +554,273 @@ def public_info(token: str, db: Session = Depends(get_db)):
             link, tenant, "expired", "Este enlace venció. Pide al administrador uno nuevo."
         )
     return _public_status(link, tenant, link.status)
+
+
+# ===================== VISITA / SINCRONIZACIÓN CRM =====================
+
+
+def _digits_only(value: str | None) -> str:
+    return "".join(c for c in (value or "") if c.isdigit())
+
+
+def _phone_key(phone: str | None) -> str | None:
+    """Clave normalizada de teléfono: últimos 10 dígitos (o None si es muy corto)."""
+    d = _digits_only(phone)
+    if len(d) < 7:
+        return None
+    return d[-10:]
+
+
+def _find_prospect_by_phone(tdb: Session, tenant_id: int, phone: str | None) -> Prospect | None:
+    """Busca un prospecto cuyo teléfono coincida (ignorando formato)."""
+    key = _phone_key(phone)
+    if not key:
+        return None
+    candidates = (
+        tdb.query(Prospect)
+        .filter(Prospect.tenant_id == tenant_id, Prospect.phone.isnot(None))
+        .all()
+    )
+    for p in candidates:
+        if _phone_key(p.phone) == key:
+            return p
+    return None
+
+
+def _search_prospects(tdb: Session, tenant_id: int, q: str, limit: int = 15) -> list[Prospect]:
+    like = f"%{q.strip()}%"
+    return (
+        tdb.query(Prospect)
+        .filter(Prospect.tenant_id == tenant_id)
+        .filter(Prospect.full_name.ilike(like) | Prospect.phone.ilike(like))
+        .order_by(Prospect.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def _prospect_mini(p: Prospect) -> CalculatorProspectMini:
+    return CalculatorProspectMini(
+        id=p.id, full_name=p.full_name, phone=p.phone, stage_slug=p.stage_slug
+    )
+
+
+def _resolve_visit_prospect(
+    tdb: Session, tenant_id: int, actor_id: int | None, data: CalculatorVisitIn
+) -> tuple[Prospect, bool]:
+    """Localiza el prospecto de la visita o lo crea si no existe.
+
+    Devuelve (prospecto, creado_nuevo).
+    """
+    if data.prospect_id:
+        p = (
+            tdb.query(Prospect)
+            .filter(Prospect.id == data.prospect_id, Prospect.tenant_id == tenant_id)
+            .first()
+        )
+        if p is None:
+            raise HTTPException(status_code=404, detail="Prospecto no encontrado")
+        return p, False
+
+    p = _find_prospect_by_phone(tdb, tenant_id, data.client_phone)
+    if p is not None:
+        return p, False
+
+    name = (data.client_name or "").strip()
+    phone = (data.client_phone or "").strip() or None
+    if not name:
+        name = f"Cliente {phone}" if phone else "Cliente calculadora"
+    p = Prospect(
+        tenant_id=tenant_id,
+        full_name=name[:200],
+        phone=phone,
+        status="nuevo",
+        commercial_status="nuevo",
+        stage_slug="nuevo",
+        owner_id=actor_id,
+        created_by=actor_id,
+    )
+    tdb.add(p)
+    tdb.flush()
+    tdb.add(
+        ProspectHistory(
+            tenant_id=tenant_id,
+            prospect_id=p.id,
+            user_id=actor_id,
+            action="PROSPECTO_CREADO",
+            detail=f"Prospecto '{p.full_name}' creado desde la calculadora",
+        )
+    )
+    return p, True
+
+
+def _register_visit(
+    tdb: Session, tenant_id: int, actor_id: int | None, data: CalculatorVisitIn
+) -> CalculatorVisitOut:
+    """Registra el resultado de una visita en el CRM del cliente.
+
+    - ``compra``: marca el prospecto como cliente convertido (etapa "cliente").
+    - ``reagendado``: crea una cita en el calendario y programa el seguimiento.
+    En ambos casos queda una actividad de visita y una entrada en el historial.
+    """
+    prospect, created = _resolve_visit_prospect(tdb, tenant_id, actor_id, data)
+    now = datetime.utcnow()
+    note = (data.note or "").strip() or None
+    total_txt = (
+        f" · cotización {data.quote_total:,.2f}" if data.quote_total else ""
+    )
+
+    tdb.add(
+        ProspectActivity(
+            tenant_id=tenant_id,
+            prospect_id=prospect.id,
+            kind="visita",
+            done_at=now,
+            observation=note,
+            result=data.result,
+            status="realizada",
+            user_id=actor_id,
+            created_by=actor_id,
+        )
+    )
+
+    appointment_id = None
+    if data.result == "compra":
+        prospect.status = "cliente_convertido"
+        prospect.commercial_status = "cliente_convertido"
+        prospect.stage_slug = "cliente"
+        prospect.converted_at = now
+        prospect.converted_by = actor_id
+        prospect.close_probability = 100
+        if data.quote_total:
+            prospect.setup_value = float(data.quote_total)
+        action = "VISITA_COMPRA"
+        detail = f"El cliente compró durante la visita{total_txt}"
+    else:
+        if data.reschedule_at is None:
+            raise HTTPException(
+                status_code=400, detail="Indica la fecha y hora para reagendar"
+            )
+        start = data.reschedule_at
+        if start.tzinfo is not None:
+            start = start.astimezone(timezone.utc).replace(tzinfo=None)
+        end = start + timedelta(hours=1)
+        appt = Appointment(
+            tenant_id=tenant_id,
+            prospect_id=prospect.id,
+            start_at=start,
+            end_at=end,
+            user_id=actor_id,
+            address=prospect.address,
+            phone=prospect.phone,
+            observation=note or "Visita reagendada desde la calculadora",
+            status="programada",
+            created_by=actor_id,
+        )
+        tdb.add(appt)
+        tdb.flush()
+        appointment_id = appt.id
+        prospect.next_followup_at = start
+        if prospect.stage_slug not in ("cliente", "no_interesado"):
+            prospect.stage_slug = "cita_programada"
+        action = "VISITA_REAGENDADA"
+        detail = f"Visita reagendada para {start.strftime('%d/%m/%Y %H:%M')}"
+
+    prospect.summary = detail + "."
+    tdb.add(
+        ProspectHistory(
+            tenant_id=tenant_id,
+            prospect_id=prospect.id,
+            user_id=actor_id,
+            action=action,
+            detail=detail,
+        )
+    )
+    tdb.commit()
+    return CalculatorVisitOut(
+        prospect_id=prospect.id,
+        prospect_name=prospect.full_name,
+        result=data.result,
+        appointment_id=appointment_id,
+        created_prospect=created,
+    )
+
+
+# ---- Autenticados (panel interno) ----
+
+
+@admin_router.get("/prospects", response_model=list[CalculatorProspectMini])
+def search_calculator_prospects(
+    q: str = Query(min_length=2, max_length=120),
+    limit: int = Query(default=15, ge=1, le=30),
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    """Busca prospectos por nombre o teléfono para vincularlos a la visita."""
+    return [_prospect_mini(p) for p in _search_prospects(db, user.tenant_id, q, limit)]
+
+
+@admin_router.post("/visit", response_model=CalculatorVisitOut)
+def register_calculator_visit(
+    data: CalculatorVisitIn,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    """Registra desde la calculadora si el cliente compró o se reagendó."""
+    return _register_visit(db, user.tenant_id, user.id, data)
+
+
+# ---- Públicos (enlace + dispositivo autorizado) ----
+
+
+def _public_device_link(db: Session, token: str, device_id: str | None) -> tuple[CalculatorLink, Tenant]:
+    """Valida token + dispositivo autorizado para los endpoints de visita."""
+    link = db.query(CalculatorLink).filter(CalculatorLink.token == token).first()
+    if link is None:
+        raise HTTPException(status_code=404, detail="Enlace de calculadora no encontrado")
+    tenant = db.get(Tenant, link.tenant_id)
+    if tenant is None or not tenant.is_active:
+        raise HTTPException(status_code=403, detail="El cliente de este enlace está desactivado.")
+    if "calculator" not in modules_from_raw(tenant.modules):
+        raise HTTPException(status_code=403, detail="La calculadora no está habilitada para este cliente.")
+    if link.status == "revoked":
+        raise HTTPException(status_code=403, detail="Este enlace fue revocado por el administrador.")
+    if _is_expired(link):
+        raise HTTPException(status_code=403, detail="Este enlace venció. Pide al administrador uno nuevo.")
+    if link.status != "active" or not device_id or link.device_id != device_id.strip():
+        raise HTTPException(
+            status_code=403,
+            detail="Este enlace no tiene un dispositivo autorizado activo.",
+        )
+    return link, tenant
+
+
+@public_router.get("/{token}/prospects", response_model=list[CalculatorProspectMini])
+def public_search_prospects(
+    token: str,
+    q: str = Query(min_length=2, max_length=120),
+    device_id: str = Query(min_length=8, max_length=128),
+    db: Session = Depends(get_db),
+):
+    """Búsqueda de prospectos desde un enlace público (dispositivo autorizado)."""
+    _link, tenant = _public_device_link(db, token, device_id)
+    tdb = get_tenant_session(tenant.id)
+    try:
+        return [_prospect_mini(p) for p in _search_prospects(tdb, tenant.id, q)]
+    finally:
+        tdb.close()
+
+
+@public_router.post("/{token}/visit", response_model=CalculatorVisitOut)
+def public_register_visit(
+    token: str,
+    data: CalculatorVisitIn,
+    db: Session = Depends(get_db),
+):
+    """Registra la visita desde el enlace público (dispositivo autorizado)."""
+    link, tenant = _public_device_link(db, token, data.device_id)
+    tdb = get_tenant_session(tenant.id)
+    try:
+        return _register_visit(tdb, tenant.id, link.created_by, data)
+    finally:
+        tdb.close()

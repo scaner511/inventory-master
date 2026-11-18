@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import toast from 'react-hot-toast'
-import { getCalculatorProducts, getSettings } from '../api/index.js'
+import {
+  getCalculatorProducts,
+  getSettings,
+  searchCalculatorProspects,
+  registerCalculatorVisit,
+} from '../api/index.js'
 
 // Array de productos (los mismos de master-calculadora)
 const products = [
@@ -195,7 +200,12 @@ function formatCurrency(amount) {
   return currencyPrefix + ' ' + formatted.toString()
 }
 
-export default function Calculator({ storageKey = 'masterCalculadora', extraProducts, calcSettings, businessName }) {
+export default function Calculator({ storageKey = 'masterCalculadora', extraProducts, calcSettings, businessName, visitApi }) {
+  // Sincronización de visitas con prospectos/citas. La página pública pasa
+  // su propia API ligada al token+dispositivo; en el panel se usan los
+  // endpoints autenticados por defecto.
+  const visitSearch = visitApi ? visitApi.search : searchCalculatorProspects
+  const visitRegister = visitApi ? visitApi.register : registerCalculatorVisit
   // Productos personalizados del cliente (los define el Super Admin). Si la
   // página pública ya los trae en `extraProducts` no se vuelven a pedir.
   const [customProducts, setCustomProducts] = useState(extraProducts || [])
@@ -223,6 +233,14 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
   const [customPrices, setCustomPrices] = useState({})
   const [recentCodes, setRecentCodes] = useState([])
   const [hydrated, setHydrated] = useState(false)
+  // Resultado de la visita (sincroniza prospectos y calendario)
+  const [showVisit, setShowVisit] = useState(false)
+  const [prospectQuery, setProspectQuery] = useState('')
+  const [prospectResults, setProspectResults] = useState([])
+  const [prospectPick, setProspectPick] = useState(null)
+  const [visitNote, setVisitNote] = useState('')
+  const [rescheduleAt, setRescheduleAt] = useState('')
+  const [visitBusy, setVisitBusy] = useState('')
 
   // Cargar productos personalizados: del prop (página pública) o del API (panel).
   useEffect(() => {
@@ -537,6 +555,70 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
       setDiscountEnabled(false)
       setCustomPrices({})
       toast.success('Datos limpiados')
+    }
+  }
+
+  // Búsqueda de prospectos con debounce (nombre o teléfono)
+  useEffect(() => {
+    const q = prospectQuery.trim()
+    if (q.length < 2) {
+      setProspectResults([])
+      return
+    }
+    const t = setTimeout(async () => {
+      try {
+        setProspectResults(await visitSearch(q))
+      } catch {
+        setProspectResults([])
+      }
+    }, 350)
+    return () => clearTimeout(t)
+  }, [prospectQuery, visitSearch])
+
+  function pickProspect(p) {
+    setProspectPick(p)
+    setProspectQuery(p.full_name)
+    setProspectResults([])
+    if (p.phone && !clientPhone) setClientPhone(p.phone)
+    if (!clientName) setClientName(p.full_name)
+  }
+
+  function clearProspectPick() {
+    setProspectPick(null)
+    setProspectQuery('')
+    setProspectResults([])
+  }
+
+  async function registerVisit(result) {
+    if (result === 'reagendado' && !rescheduleAt) {
+      return toast.error('Indica la fecha y hora para reagendar')
+    }
+    setVisitBusy(result)
+    try {
+      const res = await visitRegister({
+        prospect_id: prospectPick ? prospectPick.id : null,
+        client_name: clientName || null,
+        client_phone: clientPhone || null,
+        result,
+        reschedule_at: result === 'reagendado' ? new Date(rescheduleAt).toISOString() : null,
+        note: visitNote || null,
+        quote_total: totalPrice || null,
+      })
+      toast.success(
+        result === 'compra'
+          ? `Compra registrada: ${res.prospect_name} marcado como cliente`
+          : `Visita reagendada: nueva cita en el calendario`
+      )
+      setProspectPick(null)
+      setProspectQuery('')
+      setProspectResults([])
+      setVisitNote('')
+      setRescheduleAt('')
+      setShowVisit(false)
+    } catch (err) {
+      toast.error(err?.message || 'No se pudo registrar la visita')
+    } finally {
+      setVisitBusy('')
     }
   }
 
@@ -987,6 +1069,112 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
           >
             Limpiar Todo
           </button>
+        </div>
+
+        {/* Resultado de la visita: sincroniza prospectos y calendario */}
+        <div className="mt-6 border-t border-slate-600 pt-4">
+          <button
+            type="button"
+            onClick={() => setShowVisit((v) => !v)}
+            className="text-sm font-semibold text-blue-400 transition hover:text-blue-300"
+          >
+            {showVisit ? '▾' : '▸'} Resultado de la visita (prospectos / calendario)
+          </button>
+          {showVisit && (
+            <div className="mt-3 space-y-3 rounded-lg bg-slate-700/60 p-4">
+              <div className="relative">
+                <label className="mb-1 block text-xs font-semibold text-slate-300">
+                  Vincular prospecto (opcional — si no eliges uno, se usa el nombre/teléfono del cliente o se crea uno nuevo)
+                </label>
+                {prospectPick ? (
+                  <div className="flex items-center justify-between rounded-lg border border-blue-500 bg-slate-800 px-4 py-2">
+                    <span className="text-sm text-white">
+                      {prospectPick.full_name}
+                      {prospectPick.phone ? ` · ${prospectPick.phone}` : ''}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={clearProspectPick}
+                      className="text-xs font-semibold text-red-400 hover:text-red-300"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      value={prospectQuery}
+                      onChange={(e) => {
+                        setProspectQuery(e.target.value)
+                        if (prospectPick) setProspectPick(null)
+                      }}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-blue-500 focus:outline-none"
+                      placeholder="Buscar prospecto por nombre o teléfono…"
+                    />
+                    {prospectResults.length > 0 && (
+                      <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-slate-600 bg-slate-800 shadow-lg">
+                        {prospectResults.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => pickProspect(p)}
+                            className="block w-full px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-700"
+                          >
+                            {p.full_name}
+                            {p.phone ? ` · ${p.phone}` : ''}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-300">Nota de la visita (opcional)</label>
+                <input
+                  type="text"
+                  value={visitNote}
+                  onChange={(e) => setVisitNote(e.target.value)}
+                  maxLength={500}
+                  className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-blue-500 focus:outline-none"
+                  placeholder="Ej: le gustó el modelo, vuelve el próximo mes…"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-300">
+                  Reagendar para (fecha y hora)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={rescheduleAt}
+                  onChange={(e) => setRescheduleAt(e.target.value)}
+                  className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => registerVisit('compra')}
+                  disabled={!!visitBusy}
+                  className="flex-1 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-green-700 disabled:opacity-50"
+                >
+                  {visitBusy === 'compra' ? 'Registrando…' : '✓ Cliente compró'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => registerVisit('reagendado')}
+                  disabled={!!visitBusy}
+                  className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {visitBusy === 'reagendado' ? 'Registrando…' : 'Reagendar visita'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

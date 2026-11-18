@@ -387,6 +387,40 @@ class CalculatorLinksOut(BaseModel):
     links: list[CalculatorLinkOut] = Field(default_factory=list)
 
 
+class CalculatorProspectMini(BaseModel):
+    """Datos mínimos de un prospecto para elegirlo desde la calculadora."""
+
+    id: int
+    full_name: str
+    phone: str | None = None
+    stage_slug: str | None = None
+
+
+class CalculatorVisitIn(BaseModel):
+    """Resultado de una visita registrada desde la calculadora.
+
+    ``device_id`` solo se exige en los endpoints públicos (enlace + equipo
+    autorizado); en los autenticados se ignora.
+    """
+
+    device_id: str | None = Field(default=None, max_length=128)
+    prospect_id: int | None = None
+    client_name: str | None = Field(default=None, max_length=200)
+    client_phone: str | None = Field(default=None, max_length=40)
+    result: str = Field(pattern="^(compra|reagendado)$")
+    reschedule_at: datetime | None = None
+    note: str | None = Field(default=None, max_length=500)
+    quote_total: float | None = Field(default=None, ge=0)
+
+
+class CalculatorVisitOut(BaseModel):
+    prospect_id: int
+    prospect_name: str
+    result: str
+    appointment_id: int | None = None
+    created_prospect: bool = False
+
+
 class CalculatorPublicAccessIn(BaseModel):
     """Identificación del dispositivo que intenta abrir un enlace público."""
 

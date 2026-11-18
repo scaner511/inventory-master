@@ -797,3 +797,44 @@ export async function getPublicCalculatorStatus(token, deviceId) {
   }
   return data
 }
+
+// ---- Calculadora: sincronización de visitas con prospectos y citas ----
+
+export async function searchCalculatorProspects(q) {
+  const { data } = await api.get('/calculator/prospects', { params: { q } })
+  return data
+}
+
+export async function registerCalculatorVisit(payload) {
+  const { data } = await api.post('/calculator/visit', payload)
+  return data
+}
+
+// Versiones públicas (enlace + dispositivo autorizado), fetch directo como
+// el resto de endpoints públicos para no depender de la sesión.
+export async function searchPublicCalculatorProspects(token, deviceId, q) {
+  const res = await fetch(
+    `${API_BASE}/calculator/public/${encodeURIComponent(token)}/prospects?q=${encodeURIComponent(q)}&device_id=${encodeURIComponent(deviceId)}`,
+    { method: 'GET' },
+  )
+  const data = await res.json().catch(() => [])
+  if (!res.ok) {
+    const message = typeof data?.detail === 'string' ? data.detail : 'No se pudieron buscar prospectos'
+    throw new Error(message)
+  }
+  return data
+}
+
+export async function registerPublicCalculatorVisit(token, deviceId, payload) {
+  const res = await fetch(`${API_BASE}/calculator/public/${encodeURIComponent(token)}/visit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, device_id: deviceId }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const message = typeof data?.detail === 'string' ? data.detail : 'No se pudo registrar la visita'
+    throw new Error(message)
+  }
+  return data
+}

@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
-import { getPublicCalculatorStatus, requestPublicCalculatorAccess } from '../api/index.js'
+import {
+  getPublicCalculatorStatus,
+  registerPublicCalculatorVisit,
+  requestPublicCalculatorAccess,
+  searchPublicCalculatorProspects,
+} from '../api/index.js'
 import Calculator from './Calculator.jsx'
 
 const DEVICE_KEY = 'im_calc_device_id'
@@ -282,6 +287,10 @@ export default function PublicCalculator() {
         extraProducts={info.products}
         calcSettings={{ itbis_rate: info.itbis_rate, currency: info.currency }}
         businessName={info.tenant_name}
+        visitApi={{
+          search: (q) => searchPublicCalculatorProspects(token, getDeviceId(), q),
+          register: (payload) => registerPublicCalculatorVisit(token, getDeviceId(), payload),
+        }}
       />
     </div>
   )
