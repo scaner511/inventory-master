@@ -731,6 +731,11 @@ export async function createCalculatorLink(payload = {}) {
   return data
 }
 
+export async function createCalculatorLinksBulk(payload = {}) {
+  const { data } = await api.post('/calculator/links/bulk', payload)
+  return data
+}
+
 export async function updateCalculatorLinkExpiration(id, expiresInDays) {
   const { data } = await api.put(`/calculator/links/${id}/expiration`, {
     expires_in_days: expiresInDays,

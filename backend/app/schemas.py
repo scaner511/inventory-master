@@ -340,6 +340,15 @@ class CalculatorLinkCreate(BaseModel):
     expires_in_days: int | None = Field(default=None, ge=1, le=3650)
 
 
+class CalculatorLinkBulkCreate(BaseModel):
+    """Generación masiva de enlaces (p. ej. una red de vendedores)."""
+
+    count: int = Field(ge=1, le=1000)
+    label_prefix: str | None = Field(default=None, max_length=100)
+    # Vigencia en días aplicada a todos los enlaces generados.
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+
+
 class CalculatorLinkExpirationUpdate(BaseModel):
     """Actualiza la vigencia de un enlace (None = sin vencimiento hasta revocar)."""
 

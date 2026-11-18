@@ -6,6 +6,7 @@ import {
   approveCalculatorLink,
   connectDriveUrl,
   createCalculatorLink,
+  createCalculatorLinksBulk,
   createUser,
   deleteCalculatorLink,
   deleteUser,
@@ -1047,6 +1048,9 @@ export function CalculatorTab() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState('')
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkForm, setBulkForm] = useState({ count: '10', prefix: '', expires: '' })
+  const [bulkSaving, setBulkSaving] = useState(false)
 
   const load = useCallback(async (silent = false) => {
     try {
@@ -1087,6 +1091,47 @@ export function CalculatorTab() {
     } finally {
       setCreating(false)
     }
+  }
+
+  async function handleBulkCreate(e) {
+    e.preventDefault()
+    const count = Number(bulkForm.count)
+    if (!Number.isInteger(count) || count < 1) {
+      return toast.error('Indica una cantidad válida de enlaces')
+    }
+    setBulkSaving(true)
+    try {
+      const links = await createCalculatorLinksBulk({
+        count,
+        label_prefix: bulkForm.prefix.trim() || null,
+        expires_in_days: bulkForm.expires === '' ? null : Number(bulkForm.expires),
+      })
+      toast.success(`${links.length} enlace(s) generado(s)`)
+      setBulkOpen(false)
+      setBulkForm({ count: '10', prefix: '', expires: '' })
+      await load(true)
+      downloadLinksCsv(links)
+    } catch {
+      /* el interceptor muestra el error */
+    } finally {
+      setBulkSaving(false)
+    }
+  }
+
+  function downloadLinksCsv(links) {
+    const rows = [
+      ['Nombre', 'Enlace'],
+      ...links.map((l) => [l.label || '', calculatorUrlFor(l)]),
+    ]
+    const csv = rows
+      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'enlaces-calculadora.csv'
+    a.click()
+    URL.revokeObjectURL(a.href)
   }
 
   async function copyLink(link) {
@@ -1179,6 +1224,11 @@ export function CalculatorTab() {
           <Button type="submit" disabled={creating || limitReached}>
             {creating ? 'Creando…' : '+ Crear enlace'}
           </Button>
+          {!limitReached && (
+            <Button type="button" variant="ghost" onClick={() => setBulkOpen(true)}>
+              ⇩ Generar en lote
+            </Button>
+          )}
         </form>
 
         {limitReached && (
@@ -1366,6 +1416,57 @@ export function CalculatorTab() {
           })}
         </div>
       )}
+
+      {/* Modal generar enlaces en lote */}
+      <Modal open={bulkOpen} onClose={() => setBulkOpen(false)} title="Generar enlaces en lote" wide>
+        <form onSubmit={handleBulkCreate} className="space-y-4">
+          <p className="text-sm text-slate-400">
+            Crea varios enlaces de una vez (por ejemplo, uno por vendedor). Las etiquetas quedan
+            numeradas y al finalizar se descarga un CSV con todos los enlaces listos para compartir.
+            Cupo disponible: <span className="font-bold text-slate-200">{data.limit - data.used}</span>.
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Field label="Cantidad" hint="Máx. 1000 por vez">
+              <Input
+                type="number"
+                min="1"
+                max="1000"
+                value={bulkForm.count}
+                onChange={(e) => setBulkForm({ ...bulkForm, count: e.target.value })}
+                required
+              />
+            </Field>
+            <Field label="Prefijo de nombre" hint="Ej: Vendedor">
+              <Input
+                value={bulkForm.prefix}
+                onChange={(e) => setBulkForm({ ...bulkForm, prefix: e.target.value })}
+                maxLength={100}
+                placeholder="Vendedor"
+              />
+            </Field>
+            <Field label="Vigencia">
+              <Select
+                value={bulkForm.expires}
+                onChange={(e) => setBulkForm({ ...bulkForm, expires: e.target.value })}
+              >
+                {CALCULATOR_EXPIRY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setBulkOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" variant="success" disabled={bulkSaving}>
+              {bulkSaving ? 'Generando…' : 'Generar enlaces'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

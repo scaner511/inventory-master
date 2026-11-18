@@ -22,6 +22,7 @@ from app.database import get_db, get_tenant_session
 from app.deps import require_admin
 from app.models import CalculatorLink, Setting, Tenant, User
 from app.schemas import (
+    CalculatorLinkBulkCreate,
     CalculatorLinkCreate,
     CalculatorLinkExpirationUpdate,
     CalculatorLinkOut,
@@ -192,6 +193,56 @@ def create_link(
     db.commit()
     db.refresh(link)
     return link
+
+
+@admin_router.post("/links/bulk", response_model=list[CalculatorLinkOut], status_code=201)
+def create_links_bulk(
+    data: CalculatorLinkBulkCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Genera varios enlaces de una vez (redes de vendedores, sucursales).
+
+    Crea hasta el cupo disponible del cliente; si se piden más de los que
+    quedan, solo genera los que caben. Las etiquetas quedan numeradas
+    ("<prefijo> 001", "<prefijo> 002", ...) para identificarlas.
+    """
+    tenant = db.get(Tenant, user.tenant_id)
+    limit = _tenant_limit(tenant)
+    used = _used_links(db, user.tenant_id)
+    count = min(int(data.count), max(limit - used, 0))
+    if count <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No quedan enlaces disponibles (límite {limit}, usados {used}).",
+        )
+
+    prefix = (data.label_prefix or "").strip()
+    expires_at = (
+        datetime.utcnow() + timedelta(days=int(data.expires_in_days))
+        if data.expires_in_days is not None
+        else None
+    )
+
+    links = []
+    for i in range(count):
+        number = used + i + 1
+        label = f"{prefix} {number:03d}".strip() if prefix else f"Enlace {number:03d}"
+        link = CalculatorLink(
+            tenant_id=user.tenant_id,
+            token=_generate_token(db),
+            label=label[:120],
+            status="available",
+            created_by=user.id,
+            expires_at=expires_at,
+        )
+        db.add(link)
+        links.append(link)
+
+    db.commit()
+    for link in links:
+        db.refresh(link)
+    return links
 
 
 @admin_router.put("/links/{link_id}/expiration", response_model=CalculatorLinkOut)
