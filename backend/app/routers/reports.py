@@ -4,12 +4,12 @@ from datetime import date, datetime, time, timedelta
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal as PlatformSessionLocal
-from app.deps import get_current_user, get_or_create_settings, get_tenant_db, require_admin
+from app.deps import get_current_user, get_or_create_settings, get_tenant_db
 from app.models import Loan, User
 from app.services.pdf import generate_loan_pdf
 
@@ -169,13 +169,14 @@ def _seller_section(label: str) -> str:
     return section or label.strip() or "General"
 
 
-@router.get("/sales")
-def sales_report(
-    period: str = "month",
-    on_date: str | None = None,
-    commission_pct: float = 10,
-    db: Session = Depends(get_tenant_db),
-    user: User = Depends(get_current_user),
+def _build_sales_report(
+    db: Session,
+    tenant_id: int,
+    period: str,
+    on_date: str | None,
+    commission_pct: float,
+    viewer_id: int | None = None,
+    viewer_role: str | None = None,
 ):
     """Reporte de ventas por vendedor para el período elegido.
 
@@ -195,12 +196,13 @@ def sales_report(
     start, end = _sales_period(period, anchor)
 
     # Nombres de prospectos para los detalles.
-    prospect_names = {
-        p.id: p.full_name
-        for p in db.query(Prospect.id, Prospect.full_name)
-        .filter(Prospect.tenant_id == user.tenant_id)
+    prospect_rows = (
+        db.query(Prospect.id, Prospect.full_name, Prospect.owner_id)
+        .filter(Prospect.tenant_id == tenant_id)
         .all()
-    }
+    )
+    prospect_names = {pid: name for pid, name, _owner in prospect_rows}
+    prospect_owners = {pid: owner for pid, _name, owner in prospect_rows}
 
     sellers: dict[str, dict] = {}
 
@@ -226,7 +228,7 @@ def sales_report(
     events = (
         db.query(VisitEvent)
         .filter(
-            VisitEvent.tenant_id == user.tenant_id,
+            VisitEvent.tenant_id == tenant_id,
             VisitEvent.created_at >= start,
             VisitEvent.created_at < end,
         )
@@ -237,19 +239,27 @@ def sales_report(
         s = entry(e.seller_label)
         day = e.created_at.strftime("%Y-%m-%d") if e.created_at else None
         pname = prospect_names.get(e.prospect_id, "Cliente")
-        s["presentations"] += 1
-        s["presentation_list"].append({"date": day, "source": "calculadora", "detail": e.result})
+        # Las ventas registradas por cierre de cita (source='cita') ya cuentan
+        # como presentación en el bucle de cierres; no se duplican.
+        if e.source != "cita":
+            s["presentations"] += 1
+            s["presentation_list"].append({"date": day, "source": "calculadora", "detail": e.result})
         if e.result == "compra":
             total = float(e.quote_total or 0)
             s["clients_closed"] += 1
             s["closed_list"].append({"name": pname, "date": day, "total": total})
+            can_approve = (
+                viewer_role in ("admin", "superadmin")
+                or (viewer_id is not None and viewer_id in {e.user_id, prospect_owners.get(e.prospect_id)})
+            )
             item = {
                 "event_id": e.id,
                 "name": pname,
                 "date": day,
                 "total": total,
                 "approved": bool(e.approved),
-                "source": "calculadora",
+                "source": e.source or "calculadora",
+                "can_approve": bool(can_approve),
             }
             s["sales_list"].append(item)
             # Solo las ventas aprobadas cuentan para comisión.
@@ -262,7 +272,7 @@ def sales_report(
     captured = (
         db.query(Prospect)
         .filter(
-            Prospect.tenant_id == user.tenant_id,
+            Prospect.tenant_id == tenant_id,
             Prospect.created_at >= start,
             Prospect.created_at < end,
             Prospect.prospector_name.isnot(None),
@@ -282,7 +292,7 @@ def sales_report(
     closures = (
         db.query(AppointmentClosure)
         .filter(
-            AppointmentClosure.tenant_id == user.tenant_id,
+            AppointmentClosure.tenant_id == tenant_id,
             AppointmentClosure.visit_date >= start.date(),
             AppointmentClosure.visit_date < end.date(),
         )
@@ -314,26 +324,10 @@ def sales_report(
                 "name": pname,
             }
         )
-        if c.result == "venta_realizada":
-            total = float(c.monthly_value or 0) + float(c.setup_value or 0)
-            s["clients_closed"] += 1
-            s["closed_list"].append(
-                {"name": pname, "date": c.visit_date.isoformat() if c.visit_date else None, "total": total}
-            )
-            s["sales_total"] += total
-            s["sales_list"].append(
-                {
-                    "event_id": None,
-                    "name": pname,
-                    "date": c.visit_date.isoformat() if c.visit_date else None,
-                    "total": total,
-                    "approved": True,
-                    "source": "cita",
-                }
-            )
+
 
     # ITBIS configurado por el cliente (por defecto 18%).
-    settings_obj = get_or_create_settings(db, user.tenant_id)
+    settings_obj = get_or_create_settings(db, tenant_id)
     itbis_rate = float(settings_obj.itbis_rate or 18)
 
     rows = sorted(sellers.values(), key=lambda s: (-s["sales_total"], s["seller"]))
@@ -355,17 +349,153 @@ def sales_report(
             "presentations": sum(s["presentations"] for s in rows),
             "clients_closed": sum(s["clients_closed"] for s in rows),
             "prospects_captured": sum(s["prospects_captured"] for s in rows),
+            "sellers_count": len(rows),
         },
     }
+
+@router.get("/sales")
+def sales_report(
+    period: str = "month",
+    on_date: str | None = None,
+    commission_pct: float = 10,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    """Reporte de ventas por vendedor para el período elegido."""
+    return _build_sales_report(
+        db, user.tenant_id, period, on_date, commission_pct,
+        viewer_id=user.id, viewer_role=user.role,
+    )
+
+
+def _render_sales_pdf(data: dict) -> bytes:
+    """Renderiza el reporte de ventas a PDF con reportlab."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    W, _H = letter
+    left, right = 40, W - 40
+
+    def new_page():
+        c.showPage()
+        c.setFont("Helvetica", 8)
+        c.drawRightString(right, 20, "Inventory Master OS - Reporte de Ventas")
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(left, 750, "Reporte Mensual de Ventas")
+    c.setFont("Helvetica", 10)
+    c.drawString(left, 732, f"Periodo: {data['period']}  |  {data['from']} a {data['to']}")
+    c.drawString(
+        left, 716,
+        f"Comision: {data['commission_pct']}%  |  ITBIS: {data['itbis_rate']}%",
+    )
+
+    t = data["totals"]
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(left, 690, "TOTALES")
+    c.setFont("Helvetica", 10)
+    y = 672
+    rows = [
+        ("Ventas aprobadas", f"RD$ {t['sales_total']:,.2f}"),
+        ("Ventas pendientes", f"RD$ {t['pending_sales_total']:,.2f}"),
+        ("Base sin ITBIS", f"RD$ {t['sales_base']:,.2f}"),
+        ("Comision", f"RD$ {t['commission']:,.2f}"),
+        ("Clientes cerrados", str(t["clients_closed"])),
+        ("Presentaciones", str(t["presentations"])),
+        ("Prospectos captados", str(t["prospects_captured"])),
+        ("Vendedores", str(t["sellers_count"])),
+    ]
+    for label, val in rows:
+        c.drawString(left + 10, y, label)
+        c.drawString(left + 220, y, val)
+        y -= 16
+
+    y -= 10
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(left, y, "POR VENDEDOR")
+    y -= 18
+    c.setFont("Helvetica-Bold", 8)
+    headers = ["Vendedor", "Seccion", "Clientes", "Prospectos", "Presentaciones", "Ventas", "Comision"]
+    xs = [left, left + 130, left + 190, left + 240, left + 300, left + 360, left + 440]
+    for x, h in zip(xs, headers):
+        c.drawString(x, y, h)
+    y -= 6
+    c.line(left, y + 4, right, y + 4)
+    y -= 12
+    c.setFont("Helvetica", 8)
+
+    sections: dict[str, list] = {}
+    for s in data["sellers"]:
+        sections.setdefault(s["section"], []).append(s)
+
+    for section in sorted(sections):
+        if y < 70:
+            new_page()
+            y = 770
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(left, y, section.upper())
+        y -= 14
+        for s in sections[section]:
+            if y < 60:
+                new_page()
+                y = 770
+            base = s["sales_total"] / (1 + (data["itbis_rate"] or 18) / 100)
+            comm = base * data["commission_pct"] / 100
+            vals = [
+                s["seller"][:24],
+                "",
+                str(s["clients_closed"]),
+                str(s["prospects_captured"]),
+                str(s["presentations"]),
+                f"{s['sales_total']:,.2f}",
+                f"{comm:,.2f}",
+            ]
+            for x, v in zip(xs, vals):
+                c.drawString(x, y, v)
+            y -= 13
+        y -= 6
+
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+@router.get("/sales/pdf")
+def sales_report_pdf(
+    period: str = "month",
+    on_date: str | None = None,
+    commission_pct: float = 10,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(get_current_user),
+):
+    """Exporta el reporte de ventas a PDF."""
+    data = _build_sales_report(
+        db, user.tenant_id, period, on_date, commission_pct,
+        viewer_id=user.id, viewer_role=user.role,
+    )
+    pdf = _render_sales_pdf(data)
+    filename = f"reporte-ventas-{period}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 @router.post("/sales-events/{event_id}/approval")
 def set_sale_approval(
     event_id: int,
     payload: dict,
     db: Session = Depends(get_tenant_db),
-    user: User = Depends(require_admin),
+    user: User = Depends(get_current_user),
 ):
-    """Aprueba o revoca una venta de la calculadora para comisión (solo admin)."""
+    """Aprueba o revoca una venta para comisión.
+
+    Solo el administrador o el usuario encargado de la venta (quien la
+    registró o el responsable del prospecto) puede aprobarla.
+    """
     event = (
         db.query(VisitEvent)
         .filter(
@@ -377,6 +507,21 @@ def set_sale_approval(
     )
     if event is None:
         raise HTTPException(status_code=404, detail="Venta no encontrada")
+    prospect = (
+        db.query(Prospect)
+        .filter(Prospect.id == event.prospect_id, Prospect.tenant_id == user.tenant_id)
+        .first()
+    )
+    allowed = (
+        user.role in ("admin", "superadmin")
+        or user.id == event.user_id
+        or (prospect is not None and user.id == prospect.owner_id)
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el usuario encargado o un administrador puede aprobar ventas",
+        )
     approved = bool(payload.get("approved"))
     event.approved = approved
     event.approved_by = user.id if approved else None

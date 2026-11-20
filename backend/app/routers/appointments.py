@@ -24,6 +24,7 @@ from app.models import (
     ProspectHistory,
     SalesPipeline,
     User,
+    VisitEvent,
 )
 from app.schemas import (
     AppointmentClosureCreate,
@@ -385,6 +386,20 @@ def close_appointment(
         p.converted_at = datetime.utcnow()
         p.converted_by = user.id
         p.close_probability = 100
+        # La venta queda PENDIENTE de aprobación para comisión (todo manual).
+        venta_total = float(data.monthly_value or 0) + float(data.setup_value or 0)
+        db.add(
+            VisitEvent(
+                tenant_id=user.tenant_id,
+                prospect_id=p.id,
+                seller_label=(user.username or "Usuario")[:160],
+                user_id=user.id,
+                result="compra",
+                source="cita",
+                quote_total=venta_total or None,
+                note=(data.result_detail or "")[:500] or None,
+            )
+        )
     elif data.result == "no_interesado":
         p.status = "no_interesado"
         p.commercial_status = "no_interesado"

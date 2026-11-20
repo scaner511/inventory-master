@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getSalesReport, setSaleApproval } from '../api/index.js'
-import { useAuth } from '../context/AuthContext.jsx'
+import { downloadSalesReportPdf, getSalesReport, setSaleApproval } from '../api/index.js'
 import { Button, Field, Input, Select } from '../components/ui/Form.jsx'
 
 const PERIODS = [
@@ -24,8 +23,6 @@ function fmtDate(d) {
 }
 
 export default function SalesReport() {
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin'
   const today = new Date().toISOString().slice(0, 10)
   const [period, setPeriod] = useState('month')
   const [onDate, setOnDate] = useState(today)
@@ -34,6 +31,7 @@ export default function SalesReport() {
   const [loading, setLoading] = useState(false)
   const [openSeller, setOpenSeller] = useState(null)
   const [openSections, setOpenSections] = useState({})
+  const [pdfBusy, setPdfBusy] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -64,6 +62,21 @@ export default function SalesReport() {
     }
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
   }, [data])
+
+  async function exportPdf() {
+    setPdfBusy(true)
+    try {
+      await downloadSalesReportPdf({
+        period,
+        on_date: onDate || undefined,
+        commission_pct: Number(commissionPct) || 0,
+      })
+    } catch {
+      /* interceptor */
+    } finally {
+      setPdfBusy(false)
+    }
+  }
 
   async function toggleApproval(eventId, approved) {
     try {
@@ -109,9 +122,12 @@ export default function SalesReport() {
             onChange={(e) => setCommissionPct(e.target.value)}
           />
         </Field>
-        <div className="flex items-end">
+        <div className="flex items-end gap-2">
           <Button type="button" variant="ghost" onClick={load} disabled={loading}>
             {loading ? 'Cargando…' : 'Actualizar'}
+          </Button>
+          <Button type="button" variant="success" onClick={exportPdf} disabled={pdfBusy || loading}>
+            {pdfBusy ? 'Generando…' : 'Exportar PDF'}
           </Button>
         </div>
       </div>
@@ -243,11 +259,7 @@ export default function SalesReport() {
                                     </span>
                                     <span className="flex shrink-0 items-center gap-2">
                                       <span className="text-xs text-slate-400">{fmtMoney(i.total)}</span>
-                                      {i.event_id == null ? (
-                                        <span className="rounded bg-green-500/15 px-1.5 py-0.5 text-[10px] font-bold text-green-400">
-                                          Aprobada
-                                        </span>
-                                      ) : isAdmin ? (
+                                      {i.can_approve ? (
                                         <button
                                           type="button"
                                           onClick={() => toggleApproval(i.event_id, !i.approved)}

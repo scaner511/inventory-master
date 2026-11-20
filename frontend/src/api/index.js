@@ -850,3 +850,16 @@ export async function setSaleApproval(eventId, approved) {
   const { data } = await api.post(`/reports/sales-events/${eventId}/approval`, { approved })
   return data
 }
+
+export async function downloadSalesReportPdf({ period = 'month', on_date, commission_pct = 10 } = {}) {
+  const { data } = await api.get('/reports/sales/pdf', {
+    params: { period, on_date, commission_pct },
+    responseType: 'blob',
+  })
+  const url = URL.createObjectURL(data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `reporte-ventas-${period}.pdf`
+  a.click()
+  URL.revokeObjectURL(url)
+}

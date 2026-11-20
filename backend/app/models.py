@@ -907,6 +907,8 @@ class VisitEvent(BaseBusiness):
     # Usuario interno que registró la visita (NULL en enlaces públicos).
     user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     result: Mapped[str] = mapped_column(String(20))  # compra | reagendado
+    # Origen del evento: 'calculadora' (visita) o 'cita' (venta por cierre de visita).
+    source: Mapped[str] = mapped_column(String(20), default="calculadora")
     # Solo las ventas APROBADAS cuentan para el pago de comisión.
     approved: Mapped[bool] = mapped_column(Boolean, default=False)
     approved_by: Mapped[int | None] = mapped_column(Integer, nullable=True)

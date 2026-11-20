@@ -880,6 +880,7 @@ TENANT_COLUMN_MIGRATIONS = [
     ("visit_events", "approved", "BOOLEAN DEFAULT FALSE"),
     ("visit_events", "approved_by", "INTEGER"),
     ("visit_events", "approved_at", "TIMESTAMP"),
+    ("visit_events", "source", "VARCHAR(20) DEFAULT 'calculadora'"),
 ]
 
 
