@@ -11,6 +11,7 @@ const NAV = [
   { to: '/prospects', label: 'Prospectos', module: 'prospects', icon: 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-2.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3 3 3 0 013 3z' },
   { to: '/calendar', label: 'Calendario', module: 'calendar', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
   { to: '/commercial', label: 'Dashboard Comercial', module: 'commercial', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2' },
+  { to: '/sales-report', label: 'Reporte Mensual', module: 'commercial', icon: 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
   { to: '/captacion', label: 'Captación', module: 'capture', icon: 'M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7' },
   { to: '/captacion/dashboard', label: 'Dashboard Captación', module: 'capture', icon: 'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z' },
   { to: '/calculator', label: 'Calculadora', module: 'calculator', icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 14h.01M12 17h.01M15 17h.01M12 14h.01M9 14h.01M15 11h.01M12 11h.01M9 11h.01M12 8h.01M15 8h.01M9 8h.01' },

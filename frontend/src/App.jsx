@@ -9,6 +9,7 @@ import TemporaryStorage from './pages/TemporaryStorage.jsx'
 import Prospects from './pages/Prospects.jsx'
 import Calendar from './pages/Calendar.jsx'
 import CommercialDashboard from './pages/CommercialDashboard.jsx'
+import SalesReport from './pages/SalesReport.jsx'
 import CaptureAdmin from './pages/CaptureAdmin.jsx'
 import CaptureDashboard from './pages/CaptureDashboard.jsx'
 import CapturePublic from './pages/CapturePublic.jsx'
@@ -180,6 +181,16 @@ export default function App() {
             <LicenseGate>
               <ModuleGate module="commercial">
                 <CommercialDashboard />
+              </ModuleGate>
+            </LicenseGate>
+          }
+        />
+        <Route
+          path="/sales-report"
+          element={
+            <LicenseGate>
+              <ModuleGate module="commercial">
+                <SalesReport />
               </ModuleGate>
             </LicenseGate>
           }

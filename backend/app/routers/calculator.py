@@ -29,6 +29,7 @@ from app.models import (
     Setting,
     Tenant,
     User,
+    VisitEvent,
 )
 from app.schemas import (
     CalculatorLinkBulkCreate,
@@ -606,7 +607,11 @@ def _prospect_mini(p: Prospect) -> CalculatorProspectMini:
 
 
 def _resolve_visit_prospect(
-    tdb: Session, tenant_id: int, actor_id: int | None, data: CalculatorVisitIn
+    tdb: Session,
+    tenant_id: int,
+    actor_id: int | None,
+    data: CalculatorVisitIn,
+    seller_label: str | None = None,
 ) -> tuple[Prospect, bool]:
     """Localiza el prospecto de la visita o lo crea si no existe.
 
@@ -639,6 +644,7 @@ def _resolve_visit_prospect(
         stage_slug="nuevo",
         owner_id=actor_id,
         created_by=actor_id,
+        prospector_name=(seller_label or "")[:120] or None,
     )
     tdb.add(p)
     tdb.flush()
@@ -655,7 +661,15 @@ def _resolve_visit_prospect(
 
 
 def _register_visit(
-    tdb: Session, tenant_id: int, actor_id: int | None, data: CalculatorVisitIn
+    tdb: Session,
+    tenant_id: int,
+    actor_id: int | None,
+    data: CalculatorVisitIn,
+    *,
+    seller_label: str,
+    link_id: int | None = None,
+    device_id: str | None = None,
+    user_id: int | None = None,
 ) -> CalculatorVisitOut:
     """Registra el resultado de una visita en el CRM del cliente.
 
@@ -663,7 +677,7 @@ def _register_visit(
     - ``reagendado``: crea una cita en el calendario y programa el seguimiento.
     En ambos casos queda una actividad de visita y una entrada en el historial.
     """
-    prospect, created = _resolve_visit_prospect(tdb, tenant_id, actor_id, data)
+    prospect, created = _resolve_visit_prospect(tdb, tenant_id, actor_id, data, seller_label)
     now = datetime.utcnow()
     note = (data.note or "").strip() or None
     total_txt = (
@@ -681,6 +695,21 @@ def _register_visit(
             status="realizada",
             user_id=actor_id,
             created_by=actor_id,
+        )
+    )
+
+    # Evento para el Reporte Mensual: atribuye la visita al vendedor/enlace.
+    tdb.add(
+        VisitEvent(
+            tenant_id=tenant_id,
+            prospect_id=prospect.id,
+            seller_label=seller_label[:160],
+            link_id=link_id,
+            device_id=(device_id or "").strip()[:128] or None,
+            user_id=user_id,
+            result=data.result,
+            quote_total=float(data.quote_total) if data.quote_total else None,
+            note=note,
         )
     )
 
@@ -767,7 +796,14 @@ def register_calculator_visit(
     user: User = Depends(get_current_user),
 ):
     """Registra desde la calculadora si el cliente compró o se reagendó."""
-    return _register_visit(db, user.tenant_id, user.id, data)
+    return _register_visit(
+        db,
+        user.tenant_id,
+        user.id,
+        data,
+        seller_label=user.username,
+        user_id=user.id,
+    )
 
 
 # ---- Públicos (enlace + dispositivo autorizado) ----
@@ -821,6 +857,15 @@ def public_register_visit(
     link, tenant = _public_device_link(db, token, data.device_id)
     tdb = get_tenant_session(tenant.id)
     try:
-        return _register_visit(tdb, tenant.id, link.created_by, data)
+        seller_label = (link.label or "").strip() or f"Enlace #{link.id}"
+        return _register_visit(
+            tdb,
+            tenant.id,
+            link.created_by,
+            data,
+            seller_label=seller_label,
+            link_id=link.id,
+            device_id=data.device_id,
+        )
     finally:
         tdb.close()

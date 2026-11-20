@@ -838,3 +838,10 @@ export async function registerPublicCalculatorVisit(token, deviceId, payload) {
   }
   return data
 }
+
+export async function getSalesReport({ period = 'month', on_date, commission_pct = 10 } = {}) {
+  const { data } = await api.get('/reports/sales', {
+    params: { period, on_date, commission_pct },
+  })
+  return data
+}

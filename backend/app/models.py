@@ -886,6 +886,32 @@ class AppointmentClosure(BaseBusiness):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class VisitEvent(BaseBusiness):
+    """Evento de visita registrado desde la calculadora.
+
+    Atribuye cada visita a su vendedor: los enlaces públicos usan la etiqueta
+    del enlace (p. ej. "Vendedor 001") y la calculadora interna el username
+    del usuario. Alimenta el Reporte Mensual de ventas.
+    """
+
+    __tablename__ = "visit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    prospect_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # Identidad del vendedor: etiqueta del enlace público o username interno.
+    seller_label: Mapped[str] = mapped_column(String(160), index=True)
+    # Referencias opcionales al enlace/dispositivo (enlaces públicos).
+    link_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    device_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Usuario interno que registró la visita (NULL en enlaces públicos).
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result: Mapped[str] = mapped_column(String(20))  # compra | reagendado
+    quote_total: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 class Notification(BaseBusiness):
     """Notificación interna genérica (campana) para los usuarios del cliente."""
 
