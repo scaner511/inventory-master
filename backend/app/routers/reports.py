@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal as PlatformSessionLocal
-from app.deps import get_current_user, get_or_create_settings, get_tenant_db
+from app.deps import get_current_user, get_or_create_settings, get_tenant_db, require_admin
 from app.models import Loan, User
 from app.services.pdf import generate_loan_pdf
 
@@ -217,6 +217,7 @@ def sales_report(
                 "clients_closed": 0,
                 "closed_list": [],
                 "sales_total": 0.0,
+                "pending_sales_total": 0.0,
                 "sales_list": [],
             }
         return sellers[label]
@@ -242,8 +243,20 @@ def sales_report(
             total = float(e.quote_total or 0)
             s["clients_closed"] += 1
             s["closed_list"].append({"name": pname, "date": day, "total": total})
-            s["sales_total"] += total
-            s["sales_list"].append({"name": pname, "date": day, "total": total})
+            item = {
+                "event_id": e.id,
+                "name": pname,
+                "date": day,
+                "total": total,
+                "approved": bool(e.approved),
+                "source": "calculadora",
+            }
+            s["sales_list"].append(item)
+            # Solo las ventas aprobadas cuentan para comisión.
+            if e.approved:
+                s["sales_total"] += total
+            else:
+                s["pending_sales_total"] += total
 
     # 2) Prospectos captados en el período (atribuidos por prospector_name).
     captured = (
@@ -309,7 +322,14 @@ def sales_report(
             )
             s["sales_total"] += total
             s["sales_list"].append(
-                {"name": pname, "date": c.visit_date.isoformat() if c.visit_date else None, "total": total}
+                {
+                    "event_id": None,
+                    "name": pname,
+                    "date": c.visit_date.isoformat() if c.visit_date else None,
+                    "total": total,
+                    "approved": True,
+                    "source": "cita",
+                }
             )
 
     # ITBIS configurado por el cliente (por defecto 18%).
@@ -329,6 +349,7 @@ def sales_report(
         "sellers": rows,
         "totals": {
             "sales_total": grand_total,
+            "pending_sales_total": sum(s["pending_sales_total"] for s in rows),
             "sales_base": base_total,
             "commission": base_total * commission_pct / 100,
             "presentations": sum(s["presentations"] for s in rows),
@@ -336,3 +357,30 @@ def sales_report(
             "prospects_captured": sum(s["prospects_captured"] for s in rows),
         },
     }
+
+@router.post("/sales-events/{event_id}/approval")
+def set_sale_approval(
+    event_id: int,
+    payload: dict,
+    db: Session = Depends(get_tenant_db),
+    user: User = Depends(require_admin),
+):
+    """Aprueba o revoca una venta de la calculadora para comisión (solo admin)."""
+    event = (
+        db.query(VisitEvent)
+        .filter(
+            VisitEvent.id == event_id,
+            VisitEvent.tenant_id == user.tenant_id,
+            VisitEvent.result == "compra",
+        )
+        .first()
+    )
+    if event is None:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+    approved = bool(payload.get("approved"))
+    event.approved = approved
+    event.approved_by = user.id if approved else None
+    event.approved_at = datetime.utcnow() if approved else None
+    db.commit()
+    return {"id": event.id, "approved": event.approved}
+

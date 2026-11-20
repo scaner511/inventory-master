@@ -877,6 +877,9 @@ TENANT_COLUMN_MIGRATIONS = [
     ("settings", "warehouse3_name", "VARCHAR(120)"),
     ("settings", "itbis_rate", "NUMERIC(5, 2) DEFAULT 18"),
     ("settings", "currency", "VARCHAR(10) DEFAULT 'DOP'"),
+    ("visit_events", "approved", "BOOLEAN DEFAULT FALSE"),
+    ("visit_events", "approved_by", "INTEGER"),
+    ("visit_events", "approved_at", "TIMESTAMP"),
 ]
 
 

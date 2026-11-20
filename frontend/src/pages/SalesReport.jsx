@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getSalesReport } from '../api/index.js'
+import { getSalesReport, setSaleApproval } from '../api/index.js'
+import { useAuth } from '../context/AuthContext.jsx'
 import { Button, Field, Input, Select } from '../components/ui/Form.jsx'
 
 const PERIODS = [
@@ -23,6 +24,8 @@ function fmtDate(d) {
 }
 
 export default function SalesReport() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin'
   const today = new Date().toISOString().slice(0, 10)
   const [period, setPeriod] = useState('month')
   const [onDate, setOnDate] = useState(today)
@@ -61,6 +64,15 @@ export default function SalesReport() {
     }
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
   }, [data])
+
+  async function toggleApproval(eventId, approved) {
+    try {
+      await setSaleApproval(eventId, approved)
+      await load()
+    } catch {
+      /* interceptor */
+    }
+  }
 
   function toggleSection(name) {
     setOpenSections((prev) => ({ ...prev, [name]: !prev[name] }))
@@ -119,6 +131,13 @@ export default function SalesReport() {
             <div className="text-xs text-slate-400">Comisión ({data.commission_pct}%)</div>
             <div className="text-xl font-bold text-green-400">{fmtMoney(data.totals.commission)}</div>
           </div>
+          {data.totals.pending_sales_total > 0 && (
+            <div className="sm:col-span-4 -mt-1 text-right text-xs text-amber-300">
+              Ventas pendientes de aprobación:{' '}
+              <span className="font-bold">{fmtMoney(data.totals.pending_sales_total)}</span>{' '}
+              (no cuentan para comisión hasta aprobarlas)
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-2 text-center text-sm">
             <div className="rounded bg-white/5 p-2">
               <div className="text-lg font-bold text-white">{data.totals.clients_closed}</div>
@@ -208,15 +227,55 @@ export default function SalesReport() {
                             }))}
                             empty="Sin presentaciones"
                           />
-                          <DetailList
-                            title="Ventas aprobadas"
-                            items={s.sales_list.map((i, idx) => ({
-                              main: i.name,
-                              sub: `${fmtDate(i.date)} · ${fmtMoney(i.total)}`,
-                              key: idx,
-                            }))}
-                            empty="Sin ventas aprobadas"
-                          />
+                          <div className="rounded-lg border border-slate-700/70 bg-slate-800/50 p-3">
+                            <div className="mb-2 text-xs font-bold uppercase text-slate-400">
+                              Ventas ({s.sales_list.length})
+                            </div>
+                            {s.sales_list.length === 0 ? (
+                              <div className="text-xs text-slate-500">Sin ventas</div>
+                            ) : (
+                              <ul className="max-h-40 space-y-1 overflow-y-auto text-sm">
+                                {s.sales_list.map((i, idx) => (
+                                  <li key={i.event_id ?? idx} className="flex items-center justify-between gap-2">
+                                    <span className="truncate text-slate-200">
+                                      {i.name}
+                                      <span className="ml-1 text-[10px] text-slate-500">{fmtDate(i.date)}</span>
+                                    </span>
+                                    <span className="flex shrink-0 items-center gap-2">
+                                      <span className="text-xs text-slate-400">{fmtMoney(i.total)}</span>
+                                      {i.event_id == null ? (
+                                        <span className="rounded bg-green-500/15 px-1.5 py-0.5 text-[10px] font-bold text-green-400">
+                                          Aprobada
+                                        </span>
+                                      ) : isAdmin ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleApproval(i.event_id, !i.approved)}
+                                          className={`rounded px-1.5 py-0.5 text-[10px] font-bold transition ${
+                                            i.approved
+                                              ? 'bg-green-500/15 text-green-400 hover:bg-red-500/15 hover:text-red-400'
+                                              : 'bg-amber-500/15 text-amber-400 hover:bg-green-500/15 hover:text-green-400'
+                                          }`}
+                                        >
+                                          {i.approved ? 'Aprobada ✓' : 'Pendiente · Aprobar'}
+                                        </button>
+                                      ) : (
+                                        <span
+                                          className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                            i.approved
+                                              ? 'bg-green-500/15 text-green-400'
+                                              : 'bg-amber-500/15 text-amber-400'
+                                          }`}
+                                        >
+                                          {i.approved ? 'Aprobada' : 'Pendiente'}
+                                        </span>
+                                      )}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
                           <div className="sm:col-span-2 rounded-lg bg-slate-800/70 p-3 text-sm">
                             <span className="text-slate-400">Total ventas: </span>
                             <span className="font-bold text-white">{fmtMoney(s.sales_total)}</span>
@@ -224,6 +283,11 @@ export default function SalesReport() {
                             <span className="font-bold text-blue-400">
                               {fmtMoney(s.sales_total / (1 + (data.itbis_rate || 18) / 100))}
                             </span>
+                            {s.pending_sales_total > 0 && (
+                              <span className="text-amber-300">
+                                {' '}· pendiente: {fmtMoney(s.pending_sales_total)}
+                              </span>
+                            )}
                             <span className="text-slate-400"> · comisión ({data.commission_pct}%): </span>
                             <span className="font-bold text-green-400">
                               {fmtMoney(

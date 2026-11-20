@@ -907,6 +907,10 @@ class VisitEvent(BaseBusiness):
     # Usuario interno que registró la visita (NULL en enlaces públicos).
     user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     result: Mapped[str] = mapped_column(String(20))  # compra | reagendado
+    # Solo las ventas APROBADAS cuentan para el pago de comisión.
+    approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    approved_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     quote_total: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

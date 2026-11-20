@@ -845,3 +845,8 @@ export async function getSalesReport({ period = 'month', on_date, commission_pct
   })
   return data
 }
+
+export async function setSaleApproval(eventId, approved) {
+  const { data } = await api.post(`/reports/sales-events/${eventId}/approval`, { approved })
+  return data
+}
