@@ -46,7 +46,12 @@ def _session_window() -> timedelta:
 
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == data.username).first()
+    uname = data.username.strip()
+    user = (
+        db.query(User)
+        .filter((User.username == uname) | (User.email == uname))
+        .first()
+    )
     if not user or not user.is_active or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 

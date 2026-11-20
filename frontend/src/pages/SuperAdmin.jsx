@@ -74,6 +74,7 @@ function TenantsTab() {
   const [resetAdmins, setResetAdmins] = useState([])
   const [resetKeepId, setResetKeepId] = useState('')
   const [renewTarget, setRenewTarget] = useState(null)
+  const [newCreds, setNewCreds] = useState(null)
   const [renewDays, setRenewDays] = useState('30')
 
   const load = useCallback(async () => {
@@ -112,10 +113,10 @@ function TenantsTab() {
         })
         toast.success('Cliente actualizado')
       } else {
-        await createTenant({
+        const created = await createTenant({
           name: form.name,
           admin_username: form.admin_username,
-          admin_password: form.admin_password,
+          admin_password: form.admin_password || null,
           admin_email: form.admin_email,
           max_users: form.max_users === '' ? null : Number(form.max_users),
           calculator_link_limit:
@@ -124,6 +125,10 @@ function TenantsTab() {
           calculator_custom_enabled: form.calculator_custom_enabled,
         })
         toast.success('Cliente creado')
+        // Mostrar las credenciales iniciales una sola vez para entregarlas al cliente.
+        if (created?.admin_password) {
+          setNewCreds({ username: created.admin_username, password: created.admin_password })
+        }
       }
       setEditOpen(false)
       load()
@@ -859,6 +864,45 @@ function TenantsTab() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+
+      {/* Credenciales del cliente recién creado */}
+      <Modal open={Boolean(newCreds)} onClose={() => setNewCreds(null)} title="Cliente creado — credenciales iniciales">
+        <div className="space-y-4">
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+            Anota o comparte estas credenciales con el cliente. En su primer inicio de sesión el sistema le pedirá cambiar la contraseña.
+          </div>
+          <div className="space-y-2 rounded-lg bg-slate-800 p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase text-slate-400">Usuario</span>
+              <button
+                type="button"
+                onClick={() => { navigator.clipboard?.writeText(newCreds?.username || ''); toast.success('Usuario copiado') }}
+                className="text-xs font-semibold text-blue-400 hover:text-blue-300"
+              >
+                Copiar
+              </button>
+            </div>
+            <div className="font-mono text-lg text-white">{newCreds?.username}</div>
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs font-semibold uppercase text-slate-400">Contraseña</span>
+              <button
+                type="button"
+                onClick={() => { navigator.clipboard?.writeText(newCreds?.password || ''); toast.success('Contraseña copiada') }}
+                className="text-xs font-semibold text-blue-400 hover:text-blue-300"
+              >
+                Copiar
+              </button>
+            </div>
+            <div className="font-mono text-lg text-white">{newCreds?.password}</div>
+          </div>
+          <div className="flex justify-end">
+            <Button type="button" variant="success" onClick={() => setNewCreds(null)}>
+              Entendido
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   )

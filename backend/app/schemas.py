@@ -297,6 +297,11 @@ class TenantOut(BaseModel):
     # Productos personalizados de la calculadora (solo Super Admin).
     calculator_custom_enabled: bool = False
     calculator_products: list[CalculatorProductItem] = Field(default_factory=list)
+    # Solo se devuelven al CREAR el cliente (nunca en listados/ediciones):
+    # las credenciales iniciales del administrador para mostrárselas al
+    # Super Admin una sola vez.
+    admin_username: str | None = None
+    admin_password: str | None = None
 
     @field_validator("modules", mode="before")
     @classmethod

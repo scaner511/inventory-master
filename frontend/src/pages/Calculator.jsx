@@ -503,7 +503,6 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     const name = clientName || 'Cliente'
     
     let message = `*Cotización Master Calculadora*\n\n`
-    if (businessName) message += `Empresa: ${businessName}\n`
     message += `Cliente: ${name}\n\n`
     message += `*Productos:*\n`
     
@@ -517,11 +516,8 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     
     message += `\n*Resumen:*\n`
     message += `Precio Total: ${formatCurrency(totalPrice)}\n`
-    message += `ITBIS ${itbisRate}%: ${formatCurrency(itbis)}\n`
-    message += `Precio sin ITBIS: ${formatCurrency(purchasePrice)}\n`
     if (discountEnabled) {
       message += `Descuento: ${formatCurrency(discountAmount)}\n`
-      message += `Precio con Descuento: ${formatCurrency(priceAfterDiscount)}\n`
     }
     message += `Depósito: ${formatCurrency(depositDelivered)}\n`
     message += `Saldo a Financiar: ${formatCurrency(balanceToFinance)}\n`

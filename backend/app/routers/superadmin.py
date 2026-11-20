@@ -236,6 +236,10 @@ def create_tenant(data: TenantCreate, db: Session = Depends(get_db)):
 
     out = TenantOut.model_validate(tenant)
     _fill_tenant_out(out, db, tenant)
+    # Credenciales iniciales: solo en la respuesta de creación para que el
+    # Super Admin pueda entregárselas al cliente (luego se cambian).
+    out.admin_username = data.admin_username
+    out.admin_password = password
     return out
 
 
