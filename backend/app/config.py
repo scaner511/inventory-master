@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # Backups
     backup_dir: str = str(BASE_DIR / "backups")
     backup_hour: str = "03:00"
-    backup_retention_days: int = 30
+    backup_retention_days: int = 45
 
     # Google Drive (respaldos en la nube, opcional)
     google_drive_folder_id: str = ""
