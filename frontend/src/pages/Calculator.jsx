@@ -220,8 +220,10 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
   const [clientName, setClientName] = useState('')
   const [clientPhone, setClientPhone] = useState('')
   const [initialPayment, setInitialPayment] = useState('')
-  // La tasa anual es fija por política comercial: 26%.
+  // El resumen muestra siempre 26% (tarifa comercial); el cálculo usa la
+  // tasa ingresada en el campo editable.
   const ANNUAL_RATE = 26
+  const [interestRate, setInterestRate] = useState('26')
   const [term, setTerm] = useState('12')
   const [paymentType, setPaymentType] = useState('amount')
   const [termType, setTermType] = useState('months')
@@ -284,7 +286,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
       setClientName(data.clientName || '')
       setClientPhone(data.clientPhone || '')
       setInitialPayment(data.initialPayment || '')
-      // interestRate ya no se usa: la tasa es fija (26%).
+      setInterestRate(data.interestRate ?? '26')
       setTerm(data.term || '12')
       setPaymentType(data.paymentType || 'amount')
       setTermType(data.termType || 'months')
@@ -311,6 +313,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
       clientName,
       clientPhone,
       initialPayment,
+      interestRate,
       term,
       paymentType,
       termType,
@@ -321,7 +324,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
       customPrices
     }
     localStorage.setItem(storageKey, JSON.stringify(data))
-  }, [storageKey, selectedProducts, clientName, clientPhone, initialPayment, term, paymentType, termType, paymentFrequency, discount, discountType, discountEnabled, customPrices])
+  }, [storageKey, selectedProducts, clientName, clientPhone, initialPayment, interestRate, term, paymentType, termType, paymentFrequency, discount, discountType, discountEnabled, customPrices])
 
   // Descartar precios personalizados de productos que ya no están seleccionados.
   useEffect(() => {
@@ -454,8 +457,10 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
   const depositDelivered = initialPaymentAmount
   const balanceToFinance = Math.max(0, priceAfterDiscount - depositDelivered)
 
-  // Tasa y plazo
+  // Tasa y plazo. El resumen muestra siempre 26%; el cálculo usa la tasa
+  // ingresada (0–100, por defecto 26).
   const annualRate = ANNUAL_RATE
+  const calcRate = Math.min(100, Math.max(0, parseFloat(interestRate) || 0))
   let termMonths = parseFloat(term) || 0
   if (termType === 'years') {
     termMonths = termMonths * 12
@@ -473,7 +478,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
   }
 
   const numPayments = Math.max(1, Math.round(termMonths * (periodsPerYear / 12)))
-  const periodRate = annualRate / periodsPerYear / 100
+  const periodRate = calcRate / periodsPerYear / 100
 
   // Calcular cuota (PMT)
   let monthlyPayment = 0
@@ -487,7 +492,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
   function calculateInstallment(months) {
     if (balanceToFinance <= 0 || months <= 0) return 0
     const n = Math.max(1, Math.round(months * (periodsPerYear / 12)))
-    const r = annualRate / periodsPerYear / 100
+    const r = calcRate / periodsPerYear / 100
     if (r > 0) {
       return (balanceToFinance * r) / (1 - Math.pow(1 + r, -n))
     }
@@ -542,6 +547,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
       setClientName('')
       setClientPhone('')
       setInitialPayment('')
+      setInterestRate('26')
       setTerm('12')
       setPaymentType('amount')
       setTermType('months')
@@ -912,8 +918,18 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
           <div className="mb-4 grid gap-4 md:grid-cols-2">
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-300">Tasa de Interés Anual</label>
-              <div className="w-full rounded-lg border border-slate-600 bg-slate-600 px-4 py-2 text-white">
-                26% <span className="text-xs text-slate-400">(fija)</span>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={interestRate}
+                  onChange={(e) => setInterestRate(e.target.value)}
+                  className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 pr-9 text-white focus:border-blue-500 focus:outline-none"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  placeholder="26"
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">%</span>
               </div>
             </div>
             <div>
