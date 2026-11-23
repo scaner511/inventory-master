@@ -192,6 +192,16 @@ def _migrate_tenant_calculator_link_limit(db: Session) -> None:
             )
             db.commit()
 
+        if "seller_name" not in _table_columns("calculator_links"):
+            db.execute(
+                text("ALTER TABLE calculator_links ADD COLUMN seller_name VARCHAR(120)")
+            )
+            db.commit()
+
+    if _table_columns("users") and "seller_name" not in _table_columns("users"):
+        db.execute(text("ALTER TABLE users ADD COLUMN seller_name VARCHAR(120)"))
+        db.commit()
+
 
 def _migrate_tenant_calculator_products(db: Session) -> None:
     """Agrega la casilla y el catálogo JSON de productos personalizados de la

@@ -126,6 +126,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _user: User = D
     tenant = db.get(Tenant, _user.tenant_id)
     user = User(
         username=data.username,
+        seller_name=(data.seller_name or "").strip()[:120] or None,
         email=data.email,
         password_hash=hash_password(password),
         role=data.role,
@@ -149,6 +150,8 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db), _
     user = _get_tenant_user(db, user_id, _user.tenant_id)
 
     updates = data.model_dump(exclude_unset=True)
+    if "seller_name" in updates:
+        updates["seller_name"] = (updates["seller_name"] or "").strip()[:120] or None
     if "role" in updates and updates["role"] != user.role:
         _ensure_admin_remains(db, user)
     if updates.get("is_active") is False:

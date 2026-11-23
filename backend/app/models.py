@@ -89,6 +89,8 @@ class User(Base):
     # superadmin no tiene tenant_id (NULL); admin/user siempre pertenecen a uno.
     tenant_id: Mapped[int | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    # Nombre real del vendedor/operador (se muestra en el Reporte Mensual).
+    seller_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_hash: Mapped[str] = mapped_column(Text)
     role: Mapped[str] = mapped_column(String(20), default="user")  # superadmin | admin | user
@@ -203,6 +205,9 @@ class CalculatorLink(Base):
     token: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     # Nombre descriptivo opcional (ej: "Tablet mostrador").
     label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Nombre real del vendedor que usa el enlace (se muestra en el Reporte
+    # Mensual). Si está vacío se usa ``label`` como identidad del vendedor.
+    seller_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="available")
     # Dispositivo ya aprobado y vinculado.
     device_id: Mapped[str | None] = mapped_column(String(128), nullable=True)

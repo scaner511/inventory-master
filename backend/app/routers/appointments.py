@@ -392,7 +392,7 @@ def close_appointment(
             VisitEvent(
                 tenant_id=user.tenant_id,
                 prospect_id=p.id,
-                seller_label=(user.username or "Usuario")[:160],
+                seller_label=((user.seller_name or user.username or "Usuario"))[:160],
                 user_id=user.id,
                 result="compra",
                 source="cita",

@@ -36,6 +36,7 @@ from app.schemas import (
     CalculatorLinkCreate,
     CalculatorLinkExpirationUpdate,
     CalculatorLinkOut,
+    CalculatorLinkUpdate,
     CalculatorLinksOut,
     CalculatorProductItem,
     CalculatorProspectMini,
@@ -198,6 +199,7 @@ def create_link(
         tenant_id=user.tenant_id,
         token=_generate_token(db),
         label=label,
+        seller_name=(data.seller_name or "").strip()[:120] or None,
         status="available",
         created_by=user.id,
         expires_at=expires_at,
@@ -256,6 +258,24 @@ def create_links_bulk(
     for link in links:
         db.refresh(link)
     return links
+
+
+@admin_router.put("/links/{link_id}", response_model=CalculatorLinkOut)
+def update_link(
+    link_id: int,
+    data: CalculatorLinkUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Actualiza la etiqueta y/o el nombre del vendedor del enlace."""
+    link = _get_link(db, user, link_id)
+    if "label" in data.model_fields_set:
+        link.label = (data.label or "").strip()[:120] or None
+    if "seller_name" in data.model_fields_set:
+        link.seller_name = (data.seller_name or "").strip()[:120] or None
+    db.commit()
+    db.refresh(link)
+    return link
 
 
 @admin_router.put("/links/{link_id}/expiration", response_model=CalculatorLinkOut)
@@ -801,7 +821,7 @@ def register_calculator_visit(
         user.tenant_id,
         user.id,
         data,
-        seller_label=user.username,
+        seller_label=(user.seller_name or user.username or "Usuario"),
         user_id=user.id,
     )
 
@@ -857,7 +877,11 @@ def public_register_visit(
     link, tenant = _public_device_link(db, token, data.device_id)
     tdb = get_tenant_session(tenant.id)
     try:
-        seller_label = (link.label or "").strip() or f"Enlace #{link.id}"
+        seller_label = (
+            (link.seller_name or "").strip()
+            or (link.label or "").strip()
+            or f"Enlace #{link.id}"
+        )
         return _register_visit(
             tdb,
             tenant.id,

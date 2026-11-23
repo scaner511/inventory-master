@@ -27,6 +27,7 @@ import {
   restoreFromDrive,
   revokeCalculatorLink,
   runBackup,
+  updateCalculatorLink,
   updateCalculatorLinkExpiration,
   setSecurityQuestion,
   testDriveConnection,
@@ -119,7 +120,7 @@ const MAX_USERS = 4
 function UsersTab() {
   const [users, setUsers] = useState([])
   const [createOpen, setCreateOpen] = useState(false)
-  const [form, setForm] = useState({ username: '', role: 'user', security_question: '', security_answer: '' })
+  const [form, setForm] = useState({ username: '', seller_name: '', role: 'user', security_question: '', security_answer: '' })
   const [saving, setSaving] = useState(false)
   const [resetTarget, setResetTarget] = useState(null)
   const [resetPass, setResetPass] = useState('')
@@ -146,7 +147,7 @@ function UsersTab() {
       await createUser(form)
       toast.success('Usuario creado')
       setCreateOpen(false)
-      setForm({ username: '', role: 'user', security_question: '', security_answer: '' })
+      setForm({ username: '', seller_name: '', role: 'user', security_question: '', security_answer: '' })
       load()
     } catch {
       /* interceptor */
@@ -222,7 +223,12 @@ function UsersTab() {
         >
           {users.map((u) => (
             <tr key={u.id} className="transition hover:bg-slate-800/40">
-              <td className="px-4 py-3 font-medium text-slate-100">{u.username}</td>
+              <td className="px-4 py-3 font-medium text-slate-100">
+                {u.username}
+                {u.seller_name && (
+                  <span className="block text-xs font-normal text-slate-500">{u.seller_name}</span>
+                )}
+              </td>
               <td className="px-4 py-3 text-center">
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${u.role === 'admin' ? 'bg-blue-500/10 text-blue-400' : u.role === 'superadmin' ? 'bg-purple-500/10 text-purple-400' : 'bg-slate-500/10 text-slate-400'}`}>
                   {u.role === 'admin' ? 'Administrador' : u.role === 'superadmin' ? 'Super Admin' : 'Operador'}
@@ -280,6 +286,9 @@ function UsersTab() {
         <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Nombre de usuario">
             <Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
+          </Field>
+          <Field label="Nombre del vendedor" hint="Se muestra en el Reporte Mensual (opcional)">
+            <Input value={form.seller_name} onChange={(e) => setForm({ ...form, seller_name: e.target.value })} maxLength={120} placeholder="Ej: Juan Pérez" />
           </Field>
           <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-slate-300">
             🔑 La contraseña inicial será <span className="font-mono font-bold text-blue-300">Cambiar123!</span>
@@ -998,6 +1007,45 @@ function initialExpiryValue(link) {
   return daysLeft >= 1 && daysLeft <= 365 ? String(daysLeft) : ''
 }
 
+function LinkSellerEditor({ link, onSaved }) {
+  const [value, setValue] = useState(link.seller_name || '')
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    try {
+      await updateCalculatorLink(link.id, { seller_name: value.trim() })
+      toast.success('Nombre del vendedor guardado')
+      onSaved()
+    } catch {
+      /* el interceptor muestra el error */
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Nombre del vendedor (ej: Juan Pérez)"
+        maxLength={120}
+        className="!w-64 px-2 py-1 text-xs"
+        disabled={saving}
+      />
+      <Button type="button" variant="ghost" className="!px-3 !py-1 text-xs" onClick={save} disabled={saving}>
+        {saving ? 'Guardando…' : 'Guardar nombre'}
+      </Button>
+      <span className="text-xs text-slate-500">
+        {link.seller_name
+          ? `En el reporte aparece como "${link.seller_name}"`
+          : 'Sin nombre: el reporte usa la etiqueta del enlace.'}
+      </span>
+    </div>
+  )
+}
+
 function LinkExpirationEditor({ link, onSaved }) {
   const [value, setValue] = useState(() => initialExpiryValue(link))
   const [saving, setSaving] = useState(false)
@@ -1044,6 +1092,7 @@ function LinkExpirationEditor({ link, onSaved }) {
 export function CalculatorTab() {
   const [data, setData] = useState({ limit: 10, used: 0, links: [] })
   const [label, setLabel] = useState('')
+  const [sellerName, setSellerName] = useState('')
   const [expiresDays, setExpiresDays] = useState('')
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -1080,9 +1129,11 @@ export function CalculatorTab() {
     try {
       await createCalculatorLink({
         label: label.trim(),
+        seller_name: sellerName.trim() || null,
         expires_in_days: expiresDays === '' ? null : Number(expiresDays),
       })
       setLabel('')
+      setSellerName('')
       setExpiresDays('')
       toast.success('Enlace creado')
       await load(true)
@@ -1205,7 +1256,14 @@ export function CalculatorTab() {
           <Input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="Nombre del enlace (ej: Tablet del mostrador)"
+            placeholder="Nombre del enlace (ej: Vendedor 001)"
+            maxLength={120}
+            disabled={limitReached}
+          />
+          <Input
+            value={sellerName}
+            onChange={(e) => setSellerName(e.target.value)}
+            placeholder="Nombre del vendedor (ej: Juan Pérez)"
             maxLength={120}
             disabled={limitReached}
           />
@@ -1272,8 +1330,11 @@ export function CalculatorTab() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-slate-100">
-                      {link.label || `Enlace #${link.id}`}
+                      {link.seller_name || link.label || `Enlace #${link.id}`}
                     </p>
+                    {link.seller_name && link.label && link.seller_name !== link.label && (
+                      <p className="text-xs text-slate-500">{link.label}</p>
+                    )}
                     <p className="text-xs text-slate-500">
                       Creado el {formatCalculatorDate(link.created_at)}
                     </p>
@@ -1362,6 +1423,10 @@ export function CalculatorTab() {
                   <p className="text-sm text-slate-400">
                     Enlace revocado. Ya no permite el acceso de ningún dispositivo.
                   </p>
+                )}
+
+                {link.status !== 'revoked' && (
+                  <LinkSellerEditor key={`seller-${link.id}-${link.seller_name || ''}`} link={link} onSaved={() => load(true)} />
                 )}
 
                 {link.status !== 'revoked' && (

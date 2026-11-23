@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal as PlatformSessionLocal
 from app.deps import get_current_user, get_or_create_settings, get_tenant_db
-from app.models import Loan, User
+from app.models import CalculatorLink, Loan, User
 from app.services.pdf import generate_loan_pdf
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -204,6 +204,31 @@ def _build_sales_report(
     prospect_names = {pid: name for pid, name, _owner in prospect_rows}
     prospect_owners = {pid: owner for pid, _name, owner in prospect_rows}
 
+    # Mapa identidad-del-vendedor -> sección, resuelto en la plataforma:
+    # los enlaces públicos y los usuarios pueden tener un nombre real
+    # (seller_name) que no sigue el patrón "Prefijo 001" de la etiqueta.
+    section_map: dict[str, str] = {}
+    pldb = PlatformSessionLocal()
+    try:
+        links = (
+            pldb.query(CalculatorLink)
+            .filter(CalculatorLink.tenant_id == tenant_id)
+            .all()
+        )
+        for link in links:
+            section = _seller_section(link.label or link.seller_name or "") or "General"
+            for key in (link.label, link.seller_name):
+                if key and key.strip():
+                    section_map[key.strip()] = section
+        users = pldb.query(User).filter(User.tenant_id == tenant_id).all()
+        for u in users:
+            section = _seller_section(u.username or "") or "General"
+            for key in (u.username, u.seller_name):
+                if key and key.strip():
+                    section_map[key.strip()] = section
+    finally:
+        pldb.close()
+
     sellers: dict[str, dict] = {}
 
     def entry(label: str) -> dict:
@@ -211,7 +236,7 @@ def _build_sales_report(
         if label not in sellers:
             sellers[label] = {
                 "seller": label,
-                "section": _seller_section(label),
+                "section": section_map.get(label) or _seller_section(label),
                 "prospects_captured": 0,
                 "captured_list": [],
                 "presentations": 0,
@@ -304,11 +329,11 @@ def _build_sales_report(
         pldb = PlatformSessionLocal()
         try:
             rows = (
-                pldb.query(User.id, User.username)
+                pldb.query(User.id, User.username, User.seller_name)
                 .filter(User.id.in_(closure_user_ids))
                 .all()
             )
-            user_names = {uid: uname for uid, uname in rows}
+            user_names = {uid: (sname or uname) for uid, uname, sname in rows}
         finally:
             pldb.close()
     for c in closures:

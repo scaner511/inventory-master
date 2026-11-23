@@ -67,6 +67,7 @@ class UserOut(BaseModel):
     tenant_id: int | None = None
     tenant_name: str | None = None
     username: str
+    seller_name: str | None = None
     email: str | None = None
     role: str
     is_active: bool
@@ -142,6 +143,7 @@ class ChangePasswordRequest(BaseModel):
 
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_.-]+$")
+    seller_name: str | None = Field(default=None, max_length=120)
     email: EmailStr | None = None
     password: str | None = Field(default=None, min_length=6, max_length=128)
     role: str = Field(default="user", pattern="^(admin|user)$")
@@ -155,6 +157,7 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    seller_name: str | None = Field(default=None, max_length=120)
     email: EmailStr | None = None
     role: str | None = Field(default=None, pattern="^(admin|user)$")
     is_active: bool | None = None
@@ -341,8 +344,18 @@ class CalculatorLinkCreate(BaseModel):
     """Datos para crear un enlace público de la calculadora."""
 
     label: str | None = Field(default=None, max_length=120)
+    # Nombre real del vendedor (ej: "Juan Pérez"); se muestra en el Reporte
+    # Mensual. Si queda vacío se usa ``label`` como identidad del vendedor.
+    seller_name: str | None = Field(default=None, max_length=120)
     # Vigencia en días (desde 1 día en adelante). None = sin vencimiento (hasta revocar).
     expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+
+
+class CalculatorLinkUpdate(BaseModel):
+    """Actualiza la etiqueta y/o el nombre del vendedor de un enlace."""
+
+    label: str | None = Field(default=None, max_length=120)
+    seller_name: str | None = Field(default=None, max_length=120)
 
 
 class CalculatorLinkBulkCreate(BaseModel):
@@ -366,6 +379,7 @@ class CalculatorLinkOut(BaseModel):
     id: int
     token: str
     label: str | None = None
+    seller_name: str | None = None
     status: str
     device_id: str | None = None
     device_name: str | None = None
