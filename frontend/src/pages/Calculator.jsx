@@ -193,11 +193,11 @@ const products = [
 const CURRENCY_SYMBOLS = { DOP: 'RD$', USD: 'US$', EUR: '€', MXN: '$' }
 let currencyPrefix = 'RD$'
 
-// Formatear moneda
+// Formatear moneda: siempre enteros, redondeando hacia arriba al peso.
 function formatCurrency(amount) {
   if (typeof amount !== 'number') amount = parseFloat(amount) || 0
-  const formatted = amount.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  return currencyPrefix + ' ' + formatted.toString()
+  const formatted = Math.ceil(amount).toLocaleString('es-DO')
+  return currencyPrefix + ' ' + formatted
 }
 
 export default function Calculator({ storageKey = 'masterCalculadora', extraProducts, calcSettings, businessName, visitApi }) {
@@ -612,7 +612,7 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
         result,
         reschedule_at: result === 'reagendado' ? new Date(rescheduleAt).toISOString() : null,
         note: visitNote || null,
-        quote_total: totalPrice || null,
+        quote_total: totalPrice ? Math.ceil(totalPrice) : null,
       })
       toast.success(
         result === 'compra'
