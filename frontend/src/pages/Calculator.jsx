@@ -502,6 +502,10 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
   const installment12 = calculateInstallment(12)
   const installment24 = calculateInstallment(24)
   const installment36 = calculateInstallment(36)
+  // Opción extra: el plazo exacto ingresado en "Plazo" (ej. 6 meses).
+  const customTermMonths = Math.round(termMonths)
+  const showCustomTerm =
+    customTermMonths > 0 && ![12, 24, 36].includes(customTermMonths)
 
   // Compartir por WhatsApp
   function shareWhatsApp() {
@@ -511,17 +515,21 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
     message += `Cliente: ${name}\n\n`
     message += `*Productos:*\n`
     
-    Object.entries(selectedProducts).forEach(([code, qty]) => {
-      if (qty > 0) {
-        const product = allProducts.find(p => p.code === code)
-        const subtotal = unitPrice(code) * qty
+    const selectedEntries = Object.entries(selectedProducts).filter(([, qty]) => qty > 0)
+    const showBreakdown = selectedEntries.length > 2
+    selectedEntries.forEach(([code, qty]) => {
+      const product = allProducts.find(p => p.code === code)
+      const subtotal = unitPrice(code) * qty
+      if (showBreakdown) {
         message += `• ${product.name} (${qty}x ${formatCurrency(unitPrice(code))}): ${formatCurrency(subtotal)}\n`
+      } else {
+        message += `• ${product.name} (${qty} und): ${formatCurrency(subtotal)}\n`
       }
     })
-    
+
     message += `\n*Resumen:*\n`
     message += `Precio Total: ${formatCurrency(totalPrice)}\n`
-    if (discountEnabled) {
+    if (discountEnabled && discountAmount > 0) {
       message += `Descuento: ${formatCurrency(discountAmount)}\n`
     }
     message += `Depósito: ${formatCurrency(depositDelivered)}\n`
@@ -988,6 +996,15 @@ export default function Calculator({ storageKey = 'masterCalculadora', extraProd
         <div className="mb-6">
           <h2 className="mb-4 text-lg font-semibold text-white">Opciones de Financiamiento</h2>
           <div className="overflow-hidden rounded-lg border border-slate-600 bg-slate-700">
+            {showCustomTerm && (
+              <div className="flex items-center justify-between border-b border-slate-600 p-4">
+                <div>
+                  <div className="font-semibold text-white">{customTermMonths} Meses</div>
+                  <div className="text-sm text-slate-400">{Math.round(customTermMonths * (periodsPerYear / 12))} cuotas {frequencyName.toLowerCase()} · plazo elegido</div>
+                </div>
+                <div className="text-xl font-bold text-blue-400">{formatCurrency(calculateInstallment(customTermMonths))}</div>
+              </div>
+            )}
             <div className="flex items-center justify-between border-b border-slate-600 p-4 last:border-0">
               <div>
                 <div className="font-semibold text-white">12 Meses</div>
